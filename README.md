@@ -22,7 +22,7 @@ All items from the client's live-testing feedback were addressed and redeployed:
 - **Approvals**: "Approve all safe" confirmed functional.
 - **FY Closeout**: all 4 top stat cards filter the carry-over/reserve/archive decision table; Export produces a real CSV.
 - **Currency propagation**: switching currency (RM/USD/AUD/CNY) now reformats every figure across Dashboard, Quarterly, Monthly, Expenses, Closeout, Cash Flow, Reports, Performance, Login, and the AI Copilot's canned figures — no more screens with hardcoded "RM" text.
-- **Branding**: replaced the old placeholder icon with a new modern, corporate bar-chart/target mark (favicon + app icon) and a matching horizontal wordmark, generated to fit a budgeting/fintech product.
+- **Branding**: replaced the old placeholder icon with a new modern, corporate bar-chart/target mark (favicon + app icon) and a matching horizontal wordmark, generated to fit a budgeting/fintech product. This also replaced the old inline SVG `CoplanistraMark` used in the sidebar logo and the login-page wordmark, so the new icon now appears consistently everywhere (browser tab, sidebar, login screen).
 - All changes are committed to GitHub (`main`) and deployed to Cloudflare Pages production.
 
 ## Features (all fully functional — click-through, not static mockups)
