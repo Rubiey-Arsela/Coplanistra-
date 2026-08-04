@@ -8,9 +8,22 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev
+- **Production**: https://coplanistra.pages.dev (latest deploy: https://117e2702.coplanistra.pages.dev)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - (Sandbox preview URLs are temporary; the pages.dev link above is the permanent, short URL for the client.)
+
+## Latest session update (2026-08-04) — full bug-report resolution pass
+All items from the client's live-testing feedback were addressed and redeployed:
+- **Dashboard**: real quarter/month period picker, working Export (CSV), all 4 top stat cards + all chart labels clickable/currency-aware, bell notification "view all" link fixed.
+- **Create Budget**: Start/End are now real `<input type="date">` calendar pickers, wired into the saved record.
+- **Quarterly Planning**: Q1–Q4 cards, QoQ chart labels, and scenario add/delete confirmed working; Escalate-overdue now pushes real notifications, Export produces a real CSV, and division-submission rows now link through to the matching department in Budgets.
+- **Monthly Monitoring**: top stat cards clickable; OPEX categories are now a full Store-backed model with Add/Edit/Archive/Delete; month picker + CSV export added.
+- **Expenses**: top 3 stat cards filter the table; a "Manage categories" modal supports rename/delete; Export produces a real CSV; **receipt scanning now runs real client-side OCR (Tesseract.js)** that auto-fills amount/date/vendor from a photographed receipt/invoice.
+- **Approvals**: "Approve all safe" confirmed functional.
+- **FY Closeout**: all 4 top stat cards filter the carry-over/reserve/archive decision table; Export produces a real CSV.
+- **Currency propagation**: switching currency (RM/USD/AUD/CNY) now reformats every figure across Dashboard, Quarterly, Monthly, Expenses, Closeout, Cash Flow, Reports, Performance, Login, and the AI Copilot's canned figures — no more screens with hardcoded "RM" text.
+- **Branding**: replaced the old placeholder icon with a new modern, corporate bar-chart/target mark (favicon + app icon) and a matching horizontal wordmark, generated to fit a budgeting/fintech product.
+- All changes are committed to GitHub (`main`) and deployed to Cloudflare Pages production.
 
 ## Features (all fully functional — click-through, not static mockups)
 
