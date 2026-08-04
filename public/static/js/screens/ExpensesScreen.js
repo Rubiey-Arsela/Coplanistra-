@@ -63,6 +63,8 @@
     );
   }
 
+  const EXPENSE_STATUS_OPTIONS = ['pending', 'approved', 'rejected'];
+
   function EditExpenseModal({ expense, onClose }) {
     const [form, setForm] = useState(() => ({
       desc: expense.desc, vendor: expense.vendor, category: expense.category,
@@ -83,19 +85,17 @@
         <ArsField label="Description"><input value={form.desc} onChange={set('desc')} style={arsFieldInputStyle}/></ArsField>
         <div style={{ display: 'flex', gap: 12 }}>
           <div style={{ flex: 1 }}><ArsField label="Vendor"><input value={form.vendor} onChange={set('vendor')} style={arsFieldInputStyle}/></ArsField></div>
-          <div style={{ flex: 1 }}><ArsField label="Amount (RM)"><input type="number" value={form.amount} onChange={set('amount')} style={arsFieldInputStyle}/></ArsField></div>
-        </div>
-        <div style={{ display: 'flex', gap: 12 }}>
           <div style={{ flex: 1 }}><ArsField label="Category">
             <select value={form.category} onChange={set('category')} style={arsFieldInputStyle}>
               {CATEGORIES.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           </ArsField></div>
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}><ArsField label="Amount (RM)"><input type="number" value={form.amount} onChange={set('amount')} style={arsFieldInputStyle}/></ArsField></div>
           <div style={{ flex: 1 }}><ArsField label="Status">
             <select value={form.status} onChange={set('status')} style={arsFieldInputStyle}>
-              <option value="pending">pending</option>
-              <option value="approved">approved</option>
-              <option value="rejected">rejected</option>
+              {EXPENSE_STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           </ArsField></div>
         </div>
@@ -111,7 +111,6 @@
     const [q, setQ] = useState('');
     const [editExpense, setEditExpense] = useState(null);
     const [deleteExpense, setDeleteExpense] = useState(null);
-    const [rowMenuId, setRowMenuId] = useState(null);
 
     // Quick-add form state — drives the LIVE routing preview
     const [desc, setDesc] = useState('');

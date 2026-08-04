@@ -150,6 +150,7 @@
   function DashboardScreen() {
     const [s, setS] = React.useState(window.Store.getState());
     React.useEffect(() => window.Store.subscribe(setS), []);
+    const [chartView, setChartView] = React.useState('Group');
     const role = s.role;
     const greet = roleGreetings[role] || roleGreetings.finance;
     const pendingApprovals = window.Store.pendingApprovalsCount();
@@ -192,12 +193,12 @@
       </div>
     ) : role === 'executive' ? (
       <div style={{ display: 'flex', gap: 8 }}>
-        <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>}>Q3 · FY 2026</ArsButton>
+        <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => window.Store.toast('Period: Q3 · FY 2026', 'info')}>Q3 · FY 2026</ArsButton>
         <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Board pack export started', 'info')}>Board Pack</ArsButton>
       </div>
     ) : (
       <div style={{ display: 'flex', gap: 8 }}>
-        <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>}>Q3 · FY 2026</ArsButton>
+        <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => window.Store.toast('Period: Q3 · FY 2026', 'info')}>Q3 · FY 2026</ArsButton>
         <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Export started', 'info')}>Export</ArsButton>
         <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>
       </div>
@@ -262,12 +263,12 @@
                 subtitle="Monthly plan against realised spend · forecast in teal"
                 action={
                   <div style={{ display: 'flex', gap: 6 }}>
-                    {['Group', 'By Dept', 'By Cost Centre'].map((t, i) => (
-                      <button key={t} style={{
+                    {['Group', 'By Dept', 'By Cost Centre'].map((t) => (
+                      <button key={t} onClick={() => { setChartView(t); if (t !== 'Group') window.Store.toast(`Showing ${t} view`, 'info'); }} style={{
                         padding: '6px 12px', fontSize: 12, fontWeight: 600,
                         borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
-                        background: i === 0 ? 'var(--arsela-navy)' : '#fff', color: i === 0 ? '#fff' : 'var(--arsela-navy)',
-                        border: '1px solid ' + (i === 0 ? 'var(--arsela-navy)' : 'var(--arsela-border-strong)'),
+                        background: t === chartView ? 'var(--arsela-navy)' : '#fff', color: t === chartView ? '#fff' : 'var(--arsela-navy)',
+                        border: '1px solid ' + (t === chartView ? 'var(--arsela-navy)' : 'var(--arsela-border-strong)'),
                       }}>{t}</button>
                     ))}
                   </div>
@@ -281,7 +282,7 @@
               <BudgetChart/>
             </ArsCard>
             <ArsCard>
-              <ArsSectionHeader title="Category Mix" subtitle="Share of planned FY26" action={<IconMore size={16} style={{ color: 'var(--arsela-text-subtle)', cursor: 'pointer' }}/>}/>
+              <ArsSectionHeader title="Category Mix" subtitle="Share of planned FY26" action={<IconMore size={16} style={{ color: 'var(--arsela-text-subtle)', cursor: 'pointer' }} onClick={() => window.Store.toast('Category breakdown exported', 'info')}/>}/>
               <CategoryDonut/>
             </ArsCard>
           </div>

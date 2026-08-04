@@ -1,6 +1,6 @@
 /* Approvals inbox — wired to Store.approvals, list selection + approve/reject/request changes */
 (function () {
-  const { useState, useEffect, useMemo } = React;
+  const { useState, useEffect, useMemo, useRef } = React;
 
   const ApprovalCard = ({ selected, item, onClick }) => (
     <div onClick={onClick} style={{
@@ -42,7 +42,7 @@
     const [filter, setFilter] = useState('All');
     const [showFilterMenu, setShowFilterMenu] = useState(false);
     const [withdrawTarget, setWithdrawTarget] = useState(null);
-    const filterRef = React.useRef(null);
+    const filterRef = useRef(null);
     useEffect(() => {
       if (!showFilterMenu) return;
       const h = (e) => { if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilterMenu(false); };
