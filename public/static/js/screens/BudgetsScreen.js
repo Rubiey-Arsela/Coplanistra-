@@ -6,7 +6,7 @@
 (function () {
   const { useState, useEffect, useMemo } = React;
 
-  const STATUS_OPTIONS = ['Any', 'draft', 'active', 'amendment', 'over', 'closed', 'archived'];
+  const STATUS_OPTIONS = ['Any', 'draft', 'active', 'amendment', 'over', 'closed', 'archived', 'nearing'];
   const PAGE_SIZE = 8;
 
   function FilterDropdown({ label, value, options, onChange }) {
@@ -52,6 +52,66 @@
 
   const BUDGET_STATUS_OPTIONS = ['draft', 'active', 'amendment', 'over', 'closed', 'archived'];
 
+  /* ---- Manage categories / departments / budget codes ---- */
+  function TaxonomyListEditor({ title, items, onAdd, onRename, onDelete }) {
+    const [draft, setDraft] = useState('');
+    const [editing, setEditing] = useState(null);
+    const [editDraft, setEditDraft] = useState('');
+    return (
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--arsela-navy)', marginBottom: 8 }}>{title}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+          {items.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--arsela-text-muted)' }}>None yet.</div>}
+          {items.map((it) => (
+            <div key={it} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#FAFBFD', border: '1px solid var(--arsela-border)', borderRadius: 8 }}>
+              {editing === it ? (
+                <>
+                  <input value={editDraft} onChange={(e) => setEditDraft(e.target.value)} style={{ ...arsFieldInputStyle, height: 30, flex: 1 }} autoFocus/>
+                  <button onClick={() => { if (onRename) onRename(it, editDraft); setEditing(null); }} title="Save" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--success)' }}><IconCheck size={14}/></button>
+                  <button onClick={() => setEditing(null)} title="Cancel" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-text-subtle)' }}><IconClose size={14}/></button>
+                </>
+              ) : (
+                <>
+                  <span style={{ flex: 1, fontSize: 13, color: 'var(--arsela-navy)', fontWeight: 500 }}>{it}</span>
+                  {onRename && <button onClick={() => { setEditing(it); setEditDraft(it); }} title="Rename" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-text-subtle)' }}><IconEdit size={13}/></button>}
+                  <button onClick={() => onDelete(it)} title="Delete" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-danger)' }}><IconClose size={13}/></button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Add new…" style={{ ...arsFieldInputStyle, flex: 1 }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim()) { onAdd(draft.trim()); setDraft(''); } }}/>
+          <ArsButton size="sm" icon={<IconPlus size={13}/>} onClick={() => { if (draft.trim()) { onAdd(draft.trim()); setDraft(''); } }}>Add</ArsButton>
+        </div>
+      </div>
+    );
+  }
+
+  function ManageTaxonomyModal({ onClose }) {
+    const [s, setS] = useState(window.Store.getState());
+    useEffect(() => window.Store.subscribe(setS), []);
+    return (
+      <ArsModal open onClose={onClose} title="Manage categories, departments & budget codes"
+        subtitle="Shared across Budgets, Expenses and CAPEX — changes apply everywhere immediately"
+        width={520}
+        footer={<ArsButton onClick={onClose}>Done</ArsButton>}>
+        <TaxonomyListEditor title="Departments" items={s.departments}
+          onAdd={(v) => window.Store.addDepartment(v)}
+          onRename={(o, n) => window.Store.renameDepartment(o, n)}
+          onDelete={(v) => window.Store.deleteDepartment(v)}/>
+        <TaxonomyListEditor title="Expense categories" items={s.categories}
+          onAdd={(v) => window.Store.addCategory(v)}
+          onRename={(o, n) => window.Store.renameCategory(o, n)}
+          onDelete={(v) => window.Store.deleteCategory(v)}/>
+        <TaxonomyListEditor title="Budget code prefixes" items={s.budgetCodes}
+          onAdd={(v) => window.Store.addBudgetCode(v)}
+          onDelete={(v) => window.Store.deleteBudgetCode(v)}/>
+      </ArsModal>
+    );
+  }
+
   function EditBudgetModal({ budget, onClose }) {
     const [form, setForm] = useState(() => ({
       name: budget.name, dept: budget.dept, period: budget.period,
@@ -93,28 +153,35 @@
 
     const routeParams = window.Router.current().params;
     const [q, setQ] = useState(routeParams.q || '');
-    const [dept, setDept] = useState('All');
-    const [status, setStatus] = useState('Any');
+    const [dept, setDept] = useState(routeParams.dept || 'All');
+    const [status, setStatus] = useState(routeParams.status || 'Any');
     const [view, setView] = useState('table'); // table | cards
     const [page, setPage] = useState(1);
     const [editBudget, setEditBudget] = useState(null);
     const [deleteBudget, setDeleteBudget] = useState(null);
+    const [manageOpen, setManageOpen] = useState(false);
 
     useEffect(() => {
-      // stay in sync if user searches again via topbar while already on this screen
+      // stay in sync if user navigates here again (topbar search, dashboard
+      // links, status-badge clicks) while already on this screen
       const unsub = window.Router.subscribe((r) => {
         if (r.params.q !== undefined) setQ(r.params.q);
+        if (r.params.dept !== undefined) setDept(r.params.dept);
+        if (r.params.status !== undefined) setStatus(r.params.status);
       });
       return unsub;
     }, []);
 
     const budgets = s.budgets;
-    const depts = useMemo(() => ['All', ...Array.from(new Set(budgets.map(b => b.dept)))], [budgets]);
+    const depts = useMemo(() => ['All', ...Array.from(new Set([...(s.departments || []), ...budgets.map(b => b.dept)]))], [budgets, s.departments]);
 
     const filtered = useMemo(() => {
       return budgets.filter((b) => {
         if (dept !== 'All' && b.dept !== dept) return false;
-        if (status !== 'Any' && b.status !== status) return false;
+        if (status === 'nearing') {
+          const pct = b.allocated ? (b.spent / b.allocated) * 100 : 0;
+          if (!(pct >= 80 && pct < 100)) return false;
+        } else if (status !== 'Any' && b.status !== status) return false;
         if (q.trim()) {
           const needle = q.trim().toLowerCase();
           const hay = `${b.name} ${b.id} ${b.owner}`.toLowerCase();
@@ -138,6 +205,7 @@
     const overCount = budgets.filter(b => b.status === 'over').length;
 
     const goDetail = (id) => window.Router.go('/budgets/' + id);
+    const filterByStatus = (val) => { setDept('All'); setStatus(val); };
 
     return (
       <AppFrame
@@ -147,6 +215,7 @@
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton variant="secondary" size="md" icon={<IconLock size={15}/>} onClick={() => window.Router.go('/closeout')}>FY Closeout</ArsButton>
+            <ArsButton variant="secondary" size="md" icon={<IconSettings size={15}/>} onClick={() => setManageOpen(true)}>Manage Categories</ArsButton>
             <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Exporting budgets to CSV…', 'info')}>Export</ArsButton>
             <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>
           </div>
@@ -154,26 +223,34 @@
       >
         {/* Summary strip */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
-          <ArsCard>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>All Budgets</div>
-            <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8 }}>{budgets.length}</div>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Across {depts.length - 1} departments</div>
-          </ArsCard>
-          <ArsCard>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Active</div>
-            <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-success)', marginTop: 8 }}>{activeCount}</div>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{Math.round(activeCount / budgets.length * 100)}% of all budgets</div>
-          </ArsCard>
-          <ArsCard>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Nearing Cap</div>
-            <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: '#B4740A', marginTop: 8 }}>{nearingCount}</div>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>≥ 80% utilised</div>
-          </ArsCard>
-          <ArsCard>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Over-Budget</div>
-            <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-danger)', marginTop: 8 }}>{overCount}</div>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Requires attention</div>
-          </ArsCard>
+          <div onClick={() => filterByStatus('Any')} style={{ cursor: 'pointer' }} title="Show all budgets">
+            <ArsCard>
+              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>All Budgets</div>
+              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8 }}>{budgets.length}</div>
+              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Across {depts.length - 1} departments</div>
+            </ArsCard>
+          </div>
+          <div onClick={() => filterByStatus('active')} style={{ cursor: 'pointer' }} title="Show all active budgets">
+            <ArsCard>
+              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Active</div>
+              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-success)', marginTop: 8 }}>{activeCount}</div>
+              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{Math.round(activeCount / budgets.length * 100)}% of all budgets</div>
+            </ArsCard>
+          </div>
+          <div onClick={() => filterByStatus('nearing')} style={{ cursor: 'pointer' }} title="Show budgets nearing their cap">
+            <ArsCard>
+              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Nearing Cap</div>
+              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: '#B4740A', marginTop: 8 }}>{nearingCount}</div>
+              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>≥ 80% utilised</div>
+            </ArsCard>
+          </div>
+          <div onClick={() => filterByStatus('over')} style={{ cursor: 'pointer' }} title="Show over-budget items">
+            <ArsCard>
+              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Over-Budget</div>
+              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-danger)', marginTop: 8 }}>{overCount}</div>
+              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Requires attention</div>
+            </ArsCard>
+          </div>
         </div>
 
         {/* Filter bar */}
@@ -242,13 +319,14 @@
                       </td>
                       <td className="arsela-num" style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>{fmtMYR(b.allocated, { compact: true })}</td>
                       <td className="arsela-num" style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, color: 'var(--arsela-navy)' }}>{fmtMYR(b.spent, { compact: true })}</td>
-                      <td style={{ padding: '14px 16px' }}>
+                      <td style={{ padding: '14px 16px', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); filterByStatus(b.status); }} title={`Filter by status: ${b.status}`}>
                         <ArsLifecycle status={b.status}/>
                       </td>
                       <td style={{ padding: '14px 16px' }} onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: 'flex', gap: 4, color: 'var(--arsela-text-subtle)' }}>
                           <button onClick={() => goDetail(b.id)} title="View" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}><IconEye size={15}/></button>
                           <button onClick={() => setEditBudget(b)} title="Edit" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}><IconEdit size={15}/></button>
+                          <button onClick={() => (b.status === 'archived' ? window.Store.unarchiveBudget(b.id) : window.Store.archiveBudget(b.id))} title={b.status === 'archived' ? 'Restore to Active' : 'Archive'} style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}><IconArchive size={15}/></button>
                           <button onClick={() => setDeleteBudget(b)} title="Delete" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--arsela-danger)' }}><IconClose size={15}/></button>
                         </div>
                       </td>
@@ -269,7 +347,7 @@
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <span className="arsela-mono" style={{ fontSize: 11, color: 'var(--arsela-text-muted)' }}>{b.id}</span>
-                      <ArsLifecycle status={b.status}/>
+                      <span onClick={(e) => { e.stopPropagation(); filterByStatus(b.status); }} title={`Filter by status: ${b.status}`} style={{ cursor: 'pointer' }}><ArsLifecycle status={b.status}/></span>
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8 }}>{b.name}</div>
                     <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{b.dept} · {b.period}</div>
@@ -280,6 +358,7 @@
                     </div>
                     <div style={{ display: 'flex', gap: 4, marginTop: 12, borderTop: '1px solid var(--arsela-border)', paddingTop: 10 }} onClick={(e) => e.stopPropagation()}>
                       <ArsButton variant="secondary" size="sm" icon={<IconEdit size={13}/>} onClick={() => setEditBudget(b)}>Edit</ArsButton>
+                      <ArsButton variant="secondary" size="sm" icon={<IconArchive size={13}/>} onClick={() => (b.status === 'archived' ? window.Store.unarchiveBudget(b.id) : window.Store.archiveBudget(b.id))}>{b.status === 'archived' ? 'Restore' : 'Archive'}</ArsButton>
                       <ArsButton variant="danger" size="sm" icon={<IconClose size={13}/>} onClick={() => setDeleteBudget(b)}>Delete</ArsButton>
                     </div>
                   </div>
@@ -316,6 +395,7 @@
         </ArsCard>
 
         {editBudget && <EditBudgetModal budget={editBudget} onClose={() => setEditBudget(null)}/>}
+        {manageOpen && <ManageTaxonomyModal onClose={() => setManageOpen(false)}/>}
         <ArsConfirmDialog
           open={!!deleteBudget}
           onClose={() => setDeleteBudget(null)}

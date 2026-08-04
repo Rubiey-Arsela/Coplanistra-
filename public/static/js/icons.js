@@ -47,6 +47,7 @@ const IconEdit = (p) => <Icon {...p}><path d="M4 20h4l10-10-4-4L4 16v4z"/><path 
 const IconRefresh = (p) => <Icon {...p}><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></Icon>;
 const IconArrowRight = (p) => <Icon {...p}><path d="M5 12h14M13 6l6 6-6 6"/></Icon>;
 const IconTrash = (p) => <Icon {...p}><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M10 11v6M14 11v6"/></Icon>;
+const IconArchive = (p) => <Icon {...p}><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></Icon>;
 
 Object.assign(window, {
   IconDashboard, IconWallet, IconReceipt, IconCheck, IconApproval, IconChart,
@@ -55,5 +56,5 @@ Object.assign(window, {
   IconTrend, IconMore, IconClose, IconCalendar, IconBuilding, IconShield,
   IconTag, IconMenu, IconLock, IconMail, IconEye, IconCompass, IconInbox,
   IconFile, IconHelp, IconInfo, IconExport, IconClock, IconEdit, IconRefresh,
-  IconArrowRight, IconTrash
+  IconArrowRight, IconTrash, IconArchive
 });

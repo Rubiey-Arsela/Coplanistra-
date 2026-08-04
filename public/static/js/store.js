@@ -87,6 +87,38 @@
     { id: 'N5', i: '✕', tone: 'danger', t: 'Expense rejected', d: 'EXP-2189 · Awaiting revision', when: 'Yesterday', unread: false },
   ];
 
+  /* ----------------------------------------------------------
+     Managed taxonomy — departments, expense categories and
+     budget-code prefixes. Screens that used to hardcode these
+     lists (CreateBudgetScreen's DEPTS, ExpensesScreen's
+     CATEGORIES) now read from here via Store, and Budgets has
+     an "Manage categories" UI to add/edit/remove them.
+     ---------------------------------------------------------- */
+  const seedDepartments = ['Ports & Logistics', 'Operations', 'Digital & Data', 'People & Culture', 'Energy & Assets', 'Property', 'Aviation', 'Agri & Food', 'Corporate', 'Sustainability'];
+  const seedCategories = ['Maintenance', 'IT & Software', 'HR', 'Machinery', 'Professional Fees', 'Travel', 'Other'];
+  const seedBudgetCodes = ['BUD', 'CAP', 'OPX', 'PRG'];
+
+  /* Scenario comparison (Quarterly panel) — was local hardcoded
+     state; lifted into Store so "New scenario" and switching the
+     active scenario actually persist. */
+  const seedScenarios = [
+    { id: 'SC-1', n: 'Base case', v: 254_800_000, d: '+2.6% vs plan', c: 'success', active: true },
+    { id: 'SC-2', n: 'Upside — Port expansion', v: 262_400_000, d: '+5.6% vs plan', c: 'blue', active: false },
+    { id: 'SC-3', n: 'Downside — MYR volatility', v: 244_100_000, d: '−1.7% vs plan', c: 'warning', active: false },
+  ];
+
+  /* ----------------------------------------------------------
+     Multi-currency support. RM (MYR) is the base/default unit
+     that every seeded figure is stored in. Rates below convert
+     FROM MYR into the selected display currency — indicative
+     fixed rates for demo purposes (not live FX). ----------- */
+  const CURRENCY_CONFIG = {
+    MYR: { symbol: 'RM', rate: 1, decimals: 0, name: 'Malaysian Ringgit' },
+    USD: { symbol: '$', rate: 0.21, decimals: 0, name: 'US Dollar' },
+    AUD: { symbol: 'A$', rate: 0.325, decimals: 0, name: 'Australian Dollar' },
+    CNY: { symbol: '¥', rate: 1.53, decimals: 0, name: 'Chinese Yuan' },
+  };
+
   const defaultState = {
     authenticated: false,
     currentUserEmail: null,
@@ -98,6 +130,11 @@
     approvals: seedApprovals,
     expenses: seedExpenses,
     capexProjects: seedCapex,
+    departments: seedDepartments,
+    categories: seedCategories,
+    budgetCodes: seedBudgetCodes,
+    scenarios: seedScenarios,
+    currency: 'MYR',
     toasts: [],
     copilotMessages: null, // per-screen default seeded lazily
   };
@@ -110,6 +147,20 @@
   state.users = seedUsers;
   // Never persist "open" UI transient state across reloads
   state.notifOpen = false;
+  // Migration: the "executive" permission tier was merged into "employee"
+  // (they had near-identical scope and no real seeded account used
+  // executive). Any state persisted before this merge — a previewed role,
+  // or a user record with the old permissionRole — is normalised here so
+  // nothing gets stranded on a tier that no longer exists in roles.js.
+  if (state.role === 'executive') state.role = 'employee';
+  state.users = state.users.map((u) => u.permissionRole === 'executive' ? { ...u, permissionRole: 'employee' } : u);
+  // Backfill managed taxonomy / scenarios / currency for state persisted
+  // before these fields existed.
+  if (!state.departments) state.departments = seedDepartments;
+  if (!state.categories) state.categories = seedCategories;
+  if (!state.budgetCodes) state.budgetCodes = seedBudgetCodes;
+  if (!state.scenarios) state.scenarios = seedScenarios;
+  if (!state.currency) state.currency = 'MYR';
 
   const listeners = new Set();
 
@@ -186,7 +237,7 @@
     /** Admin-only "view as" preview — changes nav/dashboard tier without changing identity. */
     setRole(role) {
       setState({ role });
-      const label = { executive: 'Executive', finance: 'Finance Manager', approver: 'Approver', employee: 'Employee', admin: 'Administrator' }[role] || role;
+      const label = { finance: 'Finance Manager', approver: 'Approver', employee: 'Employee', admin: 'Administrator' }[role] || role;
       toast(`Previewing as ${label}`, 'info');
     },
     toggleNotif() {
@@ -254,6 +305,106 @@
     deleteBudget(id) {
       setState({ budgets: state.budgets.filter((b) => b.id !== id) });
       toast(`Budget ${id} deleted`, 'warning');
+    },
+    archiveBudget(id) {
+      const b = state.budgets.find((x) => x.id === id);
+      setState({ budgets: state.budgets.map((x) => (x.id === id ? { ...x, status: 'archived' } : x)) });
+      if (b) toast(`Budget archived: ${b.name} (${id})`, 'warning');
+    },
+    unarchiveBudget(id) {
+      const b = state.budgets.find((x) => x.id === id);
+      setState({ budgets: state.budgets.map((x) => (x.id === id ? { ...x, status: 'active' } : x)) });
+      if (b) toast(`Budget restored to Active: ${b.name} (${id})`, 'success');
+    },
+
+    // ---- taxonomy management: departments / categories / budget codes ----
+    addDepartment(name) {
+      const v = (name || '').trim();
+      if (!v) return;
+      if (state.departments.includes(v)) { toast('That department already exists', 'danger'); return; }
+      setState({ departments: [...state.departments, v] });
+      toast(`Department added: ${v}`, 'success');
+    },
+    renameDepartment(oldName, newName) {
+      const v = (newName || '').trim();
+      if (!v || v === oldName) return;
+      setState({
+        departments: state.departments.map((d) => (d === oldName ? v : d)),
+        budgets: state.budgets.map((b) => (b.dept === oldName ? { ...b, dept: v } : b)),
+        expenses: state.expenses.map((e) => (e.dept === oldName ? { ...e, dept: v } : e)),
+      });
+      toast(`Department renamed to ${v}`, 'success');
+    },
+    deleteDepartment(name) {
+      setState({ departments: state.departments.filter((d) => d !== name) });
+      toast(`Department removed: ${name}`, 'warning');
+    },
+    addCategory(name) {
+      const v = (name || '').trim();
+      if (!v) return;
+      if (state.categories.includes(v)) { toast('That category already exists', 'danger'); return; }
+      setState({ categories: [...state.categories, v] });
+      toast(`Category added: ${v}`, 'success');
+    },
+    renameCategory(oldName, newName) {
+      const v = (newName || '').trim();
+      if (!v || v === oldName) return;
+      setState({
+        categories: state.categories.map((c) => (c === oldName ? v : c)),
+        expenses: state.expenses.map((e) => (e.category === oldName ? { ...e, category: v } : e)),
+      });
+      toast(`Category renamed to ${v}`, 'success');
+    },
+    deleteCategory(name) {
+      setState({ categories: state.categories.filter((c) => c !== name) });
+      toast(`Category removed: ${name}`, 'warning');
+    },
+    addBudgetCode(prefix) {
+      const v = (prefix || '').trim().toUpperCase();
+      if (!v) return;
+      if (state.budgetCodes.includes(v)) { toast('That budget code prefix already exists', 'danger'); return; }
+      setState({ budgetCodes: [...state.budgetCodes, v] });
+      toast(`Budget code prefix added: ${v}`, 'success');
+    },
+    deleteBudgetCode(prefix) {
+      setState({ budgetCodes: state.budgetCodes.filter((c) => c !== prefix) });
+      toast(`Budget code prefix removed: ${prefix}`, 'warning');
+    },
+
+    // ---- scenario comparison (Quarterly panel) ----
+    addScenario(s) {
+      const id = 'SC-' + Math.floor(100 + Math.random() * 900);
+      const record = { id, active: false, c: 'blue', ...s };
+      setState({ scenarios: [...state.scenarios, record] });
+      toast(`Scenario added: ${record.n}`, 'success');
+      return record;
+    },
+    setActiveScenario(id) {
+      const sc = state.scenarios.find((s) => s.id === id);
+      setState({ scenarios: state.scenarios.map((s) => ({ ...s, active: s.id === id })) });
+      if (sc) toast(`Switched to scenario: ${sc.n}`, 'info');
+    },
+    deleteScenario(id) {
+      setState({ scenarios: state.scenarios.filter((s) => s.id !== id) });
+      toast('Scenario removed', 'warning');
+    },
+
+    // ---- multi-currency ----
+    getCurrencyConfig(code) {
+      return CURRENCY_CONFIG[code || state.currency] || CURRENCY_CONFIG.MYR;
+    },
+    listCurrencies() {
+      return Object.keys(CURRENCY_CONFIG).map((code) => ({ code, ...CURRENCY_CONFIG[code] }));
+    },
+    setCurrency(code) {
+      if (!CURRENCY_CONFIG[code]) return;
+      setState({ currency: code });
+      toast(`Display currency set to ${code}`, 'info');
+    },
+    /** Convert a MYR-denominated amount into the currently selected display currency. */
+    convert(amountMYR, code) {
+      const cfg = CURRENCY_CONFIG[code || state.currency] || CURRENCY_CONFIG.MYR;
+      return (Number(amountMYR) || 0) * cfg.rate;
     },
 
     // ---- CAPEX ----

@@ -10,12 +10,11 @@
     { value: 'finance', label: 'Manager (finance tier)' },
     { value: 'approver', label: 'Approver' },
     { value: 'employee', label: 'Employee' },
-    { value: 'executive', label: 'Executive' },
   ];
   const AVATAR_TONES = ['navy', 'blue', 'teal', 'purple', 'warn'];
 
   function roleTone(permissionRole) {
-    return { admin: 'purple', finance: 'blue', approver: 'teal', employee: 'warn', executive: 'navy' }[permissionRole] || 'blue';
+    return { admin: 'purple', finance: 'blue', approver: 'teal', employee: 'warn' }[permissionRole] || 'blue';
   }
 
   function UserFormModal({ user, onClose }) {

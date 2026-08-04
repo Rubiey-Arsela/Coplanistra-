@@ -26,16 +26,18 @@
   };
 
   const BudgetChart = () => {
+    const [hover, setHover] = React.useState(null); // { i, kind }
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'];
     const budget = [32, 34, 36, 38, 38, 40, 42];
     const actual = [28, 33, 31, 39, 36, 38, 40];
     const forecast = [42, 42, 44, 45, 46];
-    const w = 660, h = 240, pad = { l: 44, r: 20, t: 20, b: 30 };
+    const w = 660, h = 260, pad = { l: 44, r: 20, t: 20, b: 30 };
     const max = 55;
     const barW = 22;
     const gap = (w - pad.l - pad.r) / months.length;
     const yFor = (v) => pad.t + (h - pad.t - pad.b) * (1 - v / max);
     const xFor = (i) => pad.l + gap * i + gap / 2;
+    const goMonth = (m) => window.Router.go('/monthly?month=' + encodeURIComponent(m));
 
     return (
       <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block' }}>
@@ -51,11 +53,23 @@
         ))}
         {months.map((m, i) => {
           const b = budget[i], a = actual[i];
+          const isHoverB = hover && hover.i === i && hover.kind === 'b';
+          const isHoverA = hover && hover.i === i && hover.kind === 'a';
           return (
             <g key={m}>
-              <rect x={xFor(i) - barW - 2} y={yFor(b)} width={barW} height={yFor(0) - yFor(b)} fill="url(#barBudget)" rx="3"/>
-              <rect x={xFor(i) + 2} y={yFor(a)} width={barW} height={yFor(0) - yFor(a)} fill="url(#barActual)" rx="3"/>
-              <text x={xFor(i)} y={h - 10} fontSize="11" fill="#5B6B82" textAnchor="middle" fontWeight="600">{m}</text>
+              <rect x={xFor(i) - barW - 2} y={yFor(b)} width={barW} height={yFor(0) - yFor(b)} fill="url(#barBudget)" rx="3"
+                style={{ cursor: 'pointer' }}
+                onMouseEnter={() => setHover({ i, kind: 'b' })} onMouseLeave={() => setHover(null)}
+                onClick={() => goMonth(m)}/>
+              <rect x={xFor(i) + 2} y={yFor(a)} width={barW} height={yFor(0) - yFor(a)} fill="url(#barActual)" rx="3"
+                style={{ cursor: 'pointer' }}
+                onMouseEnter={() => setHover({ i, kind: 'a' })} onMouseLeave={() => setHover(null)}
+                onClick={() => goMonth(m)}/>
+              {(isHoverB || true) && (
+                <text x={xFor(i) - barW / 2 - 2} y={yFor(b) - 6} fontSize="9.5" fill="#5B6B82" textAnchor="middle" fontWeight="700" opacity={isHoverB ? 1 : 0.55}>RM{b}M</text>
+              )}
+              <text x={xFor(i) + barW / 2 + 2} y={yFor(a) - 6} fontSize="9.5" fill="#1343CB" textAnchor="middle" fontWeight="700" opacity={isHoverA ? 1 : 0.85}>RM{a}M</text>
+              <text x={xFor(i)} y={h - 10} fontSize="11" fill="#5B6B82" textAnchor="middle" fontWeight="600" style={{ cursor: 'pointer' }} onClick={() => goMonth(m)}>{m}</text>
             </g>
           );
         })}
@@ -67,17 +81,19 @@
   };
 
   const CategoryDonut = () => {
+    const [hover, setHover] = React.useState(null);
     const data = [
-      { label: 'Operations', value: 38, color: '#1343CB' },
-      { label: 'Logistics', value: 22, color: '#00A896' },
-      { label: 'Digital', value: 16, color: '#2657DB' },
-      { label: 'People', value: 14, color: '#5B9EFF' },
-      { label: 'Other', value: 10, color: '#B9CBFF' },
+      { label: 'Operations', dept: 'Operations', value: 38, color: '#1343CB' },
+      { label: 'Logistics', dept: 'Ports & Logistics', value: 22, color: '#00A896' },
+      { label: 'Digital', dept: 'Digital & Data', value: 16, color: '#2657DB' },
+      { label: 'People', dept: 'People & Culture', value: 14, color: '#5B9EFF' },
+      { label: 'Other', dept: 'All', value: 10, color: '#B9CBFF' },
     ];
     const total = data.reduce((s, d) => s + d.value, 0);
     const cx = 90, cy = 90, r = 70, sw = 22;
     let acc = 0;
     const circ = 2 * Math.PI * r;
+    const goDept = (dept) => window.Router.go(dept === 'All' ? '/budgets' : '/budgets?dept=' + encodeURIComponent(dept));
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
         <svg width="180" height="180">
@@ -86,14 +102,29 @@
             const len = (d.value / total) * circ;
             const off = -acc;
             acc += len;
-            return <circle key={i} cx={cx} cy={cy} r={r} stroke={d.color} strokeWidth={sw} fill="none" strokeDasharray={`${len} ${circ}`} strokeDashoffset={off} transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="butt"/>;
+            const isHover = hover === i;
+            return (
+              <circle key={i} cx={cx} cy={cy} r={r} stroke={d.color} strokeWidth={isHover ? sw + 3 : sw} fill="none"
+                strokeDasharray={`${len} ${circ}`} strokeDashoffset={off} transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="butt"
+                style={{ cursor: 'pointer', transition: 'stroke-width .12s' }}
+                onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
+                onClick={() => goDept(d.dept)}
+              >
+                <title>{d.label} — {d.value}% (click to view {d.dept === 'All' ? 'all budgets' : d.dept})</title>
+              </circle>
+            );
           })}
-          <text x={cx} y={cy - 4} textAnchor="middle" fontSize="12" fill="#5B6B82" fontWeight="600">Total</text>
-          <text x={cx} y={cy + 16} textAnchor="middle" fontSize="20" fill="#001F3D" fontWeight="700">RM 248M</text>
+          <text x={cx} y={cy - 4} textAnchor="middle" fontSize="12" fill="#5B6B82" fontWeight="600">
+            {hover != null ? data[hover].label : 'Total'}
+          </text>
+          <text x={cx} y={cy + 16} textAnchor="middle" fontSize="20" fill="#001F3D" fontWeight="700">
+            {hover != null ? `${data[hover].value}%` : 'RM 248M'}
+          </text>
         </svg>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {data.map((d) => (
-            <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {data.map((d, i) => (
+            <div key={d.label} onClick={() => goDept(d.dept)} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '3px 6px', borderRadius: 6, background: hover === i ? '#F4F6F8' : 'transparent' }}>
               <span style={{ width: 10, height: 10, borderRadius: 3, background: d.color }}/>
               <span style={{ flex: 1, fontSize: 13, color: 'var(--arsela-navy)', fontWeight: 500 }}>{d.label}</span>
               <span className="arsela-num" style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>{d.value}%</span>
@@ -122,7 +153,11 @@
           const pct = Math.round((c.spent / c.budget) * 100);
           const tone = pct > 100 ? 'danger' : pct > 80 ? 'warning' : 'success';
           return (
-            <div key={c.name}>
+            <div key={c.name} onClick={() => window.Router.go('/expenses?q=' + encodeURIComponent(c.name))} title={`Click to view ${c.name} expenses`}
+              style={{ cursor: 'pointer', padding: 6, margin: -6, borderRadius: 8, transition: 'background .12s' }}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#FAFBFD'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>{c.name}</span>
                 <span className="arsela-num" style={{ fontSize: 12, color: 'var(--arsela-text-muted)' }}>{fmtMYR(c.spent, { compact: true })} / {fmtMYR(c.budget, { compact: true })}</span>
@@ -140,7 +175,6 @@
   );
 
   const roleGreetings = {
-    executive: { hi: 'Good morning, Datuk.', sub: 'Group is tracking ahead of plan through mid-year — headline strengths in Energy and Digital.' },
     finance: { hi: 'Good morning, Priya.', sub: "Here's how your organisation is tracking against plan · Q3 reforecast cycle closes 31 July." },
     approver: { hi: 'Good morning, Marcus.', sub: 'You have items awaiting your review.' },
     employee: { hi: 'Good morning, Aisha.', sub: 'Your expenses and budget usage at a glance.' },
@@ -191,11 +225,6 @@
         <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Export started', 'info')}>Export</ArsButton>
         <ArsButton size="md" icon={<IconCheck size={15}/>} onClick={() => window.Router.go('/approvals')}>Review Queue ({pendingApprovals})</ArsButton>
       </div>
-    ) : role === 'executive' ? (
-      <div style={{ display: 'flex', gap: 8 }}>
-        <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => window.Store.toast('Period: Q3 · FY 2026', 'info')}>Q3 · FY 2026</ArsButton>
-        <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Board pack export started', 'info')}>Board Pack</ArsButton>
-      </div>
     ) : (
       <div style={{ display: 'flex', gap: 8 }}>
         <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => window.Store.toast('Period: Q3 · FY 2026', 'info')}>Q3 · FY 2026</ArsButton>
@@ -234,13 +263,6 @@
                 <StatCard label="My Dept Budget" value="RM 28M" delta="45% burn" deltaTone="teal" sub="Digital & Data" icon={<IconWallet size={17}/>} tone="teal"/>
                 <StatCard label="Avg Approval Time" value="1.8 days" delta="▼ 0.4d faster" deltaTone="success" sub="last 30 days" icon={<IconClock size={17}/>} tone="navy"/>
                 <StatCard label="Rejected This Mo." value="2" delta="of 21 items" deltaTone="blue" sub="90% approved" icon={<IconClose size={17}/>} tone="blue"/>
-              </>
-            ) : role === 'executive' ? (
-              <>
-                <StatCard label="Group Revenue · YTD" value="RM 842M" delta="▲ +6.4% vs plan" deltaTone="success" sub="Q3 tracking ahead" icon={<IconTrend size={17}/>} tone="teal"/>
-                <StatCard label="Operating Margin" value="22.8%" delta="▲ +1.2 pts YoY" deltaTone="success" sub="highest since FY23" icon={<IconChart size={17}/>} tone="blue"/>
-                <StatCard label="EBITDA" value="RM 194M" delta="▲ +9.1% vs plan" deltaTone="success" sub="H1 print" icon={<IconWallet size={17}/>} tone="navy"/>
-                <StatCard label="Cash Position" value="RM 173M" delta="▼ −3.4% MoM" deltaTone="warning" sub="CAPEX-driven" icon={<IconFile size={17}/>} tone="warn"/>
               </>
             ) : (
               <>
@@ -310,7 +332,12 @@
                     const tone = pct > 90 ? 'danger' : pct > 75 ? 'warning' : 'blue';
                     const status = pct > 90 ? ['danger', 'Watch'] : pct > 75 ? ['warning', 'Nearing cap'] : ['success', 'On track'];
                     return (
-                      <tr key={d.name} style={{ borderBottom: i < departments.length - 1 ? '1px solid var(--arsela-border)' : 'none' }}>
+                      <tr key={d.name} onClick={() => window.Router.go('/budgets?dept=' + encodeURIComponent(d.name))}
+                        style={{ borderBottom: i < departments.length - 1 ? '1px solid var(--arsela-border)' : 'none', cursor: 'pointer' }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = '#FAFBFD'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        title={`Click to view ${d.name} budgets`}
+                      >
                         <td style={{ padding: '14px 20px' }}><div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--arsela-navy)' }}>{d.name}</div></td>
                         <td style={{ padding: '14px 20px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

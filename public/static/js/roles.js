@@ -7,19 +7,15 @@
    one of these tiers via its `permissionRole` field. The `user` fallback
    below is only used before anyone has logged in / for the (admin-only)
    "Preview as" role switcher, where there is no single real person tied
-   to a tier being previewed. */
+   to a tier being previewed.
+
+   Note: the "executive" tier was merged into "employee" — they had
+   near-identical scope in this build and no real seeded account used
+   executive, so it was retired to keep the permission model simple
+   (finance / approver / employee / admin). Any state persisted from
+   before the merge is migrated automatically in store.js. */
 
 const ROLES = {
-  executive: {
-    id: 'executive',
-    label: 'Executive',
-    tone: 'navy',
-    user: { name: 'Executive (preview)', title: 'Group CEO' },
-    /* Sidebar items this role is allowed to open */
-    nav: ['Dashboard', 'Reports', 'Performance', 'Cash Flow', 'Copilot'],
-    /* Widget layout on the shared dashboard */
-    dashboard: ['org-kpis', 'variance-overview', 'cash-runway', 'copilot-brief'],
-  },
   finance: {
     id: 'finance',
     label: 'Manager',
