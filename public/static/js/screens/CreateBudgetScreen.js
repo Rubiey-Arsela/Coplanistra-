@@ -71,6 +71,8 @@
     const [dept, setDept] = useState(DEPTS[0]);
     const [type, setType] = useState(TYPES[0]);
     const [total, setTotal] = useState('5400000');
+    const [startDate, setStartDate] = useState('2027-01-01');
+    const [endDate, setEndDate] = useState('2027-12-31');
     const [split, setSplit] = useState('Even split');
     const [lineCats, setLineCats] = useState([
       { c: 'Civil works & foundation', pct: 0.39 },
@@ -102,11 +104,14 @@
 
     const submit = (asDraft) => {
       setSubmitting(true);
+      const fy = 'FY' + String(new Date(startDate || '2027-01-01').getFullYear()).slice(-2);
       const record = window.Store.addBudget({
         name: name.trim(),
         owner: (window.Store.getCurrentUser() && window.Store.getCurrentUser().name) || 'Unknown',
         dept,
-        period: 'FY2027',
+        period: fy,
+        startDate,
+        endDate,
         allocated: totalNum,
         capex: type === 'CAPEX',
         status: asDraft ? 'draft' : 'active',
@@ -176,8 +181,18 @@
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
-                    <ArsInput label="Start" value="01 Jan 2027" icon={<IconCalendar size={14}/>}/>
-                    <ArsInput label="End" value="31 Dec 2027" icon={<IconCalendar size={14}/>}/>
+                    <label style={{ display: 'block' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Start</div>
+                      <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{
+                        width: '100%', height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 14, fontFamily: 'inherit', color: 'var(--arsela-navy)', boxSizing: 'border-box',
+                      }}/>
+                    </label>
+                    <label style={{ display: 'block' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>End</div>
+                      <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} style={{
+                        width: '100%', height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 14, fontFamily: 'inherit', color: 'var(--arsela-navy)', boxSizing: 'border-box',
+                      }}/>
+                    </label>
                   </div>
                 </ArsCard>
               )}
@@ -268,6 +283,10 @@
                     <div>
                       <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Total</div>
                       <div className="arsela-num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 4 }}>{fmtMYR(totalNum)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Period</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 4 }}>{startDate} → {endDate}</div>
                     </div>
                   </div>
                   <div style={{ marginTop: 18, padding: 14, background: 'var(--arsela-teal-50)', border: '1px solid #C8ECE6', borderRadius: 8 }}>

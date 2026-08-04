@@ -46,7 +46,7 @@
         {[0,10,20,30].map(v=>(
           <g key={v}>
             <line x1={pad.l} x2={w-pad.r} y1={yFor(v)} y2={yFor(v)} stroke="#EEF1F6"/>
-            <text x={pad.l-8} y={yFor(v)+4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">RM{v}M</text>
+            <text x={pad.l-8} y={yFor(v)+4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">{curLabel(v)}</text>
           </g>
         ))}
         <path d={area(s1)} fill="url(#blueArea)"/>
@@ -231,8 +231,8 @@
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {[
                       { tone: 'danger',  h: 'Aviation MRO trending 6% over',   b: 'Line-check volumes exceeded plan; recommend Q4 top-up or vendor renegotiation.', route: '/monthly' },
-                      { tone: 'warning', h: 'People & Culture at 102% YTD',    b: 'Training pull-forward. Move RM 900K from FY27 or cap remaining spend.', route: '/budgets' },
-                      { tone: 'success', h: 'Energy & Assets 41% under plan',  b: 'Solar rollout delayed to Q4; free capacity of RM 15.3M to reallocate.', route: '/budgets' },
+                      { tone: 'warning', h: 'People & Culture at 102% YTD',    b: `Training pull-forward. Move ${fmtMYR(900000, { compact: true })} from FY27 or cap remaining spend.`, route: '/budgets' },
+                      { tone: 'success', h: 'Energy & Assets 41% under plan',  b: `Solar rollout delayed to Q4; free capacity of ${fmtMYR(15300000, { compact: true })} to reallocate.`, route: '/budgets' },
                       { tone: 'blue',    h: 'Digital & Data healthy at 45%',   b: 'DC top-up in pipeline; watch for reallocation once approved.', route: '/capex' },
                     ].map((n,i)=>(
                       <div key={i} onClick={() => window.Router.go(n.route)} style={{

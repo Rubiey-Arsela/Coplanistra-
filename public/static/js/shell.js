@@ -247,7 +247,8 @@
               })}
             </div>
             <div style={{ padding: 10, borderTop: '1px solid var(--arsela-border)', background: 'var(--arsela-surface-alt)', textAlign: 'center' }}>
-              <a style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-blue)', textDecoration: 'none', cursor: 'pointer' }}>View all notifications →</a>
+              <a style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-blue)', textDecoration: 'none', cursor: 'pointer' }}
+                onClick={() => { window.Store.closeNotif(); window.Router.go('/dashboard'); }}>View all notifications →</a>
             </div>
           </div>
         )}

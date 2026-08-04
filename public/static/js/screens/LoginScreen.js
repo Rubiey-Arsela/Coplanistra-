@@ -155,7 +155,7 @@
               background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
               borderRadius: 14, padding: 20, backdropFilter: 'blur(6px)',
             }}>
-              {[['RM 248M', 'Planned FY26'], ['96%', 'On-track budgets'], ['1,240', 'Approvals routed']].map(([v, l]) => (
+              {[[fmtMYR(248_000_000, { compact: true }), 'Planned FY26'], ['96%', 'On-track budgets'], ['1,240', 'Approvals routed']].map(([v, l]) => (
                 <div key={l} style={{ borderLeft: l === 'Planned FY26' ? 'none' : '1px solid rgba(255,255,255,0.1)', paddingLeft: l === 'Planned FY26' ? 0 : 20 }}>
                   <div style={{ fontSize: 22, fontWeight: 700, color: '#fff', letterSpacing: -0.2 }}>{v}</div>
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 4, fontWeight: 500 }}>{l}</div>

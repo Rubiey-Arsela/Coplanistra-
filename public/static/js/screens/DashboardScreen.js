@@ -1,6 +1,6 @@
 /* Dashboard — role-aware, wired to Store (role switch re-renders live) */
 (function () {
-  const StatCard = ({ label, value, delta, deltaTone, sub, icon, tone = 'blue' }) => {
+  const StatCard = ({ label, value, delta, deltaTone, sub, icon, tone = 'blue', onClick, title }) => {
     const iconBg = {
       blue: { bg: 'var(--arsela-blue-50)', fg: 'var(--arsela-blue)' },
       teal: { bg: 'var(--arsela-teal-50)', fg: 'var(--arsela-teal-600)' },
@@ -8,7 +8,7 @@
       warn: { bg: 'var(--arsela-warning-50)', fg: '#B4740A' },
     }[tone];
     return (
-      <ArsCard>
+      <ArsCard onClick={onClick} title={title} style={onClick ? { cursor: 'pointer' } : undefined}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div style={{ fontSize: 12.5, color: 'var(--arsela-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
           <div style={{
@@ -24,6 +24,65 @@
       </ArsCard>
     );
   };
+
+  /* Quarter/month period picker — replaces the old toast-only pill.
+     Lets the user actually choose which quarter or month they want to
+     view; selecting a quarter also routes into the Quarterly screen
+     filtered to that quarter, and a month routes into Monthly. */
+  function PeriodPicker() {
+    const { useState: useState2, useRef: useRef2, useEffect: useEffect2 } = React;
+    const [open, setOpen] = useState2(false);
+    const [period, setPeriod] = useState2(window.Store.getState().period || 'Q3 · FY 2026');
+    const ref = useRef2(null);
+    useEffect2(() => window.Store.subscribe((s) => setPeriod(s.period || 'Q3 · FY 2026')), []);
+    useEffect2(() => {
+      if (!open) return;
+      const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+      document.addEventListener('mousedown', h);
+      return () => document.removeEventListener('mousedown', h);
+    }, [open]);
+    const quarters = ['Q1 · FY 2026', 'Q2 · FY 2026', 'Q3 · FY 2026', 'Q4 · FY 2026'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const choose = (label, isQuarter) => {
+      window.Store.setPeriod(label);
+      setOpen(false);
+      if (isQuarter) window.Router.go('/quarterly?q=' + encodeURIComponent(label.split(' ')[0]));
+      else window.Router.go('/monthly?month=' + encodeURIComponent(label));
+    };
+    return (
+      <div style={{ position: 'relative' }} ref={ref}>
+        <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => setOpen((v) => !v)}>{period}</ArsButton>
+        {open && (
+          <div style={{
+            position: 'absolute', top: 44, right: 0, minWidth: 240,
+            background: '#fff', border: '1px solid var(--arsela-border)', borderRadius: 10,
+            boxShadow: 'var(--arsela-shadow-elevated)', zIndex: 60, padding: 10,
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.5, textTransform: 'uppercase', padding: '2px 6px 6px' }}>Quarter</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 4, marginBottom: 8 }}>
+              {quarters.map((q) => (
+                <button key={q} onClick={() => choose(q, true)} style={{
+                  padding: '7px 8px', fontSize: 12.5, fontWeight: 600, borderRadius: 6, textAlign: 'left',
+                  background: q === period ? 'var(--arsela-blue-50)' : 'transparent', color: q === period ? 'var(--arsela-blue)' : 'var(--arsela-navy)',
+                  border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                }}>{q}</button>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.5, textTransform: 'uppercase', padding: '2px 6px 6px', borderTop: '1px solid var(--arsela-border)' }}>Month</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 4 }}>
+              {months.map((m) => (
+                <button key={m} onClick={() => choose(m + ' 2026', false)} style={{
+                  padding: '6px 4px', fontSize: 12, fontWeight: 600, borderRadius: 6,
+                  background: period.startsWith(m) ? 'var(--arsela-blue-50)' : 'transparent', color: period.startsWith(m) ? 'var(--arsela-blue)' : 'var(--arsela-navy)',
+                  border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                }}>{m}</button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const BudgetChart = () => {
     const [hover, setHover] = React.useState(null); // { i, kind }
@@ -48,7 +107,7 @@
         {[0, 15, 30, 45].map((v) => (
           <g key={v}>
             <line x1={pad.l} x2={w - pad.r} y1={yFor(v)} y2={yFor(v)} stroke="#EEF1F6" strokeWidth="1"/>
-            <text x={pad.l - 8} y={yFor(v) + 4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">RM{v}M</text>
+            <text x={pad.l - 8} y={yFor(v) + 4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">{curLabel(v)}</text>
           </g>
         ))}
         {months.map((m, i) => {
@@ -66,9 +125,9 @@
                 onMouseEnter={() => setHover({ i, kind: 'a' })} onMouseLeave={() => setHover(null)}
                 onClick={() => goMonth(m)}/>
               {(isHoverB || true) && (
-                <text x={xFor(i) - barW / 2 - 2} y={yFor(b) - 6} fontSize="9.5" fill="#5B6B82" textAnchor="middle" fontWeight="700" opacity={isHoverB ? 1 : 0.55}>RM{b}M</text>
+                <text x={xFor(i) - barW / 2 - 2} y={yFor(b) - 6} fontSize="9.5" fill="#5B6B82" textAnchor="middle" fontWeight="700" opacity={isHoverB ? 1 : 0.55}>{curLabel(b)}</text>
               )}
-              <text x={xFor(i) + barW / 2 + 2} y={yFor(a) - 6} fontSize="9.5" fill="#1343CB" textAnchor="middle" fontWeight="700" opacity={isHoverA ? 1 : 0.85}>RM{a}M</text>
+              <text x={xFor(i) + barW / 2 + 2} y={yFor(a) - 6} fontSize="9.5" fill="#1343CB" textAnchor="middle" fontWeight="700" opacity={isHoverA ? 1 : 0.85}>{curLabel(a)}</text>
               <text x={xFor(i)} y={h - 10} fontSize="11" fill="#5B6B82" textAnchor="middle" fontWeight="600" style={{ cursor: 'pointer' }} onClick={() => goMonth(m)}>{m}</text>
             </g>
           );
@@ -118,7 +177,7 @@
             {hover != null ? data[hover].label : 'Total'}
           </text>
           <text x={cx} y={cy + 16} textAnchor="middle" fontSize="20" fill="#001F3D" fontWeight="700">
-            {hover != null ? `${data[hover].value}%` : 'RM 248M'}
+            {hover != null ? `${data[hover].value}%` : curLabel(248)}
           </text>
         </svg>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -210,11 +269,19 @@
     ];
 
     const activities = [
-      { who: 'Faris Hamzah', action: 'submitted', target: 'Q3 CAPEX — Port Klang expansion', amount: 'RM 4.2M', when: '12 min ago', tone: 'blue' },
-      { who: 'Aisha Rashid', action: 'approved', target: 'August operating budget · Ops', amount: 'RM 3.6M', when: '1 h ago', tone: 'teal' },
+      { who: 'Faris Hamzah', action: 'submitted', target: 'Q3 CAPEX — Port Klang expansion', amount: fmtMYR(4_200_000, { compact: true }), when: '12 min ago', tone: 'blue' },
+      { who: 'Aisha Rashid', action: 'approved', target: 'August operating budget · Ops', amount: fmtMYR(3_600_000, { compact: true }), when: '1 h ago', tone: 'teal' },
       { who: 'System', action: 'flagged over-spend on', target: 'People & Culture — training', amount: '+9.2%', when: '3 h ago', tone: 'warn' },
-      { who: 'Marcus Lim', action: 'created', target: 'Data centre — cooling retrofit', amount: 'RM 1.8M', when: 'Yesterday', tone: 'navy' },
+      { who: 'Marcus Lim', action: 'created', target: 'Data centre — cooling retrofit', amount: fmtMYR(1_800_000, { compact: true }), when: 'Yesterday', tone: 'navy' },
     ];
+
+    const exportDashboard = () => {
+      exportRowsToCSV(
+        'dashboard-overview',
+        ['Department', 'Owner', 'Budget (MYR)', 'Spent (MYR)', 'Remaining (MYR)', 'Utilisation %'],
+        departments.map((d) => [d.name, d.owner, d.budget, d.spent, d.budget - d.spent, Math.round((d.spent / d.budget) * 100)])
+      );
+    };
 
     const roleActions = role === 'employee' ? (
       <div style={{ display: 'flex', gap: 8 }}>
@@ -222,13 +289,13 @@
       </div>
     ) : role === 'approver' ? (
       <div style={{ display: 'flex', gap: 8 }}>
-        <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Export started', 'info')}>Export</ArsButton>
+        <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={exportDashboard}>Export</ArsButton>
         <ArsButton size="md" icon={<IconCheck size={15}/>} onClick={() => window.Router.go('/approvals')}>Review Queue ({pendingApprovals})</ArsButton>
       </div>
     ) : (
       <div style={{ display: 'flex', gap: 8 }}>
-        <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => window.Store.toast('Period: Q3 · FY 2026', 'info')}>Q3 · FY 2026</ArsButton>
-        <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Export started', 'info')}>Export</ArsButton>
+        <PeriodPicker/>
+        <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={exportDashboard}>Export</ArsButton>
         <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>
       </div>
     );
@@ -252,24 +319,24 @@
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
             {role === 'employee' ? (
               <>
-                <StatCard label="My Expenses · MTD" value="RM 4,820" delta="▲ +12% vs Jun" deltaTone="blue" sub="9 submitted" icon={<IconReceipt size={17}/>} tone="blue"/>
-                <StatCard label="Pending Review" value={String(pendingExpenses)} delta="● with mgr" deltaTone="warning" sub="Avg 1.4 days" icon={<IconClock size={17}/>} tone="warn"/>
-                <StatCard label="Approved · YTD" value="RM 38.4K" delta="18 items" deltaTone="success" sub="97% approval rate" icon={<IconCheck size={17}/>} tone="teal"/>
-                <StatCard label="Team Budget Left" value="RM 4.2M" delta="● 62% used" deltaTone="warning" sub="Ops · Klang" icon={<IconWallet size={17}/>} tone="navy"/>
+                <StatCard label="My Expenses · MTD" value={fmtMYR(4_820)} delta="▲ +12% vs Jun" deltaTone="blue" sub="9 submitted" icon={<IconReceipt size={17}/>} tone="blue" title="Click to view your expenses" onClick={() => window.Router.go('/expenses')}/>
+                <StatCard label="Pending Review" value={String(pendingExpenses)} delta="● with mgr" deltaTone="warning" sub="Avg 1.4 days" icon={<IconClock size={17}/>} tone="warn" title="Click to view pending expenses" onClick={() => window.Router.go('/expenses?status=pending')}/>
+                <StatCard label="Approved · YTD" value={fmtMYR(38_400)} delta="18 items" deltaTone="success" sub="97% approval rate" icon={<IconCheck size={17}/>} tone="teal" title="Click to view approved expenses" onClick={() => window.Router.go('/expenses?status=approved')}/>
+                <StatCard label="Team Budget Left" value={fmtMYR(4_200_000, { compact: true })} delta="● 62% used" deltaTone="warning" sub="Ops · Klang" icon={<IconWallet size={17}/>} tone="navy" title="Click to view team budget" onClick={() => window.Router.go('/budgets?dept=' + encodeURIComponent('Operations'))}/>
               </>
             ) : role === 'approver' ? (
               <>
-                <StatCard label="Approval Queue" value={String(pendingApprovals)} delta="▲ urgent" deltaTone="danger" sub="Oldest: 3 days" icon={<IconApproval size={17}/>} tone="warn"/>
-                <StatCard label="My Dept Budget" value="RM 28M" delta="45% burn" deltaTone="teal" sub="Digital & Data" icon={<IconWallet size={17}/>} tone="teal"/>
-                <StatCard label="Avg Approval Time" value="1.8 days" delta="▼ 0.4d faster" deltaTone="success" sub="last 30 days" icon={<IconClock size={17}/>} tone="navy"/>
-                <StatCard label="Rejected This Mo." value="2" delta="of 21 items" deltaTone="blue" sub="90% approved" icon={<IconClose size={17}/>} tone="blue"/>
+                <StatCard label="Approval Queue" value={String(pendingApprovals)} delta="▲ urgent" deltaTone="danger" sub="Oldest: 3 days" icon={<IconApproval size={17}/>} tone="warn" title="Click to open approval queue" onClick={() => window.Router.go('/approvals')}/>
+                <StatCard label="My Dept Budget" value={fmtMYR(28_000_000, { compact: true })} delta="45% burn" deltaTone="teal" sub="Digital & Data" icon={<IconWallet size={17}/>} tone="teal" title="Click to view department budget" onClick={() => window.Router.go('/budgets?dept=' + encodeURIComponent('Digital & Data'))}/>
+                <StatCard label="Avg Approval Time" value="1.8 days" delta="▼ 0.4d faster" deltaTone="success" sub="last 30 days" icon={<IconClock size={17}/>} tone="navy" title="Click to open approval queue" onClick={() => window.Router.go('/approvals')}/>
+                <StatCard label="Rejected This Mo." value="2" delta="of 21 items" deltaTone="blue" sub="90% approved" icon={<IconClose size={17}/>} tone="blue" title="Click to open approval queue" onClick={() => window.Router.go('/approvals?status=rejected')}/>
               </>
             ) : (
               <>
-                <StatCard label="Total Budget · FY26" value="RM 248.4M" delta="▲ +4.1% YoY" deltaTone="blue" sub="vs RM 238.6M FY25" icon={<IconWallet size={17}/>} tone="blue"/>
-                <StatCard label="Spent to Date" value="RM 156.7M" delta="63.1% burn" deltaTone="teal" sub="of annual budget" icon={<IconTrend size={17}/>} tone="teal"/>
-                <StatCard label="Committed" value="RM 41.2M" delta="● On track" deltaTone="success" sub="POs & contracts" icon={<IconFile size={17}/>} tone="navy"/>
-                <StatCard label="Variance vs Plan" value="+RM 2.8M" delta="▲ 1.8% over" deltaTone="warning" sub="drivers: Ops, People" icon={<IconArrowUp size={17}/>} tone="warn"/>
+                <StatCard label="Total Budget · FY26" value={fmtMYR(248_400_000, { compact: true })} delta="▲ +4.1% YoY" deltaTone="blue" sub={`vs ${fmtMYR(238_600_000, { compact: true })} FY25`} icon={<IconWallet size={17}/>} tone="blue" title="Click to view all budgets" onClick={() => window.Router.go('/budgets')}/>
+                <StatCard label="Spent to Date" value={fmtMYR(156_700_000, { compact: true })} delta="63.1% burn" deltaTone="teal" sub="of annual budget" icon={<IconTrend size={17}/>} tone="teal" title="Click to view budgets by spend" onClick={() => window.Router.go('/budgets?status=active')}/>
+                <StatCard label="Committed" value={fmtMYR(41_200_000, { compact: true })} delta="● On track" deltaTone="success" sub="POs & contracts" icon={<IconFile size={17}/>} tone="navy" title="Click to view CAPEX & commitments" onClick={() => window.Router.go('/capex')}/>
+                <StatCard label="Variance vs Plan" value={'+' + fmtMYR(2_800_000, { compact: true })} delta="▲ 1.8% over" deltaTone="warning" sub="drivers: Ops, People" icon={<IconArrowUp size={17}/>} tone="warn" title="Click to view variance report" onClick={() => window.Router.go('/reports')}/>
               </>
             )}
           </div>

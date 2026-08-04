@@ -169,6 +169,18 @@ const fmtPct = (n, opts = {}) => {
   return (showSign && n > 0 ? '+' : '') + s + '%';
 };
 
+/* Currency-aware label for SVG chart axis/bar labels that are written as
+   plain "millions of MYR" numbers (e.g. the literal `60` in `RM{60}M`).
+   Converts through the currently selected display currency's rate and
+   prefixes with that currency's symbol, so chart gridlines/bars follow
+   the global currency switcher instead of staying hardcoded to RM. */
+const curLabel = (millionsMYR, decimals = 0) => {
+  const store = window.Store;
+  const cfg = store ? store.getCurrencyConfig() : { symbol: 'RM', rate: 1 };
+  const val = (Number(millionsMYR) || 0) * cfg.rate;
+  return `${cfg.symbol}${val.toFixed(decimals)}M`;
+};
+
 /* -------- Variance indicator (▲▼ + color + text, colour-blind safe) -------- */
 const ArsVariance = ({ value, format = 'pct', decimals = 1, size = 'md', invert = false, showArrow = true }) => {
   /* invert = true → positive value is BAD (e.g. over-budget), useful in spend contexts */
@@ -372,8 +384,32 @@ const arsFieldInputStyle = {
   padding: '0 12px', fontSize: 13.5, fontFamily: 'inherit', color: 'var(--arsela-navy)', background: '#fff',
 };
 
+/* ---- Real CSV export — every "Export" button in the app calls this
+   instead of just toasting. Builds a CSV blob client-side (no backend
+   needed — Cloudflare Pages is static) and triggers a browser download,
+   then confirms with a toast so the action feels complete. ---- */
+function exportRowsToCSV(filename, headers, rows) {
+  const esc = (v) => {
+    const s = v == null ? '' : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [headers.map(esc).join(',')].concat(rows.map((r) => r.map(esc).join(',')));
+  const csv = lines.join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.csv') ? filename : filename + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  if (window.Store) window.Store.toast(`Exported ${filename}.csv`, 'success');
+}
+
 Object.assign(window, {
   ArsCard, ArsButton, ArsBadge, ArsInput, ArsProgress, ArsAvatar, ArsSectionHeader,
   ArsVariance, ArsFigure, ArsTabs, ArsSkeleton, ArsEmpty, ArsRAG, ArsLifecycle,
-  fmtMYR, fmtPct, ArsModal, ArsConfirmDialog, ArsField, arsFieldInputStyle,
+  fmtMYR, fmtPct, curLabel, ArsModal, ArsConfirmDialog, ArsField, arsFieldInputStyle,
+  exportRowsToCSV,
 });

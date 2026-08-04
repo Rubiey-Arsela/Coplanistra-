@@ -67,6 +67,48 @@
 
   const EXPENSE_STATUS_OPTIONS = ['pending', 'approved', 'rejected'];
 
+  /* ---- Category management modal — rename/delete existing expense
+     categories. Add-new is already handled inline in the Quick-add
+     form; this surfaces edit/delete for EXISTING categories, reusing
+     Store.renameCategory / Store.deleteCategory (same taxonomy used
+     app-wide, so a rename here is reflected everywhere). ---- */
+  function ManageCategoriesModal({ onClose }) {
+    const [s2, setS2] = useState(window.Store.getState());
+    useEffect(() => window.Store.subscribe(setS2), []);
+    const [renaming, setRenaming] = useState(null); // category name being renamed
+    const [draft, setDraft] = useState('');
+    const cats = s2.categories || CATEGORIES_FALLBACK;
+    const startRename = (c) => { setRenaming(c); setDraft(c); };
+    const commitRename = () => {
+      if (draft.trim() && draft.trim() !== renaming) window.Store.renameCategory(renaming, draft.trim());
+      setRenaming(null); setDraft('');
+    };
+    return (
+      <ArsModal open onClose={onClose} title="Manage categories" subtitle="Rename or remove expense categories"
+        footer={<ArsButton variant="secondary" onClick={onClose}>Done</ArsButton>}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {cats.map((c) => (
+            <div key={c} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: '1px solid var(--arsela-border)', borderRadius: 8 }}>
+              {renaming === c ? (
+                <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && commitRename()} autoFocus
+                  style={{ flex: 1, height: 32, borderRadius: 6, border: '1px solid var(--arsela-border-strong)', padding: '0 8px', fontSize: 13, fontFamily: 'inherit' }}/>
+              ) : (
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>{c}</span>
+              )}
+              {renaming === c ? (
+                <ArsButton size="sm" onClick={commitRename}>Save</ArsButton>
+              ) : (
+                <button onClick={() => startRename(c)} title="Rename" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-text-subtle)', display: 'flex' }}><IconEdit size={14}/></button>
+              )}
+              <button onClick={() => { if (confirm(`Delete category "${c}"? Expenses using it will keep the label but it won't be selectable for new ones.`)) window.Store.deleteCategory(c); }} title="Delete" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--danger)', display: 'flex' }}><IconTrash size={14}/></button>
+            </div>
+          ))}
+          {cats.length === 0 && <ArsEmpty title="No categories yet" body="Add one from the Quick-add form."/>}
+        </div>
+      </ArsModal>
+    );
+  }
+
   function EditExpenseModal({ expense, onClose }) {
     const [form, setForm] = useState(() => ({
       desc: expense.desc, vendor: expense.vendor, category: expense.category,
@@ -113,6 +155,8 @@
     const [q, setQ] = useState('');
     const [editExpense, setEditExpense] = useState(null);
     const [deleteExpense, setDeleteExpense] = useState(null);
+    const [manageCatsOpen, setManageCatsOpen] = useState(false);
+    const [scanning, setScanning] = useState(false);
 
     // Quick-add form state — drives the LIVE routing preview
     const categories = s.categories && s.categories.length ? s.categories : CATEGORIES_FALLBACK;
@@ -174,6 +218,48 @@
       resetForm();
     };
 
+    /* ---- Receipt OCR auto-fill --------------------------------------
+       Runs Tesseract.js entirely client-side (no server upload needed —
+       fits Cloudflare Pages' static-hosting constraints). Scans the
+       attached image for a total amount, a date, and a vendor-looking
+       line, then pre-fills the Quick-add fields so the user doesn't
+       have to type them by hand. PDF receipts skip OCR (Tesseract only
+       reads images) but are still attached normally. */
+    const runReceiptOCR = async (file) => {
+      if (!window.Tesseract || !/^image\//.test(file.type)) return;
+      setScanning(true);
+      try {
+        const { data } = await window.Tesseract.recognize(file, 'eng');
+        const text = (data && data.text) || '';
+        // Amount: look for currency-prefixed or "Total"-labelled number
+        const totalMatch = text.match(/(?:total|amount due|grand total)[^\d]{0,10}([\d,]+\.\d{2})/i)
+          || text.match(/(?:RM|MYR|\$)\s?([\d,]+\.\d{2})/i)
+          || text.match(/([\d,]{2,}\.\d{2})/);
+        if (totalMatch) {
+          const clean = totalMatch[1].replace(/,/g, '');
+          if (Number(clean) > 0) setAmount(clean);
+        }
+        // Date: dd/mm/yyyy, dd-mm-yyyy, or "12 Jan 2026" style
+        const dateMatch = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/)
+          || text.match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+(\d{4})/i);
+        if (dateMatch) {
+          const parsed = new Date(dateMatch[0]);
+          if (!isNaN(parsed.getTime())) setExpDate(parsed.toISOString().slice(0, 10));
+        }
+        // Vendor: first non-empty line of decent length, usually the
+        // header/business name on most receipts/invoices.
+        const firstLine = text.split('\n').map((l) => l.trim()).find((l) => l.length > 2 && l.length < 40 && !/^\d+$/.test(l));
+        if (firstLine) setVendor(firstLine);
+        // Description fallback if user hasn't typed one yet
+        if (!desc.trim() && firstLine) setDesc(`Receipt — ${firstLine}`);
+        window.Store.toast('Receipt scanned — details pre-filled, please review', 'success');
+      } catch (err) {
+        window.Store.toast('Could not auto-read receipt — please enter details manually', 'warning');
+      } finally {
+        setScanning(false);
+      }
+    };
+
     const handleReceiptChange = (e) => {
       const f = e.target.files && e.target.files[0];
       if (!f) return;
@@ -185,6 +271,7 @@
       }
       setReceiptFile(f);
       window.Store.toast(`Receipt attached: ${f.name}`, 'success');
+      runReceiptOCR(f);
     };
 
     const statusTone = { pending: 'warning', approved: 'success', rejected: 'danger' };
@@ -196,7 +283,11 @@
         breadcrumb={['Arsela Resources', 'Plan', 'Expenses']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
-            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Export started', 'info')}>Export</ArsButton>
+            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => exportRowsToCSV(
+              'expenses',
+              ['ID', 'Description', 'Vendor', 'Category', 'Department', 'Amount (RM)', 'Status', 'Date'],
+              filtered.map((e) => [e.id, e.desc, e.vendor, e.category, e.dept, e.amount, e.status, e.when])
+            )}>Export</ArsButton>
             <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => document.getElementById('quick-add-desc')?.focus()}>New Expense</ArsButton>
           </div>
         }
@@ -206,11 +297,11 @@
             <div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 20 }}>
                 {[
-                  { l: 'Submitted total', v: fmtMYR(submittedThisMonth, { compact: true }), d: `${expenses.length} items`, tone: 'blue' },
-                  { l: 'Pending approval', v: fmtMYR(pendingSum, { compact: true }), d: `${counts.Pending} items`, tone: 'warning' },
-                  { l: 'Approved', v: fmtMYR(approvedSum, { compact: true }), d: `${counts.Approved} items`, tone: 'success' },
+                  { l: 'Submitted total', v: fmtMYR(submittedThisMonth, { compact: true }), d: `${expenses.length} items`, tone: 'blue', tab: 'All' },
+                  { l: 'Pending approval', v: fmtMYR(pendingSum, { compact: true }), d: `${counts.Pending} items`, tone: 'warning', tab: 'Pending' },
+                  { l: 'Approved', v: fmtMYR(approvedSum, { compact: true }), d: `${counts.Approved} items`, tone: 'success', tab: 'Approved' },
                 ].map((st, i) => (
-                  <ArsCard key={i}>
+                  <ArsCard key={i} onClick={() => setTab(st.tab)} title={`Click to view ${st.tab.toLowerCase()} expenses`} style={{ cursor: 'pointer' }}>
                     <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>{st.l}</div>
                     <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8, letterSpacing: -0.3 }}>{st.v}</div>
                     <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{st.d}</div>
@@ -325,9 +416,14 @@
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>Category</div>
-                        <button onClick={() => setNewCategoryOpen((o) => !o)} title="Add new category" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-blue)', display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, fontWeight: 700, fontFamily: 'inherit' }}>
-                          <IconPlus size={11}/> New
-                        </button>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          <button onClick={() => setManageCatsOpen(true)} title="Manage categories" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-text-muted)', display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, fontWeight: 700, fontFamily: 'inherit' }}>
+                            <IconEdit size={11}/> Manage
+                          </button>
+                          <button onClick={() => setNewCategoryOpen((o) => !o)} title="Add new category" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-blue)', display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, fontWeight: 700, fontFamily: 'inherit' }}>
+                            <IconPlus size={11}/> New
+                          </button>
+                        </div>
                       </div>
                       {newCategoryOpen && (
                         <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
@@ -376,17 +472,22 @@
                     <div style={{ width: 36, height: 36, borderRadius: 8, background: receiptFile ? 'var(--success)' : 'var(--arsela-blue-50)', color: receiptFile ? '#fff' : 'var(--arsela-blue)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
                       {receiptFile ? <IconCheck size={18}/> : <IconFile size={18}/>}
                     </div>
-                    {receiptFile ? (
+                    {scanning ? (
+                      <>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>Scanning receipt…</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 3 }}>Reading amount, date & vendor</div>
+                      </>
+                    ) : receiptFile ? (
                       <>
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{receiptFile.name}</div>
                         <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 3 }}>
-                          {(receiptFile.size / 1024).toFixed(0)} KB · <span onClick={(e) => { e.stopPropagation(); setReceiptFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} style={{ color: 'var(--arsela-danger)', fontWeight: 600, cursor: 'pointer' }}>Remove</span>
+                          {(receiptFile.size / 1024).toFixed(0)} KB · Auto-filled from scan · <span onClick={(e) => { e.stopPropagation(); setReceiptFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} style={{ color: 'var(--arsela-danger)', fontWeight: 600, cursor: 'pointer' }}>Remove</span>
                         </div>
                       </>
                     ) : (
                       <>
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>Click to attach receipt or invoice</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 3 }}>PDF, PNG, JPG · up to 20MB</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 3 }}>PDF, PNG, JPG · up to 20MB · auto-scans & fills details</div>
                       </>
                     )}
                   </div>
@@ -431,6 +532,7 @@
           title="Delete expense?"
           message={deleteExpense ? `This will permanently remove "${deleteExpense.desc}" (${deleteExpense.id}). This cannot be undone.` : ''}
         />
+        {manageCatsOpen && <ManageCategoriesModal onClose={() => setManageCatsOpen(false)}/>}
       </AppFrame>
     );
   }

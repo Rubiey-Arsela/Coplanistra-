@@ -194,7 +194,7 @@
           </ArsCard>
 
           <ArsCard>
-            <ArsSectionHeader title="Depreciation schedule" subtitle="Straight-line · asset class · RM millions/year"/>
+            <ArsSectionHeader title="Depreciation schedule" subtitle="Straight-line · asset class · per year"/>
             <div className="coplan-scrollx">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 420 }}>
               {DEP_SCHEDULE.map(d => (

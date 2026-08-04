@@ -98,7 +98,7 @@
     const financial = [
       { name: 'Revenue growth',       owner: 'Group', target: 5.0, actual: 6.4, targetLabel: '5.0%',    actualLabel: '+6.4%',  trend: [3.2,4.1,4.8,5.2,5.8,6.1,6.4] },
       { name: 'Operating margin',     owner: 'Group', target: 22.0, actual: 22.8, targetLabel: '22.0%',  actualLabel: '22.8%',  trend: [20,20.4,21.2,21.8,22.1,22.5,22.8] },
-      { name: 'EBITDA',               owner: 'Group', target: 180, actual: 194.3, targetLabel: 'RM 180M', actualLabel: 'RM 194.3M', trend: [140,152,163,171,180,188,194] },
+      { name: 'EBITDA',               owner: 'Group', target: 180, actual: 194.3, targetLabel: curLabel(180), actualLabel: curLabel(194.3, 1), trend: [140,152,163,171,180,188,194] },
       { name: 'Cash conversion',      owner: 'Treasury', target: 85, actual: 78, targetLabel: '85%',     actualLabel: '78%',    trend: [88,85,82,80,79,78,78] },
       { name: 'Return on capital',    owner: 'Group', target: 14, actual: 15.2, targetLabel: '14.0%',    actualLabel: '15.2%',   trend: [12,12.8,13.5,14.1,14.6,15.0,15.2] },
     ];
@@ -113,7 +113,7 @@
       { name: 'Emissions intensity',   owner: 'Sustainability', target: -8, actual: -9.4, targetLabel: '−8% YoY', actualLabel: '−9.4% YoY', trend: [-3,-4.2,-5.5,-6.8,-7.9,-8.7,-9.4] },
       { name: 'Renewable share',       owner: 'Energy',        target: 28, actual: 31,   targetLabel: '28%',    actualLabel: '31%',      trend: [22,24,26,27,29,30,31] },
       { name: 'Water reuse',           owner: 'Sustainability', target: 55, actual: 52, targetLabel: '55%',    actualLabel: '52%',      trend: [45,47,48,50,51,51,52] },
-      { name: 'CSR spend',             owner: 'CSR',           target: 6, actual: 6.4,   targetLabel: 'RM 6.0M', actualLabel: 'RM 6.4M', trend: [3.8,4.4,4.9,5.3,5.7,6.1,6.4] },
+      { name: 'CSR spend',             owner: 'CSR',           target: 6, actual: 6.4,   targetLabel: curLabel(6, 1), actualLabel: curLabel(6.4, 1), trend: [3.8,4.4,4.9,5.3,5.7,6.1,6.4] },
       { name: 'Board diversity',       owner: 'Governance',    target: 40, actual: 44,   targetLabel: '40%',    actualLabel: '44%',      trend: [32,35,37,40,42,43,44] },
     ];
 

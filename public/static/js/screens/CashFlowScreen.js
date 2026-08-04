@@ -22,7 +22,7 @@
         {[-60, -30, 0, 30, 60].map(v => (
           <g key={v}>
             <line x1={pad.l} x2={w-pad.r} y1={yFor(v)} y2={yFor(v)} stroke={v === 0 ? '#CED4E0' : '#EEF1F6'} strokeWidth={v === 0 ? 1.2 : 1}/>
-            <text x={pad.l-8} y={yFor(v)+4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">RM{v}M</text>
+            <text x={pad.l-8} y={yFor(v)+4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">{curLabel(v)}</text>
           </g>
         ))}
         {months.map((m, i) => {
@@ -70,7 +70,7 @@
         {[0, 100, 200].map(v => (
           <g key={v}>
             <line x1={pad.l} x2={w-pad.r} y1={yFor(v)} y2={yFor(v)} stroke="#EEF1F6"/>
-            <text x={pad.l-8} y={yFor(v)+4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">RM{v}M</text>
+            <text x={pad.l-8} y={yFor(v)+4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">{curLabel(v)}</text>
           </g>
         ))}
         <line x1={pad.l} x2={w-pad.r} y1={yFor(60)} y2={yFor(60)} stroke="#D64045" strokeDasharray="4 3" strokeWidth="1"/>
@@ -112,7 +112,15 @@
 
     const onBarClick = (month) => {
       const idx = CF_MONTHS.indexOf(month);
-      window.Store.toast(`${month} ${period}: Operating RM${operating[idx]}M · Investing RM${investing[idx]}M · Financing RM${financing[idx]}M`, 'info');
+      window.Store.toast(`${month} ${period}: Operating ${curLabel(operating[idx])} · Investing ${curLabel(investing[idx])} · Financing ${curLabel(financing[idx])}`, 'info');
+    };
+
+    const exportCashFlow = () => {
+      exportRowsToCSV(
+        `cash-flow-${period.replace(/[^A-Za-z0-9]+/g, '-')}`,
+        ['Month', 'Operating (RM M)', 'Investing (RM M)', 'Financing (RM M)', 'Closing Cash (RM M)'],
+        CF_MONTHS.map((m, i) => [m, operating[i], investing[i], financing[i], cash[i]])
+      );
     };
 
     return (
@@ -139,7 +147,7 @@
                 ))}
               </div>
             )}
-            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast(`Exporting cash flow model — ${period}…`, 'info')}>Export</ArsButton>
+            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={exportCashFlow}>Export</ArsButton>
           </div>
         }
       >
@@ -148,7 +156,7 @@
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', background: 'linear-gradient(180deg, #FAFBFD, #fff)' }}>
             <div style={{ padding: '24px 24px', borderRight: '1px solid var(--arsela-border)' }}>
               <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Closing cash · {period}</div>
-              <div className="arsela-num" style={{ fontSize: 32, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.5 }}>RM {closingCash}M</div>
+              <div className="arsela-num" style={{ fontSize: 32, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.5 }}>{curLabel(closingCash)}</div>
               <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <ArsVariance value={9.4} />
                 <span style={{ fontSize: 12, color: 'var(--arsela-text-muted)' }}>vs Jan opening</span>
@@ -161,7 +169,7 @@
             </div>
             <div style={{ padding: '24px 24px', borderRight: '1px solid var(--arsela-border)' }}>
               <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Monthly burn</div>
-              <div className="arsela-num" style={{ fontSize: 32, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.5 }}>RM {monthlyBurn}M</div>
+              <div className="arsela-num" style={{ fontSize: 32, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.5 }}>{curLabel(monthlyBurn)}</div>
               <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <ArsVariance value={-3.2} invert/>
                 <span style={{ fontSize: 12, color: 'var(--arsela-text-muted)' }}>vs 6-mo avg</span>
@@ -169,7 +177,7 @@
             </div>
             <div style={{ padding: '24px 24px' }}>
               <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Net change · YTD</div>
-              <div className="arsela-num" style={{ fontSize: 32, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.5 }}>{(opTotal+invTotal+finTotal) >= 0 ? '+' : '−'}RM {Math.abs(opTotal+invTotal+finTotal)}M</div>
+              <div className="arsela-num" style={{ fontSize: 32, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.5 }}>{(opTotal+invTotal+finTotal) >= 0 ? '+' : '−'}{curLabel(Math.abs(opTotal+invTotal+finTotal))}</div>
               <div style={{ marginTop: 8, fontSize: 12, color: 'var(--arsela-text-muted)' }}>Operating + Investing + Financing</div>
             </div>
           </div>
@@ -179,7 +187,7 @@
         <ArsCard style={{ marginBottom: 20 }}>
           <ArsSectionHeader
             title={`Cash flow model — ${period}`}
-            subtitle="Monthly Operating · Investing · Financing (RM millions) · click a month for detail"
+            subtitle="Monthly Operating · Investing · Financing · click a month for detail"
             action={
               <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--arsela-text-muted)' }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, background: '#1A8754', borderRadius: 2 }}/>Operating</span>
@@ -198,7 +206,7 @@
               <div key={m.l}>
                 <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>{m.l}</div>
                 <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: m.tone === 'success' ? 'var(--success)' : m.tone === 'danger' ? 'var(--danger)' : 'var(--arsela-navy)', marginTop: 6, letterSpacing: -0.3 }}>
-                  {m.v >= 0 ? '+' : '−'}RM {Math.abs(m.v)}M
+                  {m.v >= 0 ? '+' : '−'}{curLabel(Math.abs(m.v))}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 3 }}>{m.d}</div>
               </div>

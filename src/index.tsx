@@ -43,7 +43,8 @@ function shellHtml() {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Coplanistra — Budget &amp; Plan</title>
-  <link rel="icon" href="/static/img/logo-primary.png" />
+  <link rel="icon" type="image/png" href="/static/img/logo-icon-new.png" />
+  <link rel="apple-touch-icon" href="/static/img/logo-icon-new.png" />
   <link href="/static/css/tokens.css" rel="stylesheet" />
   <link href="/static/css/app.css" rel="stylesheet" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -51,6 +52,7 @@ function shellHtml() {
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
   <div id="root">

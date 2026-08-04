@@ -98,6 +98,28 @@
   const seedCategories = ['Maintenance', 'IT & Software', 'HR', 'Machinery', 'Professional Fees', 'Travel', 'Other'];
   const seedBudgetCodes = ['BUD', 'CAP', 'OPX', 'PRG'];
 
+  /* Monthly Monitoring's OPEX category burn table — was a hardcoded
+     local useMemo array with no CRUD; lifted into Store so categories
+     can be added / edited / archived and the change is visible (and
+     persists) app-wide, consistent with the rest of the taxonomy. */
+  const seedOpexCategories = [
+    { id: 'OPX-1', name: 'Payroll', plan: 15.3e6, actual: 14.9e6, archived: false },
+    { id: 'OPX-2', name: 'Employee Benefits', plan: 3.2e6, actual: 3.3e6, archived: false },
+    { id: 'OPX-3', name: 'Information Technology', plan: 3.9e6, actual: 4.4e6, archived: false },
+    { id: 'OPX-4', name: 'Software Licences', plan: 1.8e6, actual: 2.0e6, archived: false },
+    { id: 'OPX-5', name: 'Marketing', plan: 2.6e6, actual: 2.3e6, archived: false },
+    { id: 'OPX-6', name: 'Professional Fees', plan: 1.6e6, actual: 1.8e6, archived: false },
+    { id: 'OPX-7', name: 'Utilities', plan: 1.4e6, actual: 1.5e6, archived: false },
+    { id: 'OPX-8', name: 'Travel', plan: 1.1e6, actual: 0.8e6, archived: false },
+    { id: 'OPX-9', name: 'Maintenance', plan: 1.2e6, actual: 1.3e6, archived: false },
+    { id: 'OPX-10', name: 'Training', plan: 0.7e6, actual: 0.5e6, archived: false },
+    { id: 'OPX-11', name: 'Insurance', plan: 0.9e6, actual: 0.9e6, archived: false },
+    { id: 'OPX-12', name: 'Office Expenses', plan: 0.6e6, actual: 0.6e6, archived: false },
+    { id: 'OPX-13', name: 'Security', plan: 0.8e6, actual: 0.8e6, archived: false },
+    { id: 'OPX-14', name: 'Cleaning', plan: 0.4e6, actual: 0.4e6, archived: false },
+    { id: 'OPX-15', name: 'Miscellaneous', plan: 0.5e6, actual: 0.4e6, archived: false },
+  ];
+
   /* Scenario comparison (Quarterly panel) — was local hardcoded
      state; lifted into Store so "New scenario" and switching the
      active scenario actually persist. */
@@ -132,9 +154,11 @@
     capexProjects: seedCapex,
     departments: seedDepartments,
     categories: seedCategories,
+    opexCategories: seedOpexCategories,
     budgetCodes: seedBudgetCodes,
     scenarios: seedScenarios,
     currency: 'MYR',
+    period: 'Q3 · FY 2026',
     toasts: [],
     copilotMessages: null, // per-screen default seeded lazily
   };
@@ -158,6 +182,7 @@
   // before these fields existed.
   if (!state.departments) state.departments = seedDepartments;
   if (!state.categories) state.categories = seedCategories;
+  if (!state.opexCategories) state.opexCategories = seedOpexCategories;
   if (!state.budgetCodes) state.budgetCodes = seedBudgetCodes;
   if (!state.scenarios) state.scenarios = seedScenarios;
   if (!state.currency) state.currency = 'MYR';
@@ -359,6 +384,29 @@
       setState({ categories: state.categories.filter((c) => c !== name) });
       toast(`Category removed: ${name}`, 'warning');
     },
+    // ---- Monthly Monitoring OPEX category CRUD (add/edit/delete/archive) ----
+    addOpexCategory({ name, plan, actual }) {
+      const v = (name || '').trim();
+      if (!v) { toast('Enter a category name', 'danger'); return; }
+      const rec = { id: 'OPX-' + Date.now(), name: v, plan: Number(plan) || 0, actual: Number(actual) || 0, archived: false };
+      setState({ opexCategories: [...state.opexCategories, rec] });
+      toast(`OPEX category added: ${v}`, 'success');
+      return rec;
+    },
+    updateOpexCategory(id, patch) {
+      setState({ opexCategories: state.opexCategories.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
+      toast('OPEX category updated', 'success');
+    },
+    deleteOpexCategory(id) {
+      const c = state.opexCategories.find((x) => x.id === id);
+      setState({ opexCategories: state.opexCategories.filter((x) => x.id !== id) });
+      if (c) toast(`OPEX category removed: ${c.name}`, 'warning');
+    },
+    archiveOpexCategory(id, archived = true) {
+      const c = state.opexCategories.find((x) => x.id === id);
+      setState({ opexCategories: state.opexCategories.map((x) => (x.id === id ? { ...x, archived } : x)) });
+      if (c) toast(`${c.name} ${archived ? 'archived' : 'restored'}`, 'info');
+    },
     addBudgetCode(prefix) {
       const v = (prefix || '').trim().toUpperCase();
       if (!v) return;
@@ -456,6 +504,21 @@
       const nextStatus = u.status === 'Active' ? 'Inactive' : 'Active';
       setState({ users: state.users.map((x) => (x.email === email ? { ...x, status: nextStatus } : x)) });
       toast(`${u.name} ${nextStatus === 'Active' ? 'activated' : 'deactivated'}`, nextStatus === 'Active' ? 'success' : 'warning');
+    },
+
+    // ---- live notification bell — pushed to by real actions across the
+    // app (approvals, expenses, escalations, threshold breaches) so the
+    // bell badge/panel reflects what's actually happening, not just the
+    // static seed list. ----
+    addNotification({ icon = '↺', tone = 'info', title, detail }) {
+      const n = { id: 'N' + Date.now() + Math.floor(Math.random() * 999), i: icon, tone, t: title, d: detail || '', when: 'Just now', unread: true };
+      setState({ notifications: [n, ...state.notifications] });
+    },
+
+    // ---- current reporting period (quarter/month picker on Dashboard) ----
+    setPeriod(period) {
+      setState({ period });
+      toast(`Period set to ${period}`, 'info');
     },
   };
 

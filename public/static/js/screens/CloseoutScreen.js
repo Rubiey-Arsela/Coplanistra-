@@ -131,6 +131,14 @@
       window.Router.go('/budgets');
     };
 
+    const exportCloseout = () => {
+      exportRowsToCSV(
+        'fy2026-closeout-report',
+        ['Budget', 'ID', 'Department', 'Allocated (RM)', 'Spent (RM)', 'Remaining (RM)', 'Decision', 'Note'],
+        allRows.map((b) => [b.name, b.id, b.dept, b.allocated, b.spent, b.allocated - b.spent, b.closeoutDecision, b.closeoutNote])
+      );
+    };
+
     return (
       <AppFrame
         active="FY Closeout"
@@ -138,7 +146,7 @@
         breadcrumb={['Arsela Resources', 'Plan', 'Budgets', 'FY Closeout']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
-            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Exporting closeout report…', 'info')}>Export report</ArsButton>
+            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={exportCloseout}>Export report</ArsButton>
             <ArsButton size="md" icon={<IconArrowRight size={15}/>} onClick={() => (step < 2 ? setStep(step + 1) : lock())}>{step < 2 ? 'Continue' : 'Continue to Lock'}</ArsButton>
           </div>
         }
@@ -147,22 +155,22 @@
           <CloseoutStepper step={step}/>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
-            <ArsCard>
+            <ArsCard onClick={() => setDecisionFilter('All')} title="Click to view all budgets" style={{ cursor: 'pointer' }}>
               <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>FY26 total budget</div>
               <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8, letterSpacing: -0.3 }}>{fmtMYR(totalBudget, { compact: true })}</div>
               <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{rows.length} active budgets to close</div>
             </ArsCard>
-            <ArsCard style={{ borderColor: 'rgba(26,135,84,0.24)', background: '#F6FDF8' }}>
+            <ArsCard onClick={() => setDecisionFilter('carry')} title="Click to view carry-over budgets" style={{ cursor: 'pointer', borderColor: 'rgba(26,135,84,0.24)', background: '#F6FDF8' }}>
               <div style={{ fontSize: 11.5, color: 'var(--success)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Recommended carry-over</div>
               <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--success)', marginTop: 8, letterSpacing: -0.3 }}>{fmtMYR(carrySum, { compact: true })}</div>
               <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{carry.length} budgets → FY27</div>
             </ArsCard>
-            <ArsCard>
+            <ArsCard onClick={() => setDecisionFilter('release')} title="Click to view released budgets" style={{ cursor: 'pointer' }}>
               <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Released to reserves</div>
               <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8, letterSpacing: -0.3 }}>{fmtMYR(releaseSum, { compact: true })}</div>
               <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{release.length} budgets closed out</div>
             </ArsCard>
-            <ArsCard>
+            <ArsCard onClick={() => setDecisionFilter('archive')} title="Click to view budgets to archive" style={{ cursor: 'pointer' }}>
               <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>To archive</div>
               <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: '#5B21B6', marginTop: 8, letterSpacing: -0.3 }}>{archive.length}</div>
               <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Read-only after Step 3</div>

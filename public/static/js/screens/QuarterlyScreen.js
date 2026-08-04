@@ -56,7 +56,7 @@
         {[0, 20, 40, 60, 80].map((v) => (
           <g key={v}>
             <line x1={pad.l} x2={w - pad.r} y1={yFor(v)} y2={yFor(v)} stroke="#EEF1F6"/>
-            <text x={pad.l - 8} y={yFor(v) + 4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">RM{v}M</text>
+            <text x={pad.l - 8} y={yFor(v) + 4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">{curLabel(v)}</text>
           </g>
         ))}
         {quarters.map((q, i) => {
@@ -69,13 +69,13 @@
               <rect x={cx - barW - 4} y={yFor(q.plan)} width={barW} height={yFor(0) - yFor(q.plan)} fill="url(#qBudget)" rx="3"
                 style={{ cursor: 'pointer' }} onClick={() => goQuarter(q.q)}
                 onMouseEnter={() => setHover({ i, kind: 'plan' })} onMouseLeave={() => setHover(null)}/>
-              <text x={cx - barW / 2 - 4} y={yFor(q.plan) - 6} fontSize="9.5" fill="#5A6B85" fontWeight="700" textAnchor="middle" opacity={isHoverPlan ? 1 : 0.7}>RM{q.plan}M</text>
+              <text x={cx - barW / 2 - 4} y={yFor(q.plan) - 6} fontSize="9.5" fill="#5A6B85" fontWeight="700" textAnchor="middle" opacity={isHoverPlan ? 1 : 0.7}>{curLabel(q.plan)}</text>
               {q.actual != null && (
                 <>
                   <rect x={cx + 4} y={yFor(q.actual)} width={barW} height={yFor(0) - yFor(q.actual)} fill="url(#qActual)" rx="3"
                     style={{ cursor: 'pointer' }} onClick={() => goQuarter(q.q)}
                     onMouseEnter={() => setHover({ i, kind: 'actual' })} onMouseLeave={() => setHover(null)}/>
-                  <text x={cx + 4 + barW / 2} y={yFor(q.actual) - 6} fontSize="9.5" fill="#1343CB" fontWeight="700" textAnchor="middle" opacity={isHoverActual ? 1 : 0.85}>RM{q.actual}M</text>
+                  <text x={cx + 4 + barW / 2} y={yFor(q.actual) - 6} fontSize="9.5" fill="#1343CB" fontWeight="700" textAnchor="middle" opacity={isHoverActual ? 1 : 0.85}>{curLabel(q.actual)}</text>
                 </>
               )}
               {q.forecast != null && (
@@ -83,7 +83,7 @@
                   <rect x={cx + 4} y={yFor(q.forecast)} width={barW} height={yFor(0) - yFor(q.forecast)} fill="url(#qForecast)" rx="3" stroke="#00A896" strokeWidth="1" strokeDasharray="3 2"
                     style={{ cursor: 'pointer' }} onClick={() => goQuarter(q.q)}
                     onMouseEnter={() => setHover({ i, kind: 'forecast' })} onMouseLeave={() => setHover(null)}/>
-                  {q.actual == null && <text x={cx + 4 + barW / 2} y={yFor(q.forecast) - 6} fontSize="9.5" fill="#00A896" fontWeight="700" textAnchor="middle" opacity={isHoverForecast ? 1 : 0.85}>RM{q.forecast}M</text>}
+                  {q.actual == null && <text x={cx + 4 + barW / 2} y={yFor(q.forecast) - 6} fontSize="9.5" fill="#00A896" fontWeight="700" textAnchor="middle" opacity={isHoverForecast ? 1 : 0.85}>{curLabel(q.forecast)}</text>}
                 </>
               )}
               <text x={cx} y={h - 10} fontSize="12" fill="#001F3D" fontWeight="700" textAnchor="middle" style={{ cursor: 'pointer' }} onClick={() => goQuarter(q.q)}>{q.q}</text>
@@ -157,10 +157,37 @@
     }, []);
 
     const escalate = () => {
-      window.Store.toast(`Escalation sent to ${overdueCount} overdue division(s)`, 'warning');
+      const overdue = submissions.filter((r) => r.st === 'overdue');
+      if (overdue.length === 0) {
+        window.Store.toast('No overdue divisions to escalate', 'info');
+        return;
+      }
+      overdue.forEach((r) => {
+        window.Store.addNotification({
+          icon: '⏰', tone: 'danger',
+          title: `Escalation — ${r.d} reforecast overdue`,
+          detail: `${r.o} has not submitted the Q3 reforecast. Reminder escalated to division owner.`,
+        });
+      });
+      window.Store.toast(`Escalation sent to ${overdue.length} overdue division(s)`, 'warning');
+    };
+
+    const exportSubmissions = () => {
+      exportRowsToCSV(
+        'q3-division-submissions',
+        ['Division', 'Owner', 'Submitted', 'Prior Forecast (RM)', 'New Forecast (RM)', 'Δ %', 'Status'],
+        submissions.map((r) => [
+          r.d, r.o, r.s, r.pf * 1e6, r.nf != null ? r.nf * 1e6 : '', r.nf != null ? (((r.nf - r.pf) / r.pf) * 100).toFixed(1) : '', r.st,
+        ])
+      );
     };
 
     const submitReforecast = () => {
+      window.Store.addNotification({
+        icon: '✓', tone: 'success',
+        title: 'Q3 reforecast submitted',
+        detail: `Group consolidated Q3 reforecast (${submittedCount}/${submissions.length} divisions) sent for approval.`,
+      });
       window.Store.toast('Q3 reforecast submitted for approval', 'success');
     };
 
@@ -203,7 +230,7 @@
             <ArsCard>
               <ArsSectionHeader
                 title="Quarterly performance — Plan vs Actual"
-                subtitle="Group consolidated · RM millions · dashed = forecast"
+                subtitle="Group consolidated · dashed = forecast"
                 action={
                   <div style={{ display: 'flex', gap: 20, fontSize: 12, color: 'var(--arsela-text-muted)' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: 'linear-gradient(180deg,#B9CBFF,#DDE6FF)' }}/>Plan</span>
@@ -247,7 +274,7 @@
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <ArsButton variant="secondary" size="sm" icon={<IconMail size={13}/>} onClick={escalate}>Escalate overdue</ArsButton>
-                <ArsButton variant="secondary" size="sm" icon={<IconExport size={13}/>} onClick={() => window.Store.toast('Export started', 'info')}>Export</ArsButton>
+                <ArsButton variant="secondary" size="sm" icon={<IconExport size={13}/>} onClick={exportSubmissions}>Export</ArsButton>
               </div>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -266,7 +293,12 @@
                 {submissions.map((r, i) => {
                   const diff = r.nf != null ? ((r.nf - r.pf) / r.pf) * 100 : null;
                   return (
-                    <tr key={r.d} style={{ borderBottom: i < submissions.length - 1 ? '1px solid var(--arsela-border)' : 'none' }}>
+                    <tr key={r.d} onClick={() => window.Router.go('/budgets?dept=' + encodeURIComponent(r.d))}
+                      title={`Click to view ${r.d} budgets & projects`}
+                      style={{ borderBottom: i < submissions.length - 1 ? '1px solid var(--arsela-border)' : 'none', cursor: 'pointer' }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#FAFBFD'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
                       <td style={{ padding: '13px 20px', fontSize: 13.5, fontWeight: 600, color: 'var(--arsela-navy)' }}>{r.d}</td>
                       <td style={{ padding: '13px 20px', fontSize: 13, color: 'var(--arsela-navy)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

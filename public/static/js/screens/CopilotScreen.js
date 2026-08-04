@@ -89,11 +89,11 @@
       cite: 'Q3 reforecast · Monthly monitoring · 6 division submissions',
       body: (
         <React.Fragment>
-          <div>Q3 is tracking <b>RM 20M behind plan</b> (RM 43M actual vs RM 63M planned through 22 July). Three factors explain most of the shortfall:</div>
+          <div>Q3 is tracking <b>{curLabel(20)} behind plan</b> ({curLabel(43)} actual vs {curLabel(63)} planned through 22 July). Three factors explain most of the shortfall:</div>
           <ul style={{ marginTop: 10, marginBottom: 0, paddingLeft: 20, lineHeight: 1.7 }}>
-            <li><b style={{ color: 'var(--danger)' }}>IT overspend (RM 5.6M)</b> — vendor overrun on ERP migration; classified as non-recurring.</li>
-            <li><b style={{ color: 'var(--warning)' }}>Property & Aviation overdue submissions</b> — RM 15.3M of forecast still uncommitted.</li>
-            <li><b style={{ color: 'var(--success)' }}>Solar rollout delayed</b> — freed RM 3.2M vs plan; recommend reallocation to LNG Phase I.</li>
+            <li><b style={{ color: 'var(--danger)' }}>IT overspend ({curLabel(5.6, 1)})</b> — vendor overrun on ERP migration; classified as non-recurring.</li>
+            <li><b style={{ color: 'var(--warning)' }}>Property & Aviation overdue submissions</b> — {curLabel(15.3, 1)} of forecast still uncommitted.</li>
+            <li><b style={{ color: 'var(--success)' }}>Solar rollout delayed</b> — freed {curLabel(3.2, 1)} vs plan; recommend reallocation to LNG Phase I.</li>
           </ul>
         </React.Fragment>
       ),
@@ -106,7 +106,7 @@
       chips: ['Draft board narrative', 'Compare to Q3 FY25', 'Explain by category', 'Recommend actions'],
       body: (
         <React.Fragment>
-          <div>Based on Q1–Q3 actuals plus current commitments, the model projects <b>full-year spend of RM 254.8M (base case)</b>, RM 6.4M above plan. The chart shows monthly cumulative burn trending back within tolerance from October onwards once the ERP migration completes.</div>
+          <div>Based on Q1–Q3 actuals plus current commitments, the model projects <b>full-year spend of {curLabel(254.8, 1)} (base case)</b>, {curLabel(6.4, 1)} above plan. The chart shows monthly cumulative burn trending back within tolerance from October onwards once the ERP migration completes.</div>
           <div style={{ marginTop: 10 }}>Confidence: <b>78%</b> based on 3 comparable quarters. Suggested next steps below.</div>
         </React.Fragment>
       ),
@@ -157,14 +157,14 @@
     if (q.includes('anomal')) {
       return {
         cite: 'Expenses ledger · Store snapshot',
-        body: <div>Scanning recent expenses for anomalies: no single transaction this period exceeds 3× its category's rolling average. The largest single line remains the ERP migration invoice (RM 214,500), which is expected per the signed SOW milestone schedule.</div>,
+        body: <div>Scanning recent expenses for anomalies: no single transaction this period exceeds 3× its category's rolling average. The largest single line remains the ERP migration invoice ({fmtMYR(214500)}), which is expected per the signed SOW milestone schedule.</div>,
       };
     }
     if (q.includes('scenario') || q.includes('upside') || q.includes('downside')) {
       return {
         cite: 'Quarterly planning · scenario model',
         chart: true,
-        body: <div>Base case projects full-year spend of RM 254.8M. Upside scenario (delayed CAPEX, tighter opex controls) brings this to RM 241.2M; downside scenario (ERP overrun continues, MRO volumes stay elevated) pushes to RM 268.5M. Recommend planning against the base case with a downside contingency buffer.</div>,
+        body: <div>Base case projects full-year spend of {curLabel(254.8, 1)}. Upside scenario (delayed CAPEX, tighter opex controls) brings this to {curLabel(241.2, 1)}; downside scenario (ERP overrun continues, MRO volumes stay elevated) pushes to {curLabel(268.5, 1)}. Recommend planning against the base case with a downside contingency buffer.</div>,
       };
     }
     if (q.includes('over') && (q.includes('budget') || q.includes('spend'))) {
