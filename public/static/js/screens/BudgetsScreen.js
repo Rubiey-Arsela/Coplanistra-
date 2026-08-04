@@ -50,6 +50,43 @@
     );
   }
 
+  const BUDGET_STATUS_OPTIONS = ['draft', 'active', 'amendment', 'over', 'closed', 'archived'];
+
+  function EditBudgetModal({ budget, onClose }) {
+    const [form, setForm] = useState(() => ({
+      name: budget.name, dept: budget.dept, period: budget.period,
+      allocated: budget.allocated, spent: budget.spent, status: budget.status,
+    }));
+    const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+    const save = () => {
+      if (!form.name.trim()) { window.Store.toast('Budget name is required', 'danger'); return; }
+      window.Store.updateBudget(budget.id, {
+        name: form.name.trim(), dept: form.dept.trim(), period: form.period.trim(),
+        allocated: Number(form.allocated) || 0, spent: Number(form.spent) || 0, status: form.status,
+      });
+      onClose();
+    };
+    return (
+      <ArsModal open onClose={onClose} title={`Edit ${budget.id}`} subtitle={budget.name}
+        footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={save}>Save changes</ArsButton></>}>
+        <ArsField label="Budget name"><input value={form.name} onChange={set('name')} style={arsFieldInputStyle}/></ArsField>
+        <ArsField label="Department"><input value={form.dept} onChange={set('dept')} style={arsFieldInputStyle}/></ArsField>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}><ArsField label="Period"><input value={form.period} onChange={set('period')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="Status">
+            <select value={form.status} onChange={set('status')} style={arsFieldInputStyle}>
+              {BUDGET_STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </ArsField></div>
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}><ArsField label="Allocated (RM)"><input type="number" value={form.allocated} onChange={set('allocated')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="Spent (RM)"><input type="number" value={form.spent} onChange={set('spent')} style={arsFieldInputStyle}/></ArsField></div>
+        </div>
+      </ArsModal>
+    );
+  }
+
   function BudgetsScreen() {
     const [s, setS] = useState(window.Store.getState());
     useEffect(() => window.Store.subscribe(setS), []);
@@ -60,6 +97,8 @@
     const [status, setStatus] = useState('Any');
     const [view, setView] = useState('table'); // table | cards
     const [page, setPage] = useState(1);
+    const [editBudget, setEditBudget] = useState(null);
+    const [deleteBudget, setDeleteBudget] = useState(null);
 
     useEffect(() => {
       // stay in sync if user searches again via topbar while already on this screen
@@ -104,7 +143,7 @@
       <AppFrame
         active="Budgets"
         title="Budgets"
-        breadcrumb={['Acme Holdings', 'Plan', 'Budgets']}
+        breadcrumb={['Arsela Resources', 'Plan', 'Budgets']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton variant="secondary" size="md" icon={<IconLock size={15}/>} onClick={() => window.Router.go('/closeout')}>FY Closeout</ArsButton>
@@ -162,7 +201,8 @@
           {filtered.length === 0 ? (
             <div style={{ padding: 40 }}><ArsEmpty icon={<IconWallet size={22}/>} title="No budgets match your filters" body="Try clearing search or filters."/></div>
           ) : view === 'table' ? (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div className="coplan-scrollx">
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
               <thead>
                 <tr style={{ background: '#FAFBFD', borderBottom: '1px solid var(--arsela-border)' }}>
                   {['', 'Budget', 'Department', 'Period', 'Utilisation', 'Allocated', 'Spent', 'Status', 'Actions'].map((h, i) => (
@@ -208,8 +248,8 @@
                       <td style={{ padding: '14px 16px' }} onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: 'flex', gap: 4, color: 'var(--arsela-text-subtle)' }}>
                           <button onClick={() => goDetail(b.id)} title="View" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}><IconEye size={15}/></button>
-                          <button onClick={() => window.Router.go('/budgets/' + b.id + '?edit=1')} title="Edit" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}><IconEdit size={15}/></button>
-                          <button onClick={() => window.Store.toast('More actions coming soon', 'info')} title="More" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}><IconMore size={15}/></button>
+                          <button onClick={() => setEditBudget(b)} title="Edit" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}><IconEdit size={15}/></button>
+                          <button onClick={() => setDeleteBudget(b)} title="Delete" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--arsela-danger)' }}><IconClose size={15}/></button>
                         </div>
                       </td>
                     </tr>
@@ -217,6 +257,7 @@
                 })}
               </tbody>
             </table>
+            </div>
           ) : (
             <div style={{ padding: 20, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
               {pageItems.map((b) => {
@@ -224,7 +265,7 @@
                 const tone = pct >= 100 ? 'danger' : pct > 90 ? 'danger' : pct > 80 ? 'warning' : 'blue';
                 return (
                   <div key={b.id} onClick={() => goDetail(b.id)} style={{
-                    border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16, cursor: 'pointer',
+                    border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16, cursor: 'pointer', position: 'relative',
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <span className="arsela-mono" style={{ fontSize: 11, color: 'var(--arsela-text-muted)' }}>{b.id}</span>
@@ -236,6 +277,10 @@
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12 }}>
                       <span style={{ color: 'var(--arsela-text-muted)' }}>Allocated <b className="arsela-num" style={{ color: 'var(--arsela-navy)' }}>{fmtMYR(b.allocated, { compact: true })}</b></span>
                       <span style={{ color: 'var(--arsela-text-muted)' }}>Spent <b className="arsela-num" style={{ color: 'var(--arsela-navy)' }}>{fmtMYR(b.spent, { compact: true })}</b></span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4, marginTop: 12, borderTop: '1px solid var(--arsela-border)', paddingTop: 10 }} onClick={(e) => e.stopPropagation()}>
+                      <ArsButton variant="secondary" size="sm" icon={<IconEdit size={13}/>} onClick={() => setEditBudget(b)}>Edit</ArsButton>
+                      <ArsButton variant="danger" size="sm" icon={<IconClose size={13}/>} onClick={() => setDeleteBudget(b)}>Delete</ArsButton>
                     </div>
                   </div>
                 );
@@ -269,6 +314,15 @@
             </div>
           )}
         </ArsCard>
+
+        {editBudget && <EditBudgetModal budget={editBudget} onClose={() => setEditBudget(null)}/>}
+        <ArsConfirmDialog
+          open={!!deleteBudget}
+          onClose={() => setDeleteBudget(null)}
+          onConfirm={() => deleteBudget && window.Store.deleteBudget(deleteBudget.id)}
+          title="Delete budget?"
+          message={deleteBudget ? `This will permanently remove "${deleteBudget.name}" (${deleteBudget.id}). This cannot be undone.` : ''}
+        />
       </AppFrame>
     );
   }

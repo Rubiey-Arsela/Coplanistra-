@@ -122,7 +122,7 @@
       <AppFrame
         active="Reports"
         title="Reports & Analytics"
-        breadcrumb={['Acme Holdings','Analyse','Reports']}
+        breadcrumb={['Arsela Resources','Analyse','Reports']}
         topActions={
           <div style={{ display: 'flex', gap: 8, position: 'relative' }} ref={periodRef}>
             <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => setShowPeriodMenu(v => !v)}>{period}</ArsButton>
@@ -203,7 +203,8 @@
                   title="Utilisation heat-map"
                   subtitle="Monthly % of plan spent · red = over-budget · click a cell for detail"
                 />
-                <div style={{ display: 'grid', gridTemplateColumns: '170px repeat(7, 1fr)', gap: 4, alignItems: 'center' }}>
+                <div className="coplan-scrollx">
+                <div className="coplan-grid-fixed" style={{ display: 'grid', gridTemplateColumns: '170px repeat(7, 1fr)', gap: 4, alignItems: 'center', minWidth: 560 }}>
                   <div/>
                   {heatMonths.map(m=>(<div key={m} style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', textAlign: 'center', letterSpacing: 0.5 }}>{m.toUpperCase()}</div>))}
                   {heatData.map(([label, vals])=>(
@@ -212,6 +213,7 @@
                       {vals.map((v,i)=><HeatmapCell key={i} v={v} onClick={() => onHeatCellClick(label, heatMonths[i], v)}/>)}
                     </React.Fragment>
                   ))}
+                </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16, fontSize: 11, color: 'var(--arsela-text-muted)' }}>
                   <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>SCALE</span>

@@ -1,12 +1,20 @@
 /* Role definitions — controls sidebar filtering + dashboard widget defaults.
-   Small and readable so it's easy to audit which role sees what. */
+   Small and readable so it's easy to audit which role sees what.
+
+   These are internal PERMISSION TIERS, not people. The real signed-in
+   person (name/title/email) comes from window.Store.getCurrentUser() —
+   each of the 7 real company accounts (see store.js seedUsers) maps onto
+   one of these tiers via its `permissionRole` field. The `user` fallback
+   below is only used before anyone has logged in / for the (admin-only)
+   "Preview as" role switcher, where there is no single real person tied
+   to a tier being previewed. */
 
 const ROLES = {
   executive: {
     id: 'executive',
     label: 'Executive',
     tone: 'navy',
-    user: { name: 'Datuk Zulkifli H.', title: 'Group CEO' },
+    user: { name: 'Executive (preview)', title: 'Group CEO' },
     /* Sidebar items this role is allowed to open */
     nav: ['Dashboard', 'Reports', 'Performance', 'Cash Flow', 'Copilot'],
     /* Widget layout on the shared dashboard */
@@ -14,9 +22,9 @@ const ROLES = {
   },
   finance: {
     id: 'finance',
-    label: 'Finance Manager',
+    label: 'Manager',
     tone: 'blue',
-    user: { name: 'Priya Nair', title: 'Group Finance Manager' },
+    user: { name: 'Manager (preview)', title: 'Manager' },
     nav: ['Dashboard', 'Budgets', 'Quarterly', 'Monthly', 'Expenses', 'Approvals', 'FY Closeout', 'CAPEX', 'Cash Flow', 'Performance', 'Reports', 'Copilot', 'Team & Access', 'Settings'],
     dashboard: ['budget-health', 'pending-approvals', 'variance-alerts', 'monthly-burn'],
   },
@@ -24,7 +32,7 @@ const ROLES = {
     id: 'approver',
     label: 'Approver',
     tone: 'teal',
-    user: { name: 'Marcus Lim', title: 'Dept. Manager · Digital & Data' },
+    user: { name: 'Approver (preview)', title: 'Dept. Manager' },
     nav: ['Dashboard', 'Approvals', 'Budgets', 'Expenses', 'Reports'],
     dashboard: ['approval-queue', 'my-dept-budgets', 'pending-metrics', 'variance-alerts'],
   },
@@ -32,7 +40,7 @@ const ROLES = {
     id: 'employee',
     label: 'Employee',
     tone: 'warn',
-    user: { name: 'Aisha Rashid', title: 'Operations Analyst' },
+    user: { name: 'Employee (preview)', title: 'Employee' },
     nav: ['Dashboard', 'Expenses'],
     dashboard: ['my-expenses', 'my-submissions', 'my-budget-usage', 'my-team'],
   },
@@ -40,11 +48,22 @@ const ROLES = {
     id: 'admin',
     label: 'Administrator',
     tone: 'purple',
-    user: { name: 'Keith Johnson', title: 'Workspace Admin' },
+    user: { name: 'Administrator (preview)', title: 'Workspace Admin' },
     nav: ['Dashboard', 'Budgets', 'Quarterly', 'Monthly', 'Expenses', 'Approvals', 'FY Closeout', 'CAPEX', 'Cash Flow', 'Performance', 'Reports', 'Copilot', 'Team & Access', 'Settings'],
     dashboard: ['org-kpis', 'system-health', 'audit-events', 'user-activity'],
   },
 };
+
+/* Resolve the display identity for the topbar/avatar/etc: prefer the real
+   signed-in user (name + real title e.g. "Manager", "Administrator",
+   "Employee"); fall back to the role's generic preview identity only if
+   nobody is signed in yet (shouldn't normally happen post-login). */
+function ArsCurrentIdentity(role) {
+  const u = window.Store && window.Store.getCurrentUser && window.Store.getCurrentUser();
+  if (u) return { name: u.name, title: u.title, email: u.email };
+  const r = ROLES[role] || ROLES.finance;
+  return { name: r.user.name, title: r.user.title, email: '' };
+}
 
 /* Role badge — small pill next to avatar */
 const ArsRoleBadge = ({ role }) => {
@@ -101,4 +120,4 @@ const ArsRoleSwitcher = ({ role, onChange }) => (
   </div>
 );
 
-Object.assign(window, { ROLES, ArsRoleBadge, ArsRoleSwitcher });
+Object.assign(window, { ROLES, ArsRoleBadge, ArsRoleSwitcher, ArsCurrentIdentity });

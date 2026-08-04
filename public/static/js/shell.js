@@ -93,11 +93,11 @@
     </div>
   );
 
-  function Sidebar({ active, role, pendingApprovals }) {
+  function Sidebar({ active, role, pendingApprovals, mobileOpen, onClose }) {
     const roleDef = window.ROLES[role];
     const allowed = new Set(roleDef.nav);
     const showIf = (label) => allowed.has(label);
-    const navTo = (label) => window.Router.go(NAV_ROUTES[label] || '/dashboard');
+    const navTo = (label) => { window.Router.go(NAV_ROUTES[label] || '/dashboard'); if (onClose) onClose(); };
 
     const planItems = [
       showIf('Dashboard') && <SidebarItem key="d" icon={<IconDashboard/>} label="Dashboard" active={active === 'Dashboard'} onClick={() => navTo('Dashboard')}/>,
@@ -126,13 +126,19 @@
     ].filter(Boolean);
 
     return (
-      <aside style={{
-        width: 248, height: '100%', background: 'var(--arsela-gradient-sidebar)',
-        display: 'flex', flexDirection: 'column', color: '#fff',
-        borderRight: '1px solid rgba(0,0,0,0.2)', flexShrink: 0,
-      }}>
-        <div style={{ padding: '20px 20px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+      <>
+        {mobileOpen && <div className="coplan-sidebar-overlay" onClick={onClose} aria-hidden="true"/>}
+        <aside className={'coplan-sidebar' + (mobileOpen ? ' is-open' : '')} style={{
+          width: 248, height: '100%', background: 'var(--arsela-gradient-sidebar)',
+          display: 'flex', flexDirection: 'column', color: '#fff',
+          borderRight: '1px solid rgba(0,0,0,0.2)', flexShrink: 0,
+        }}>
+        <div style={{ padding: '20px 20px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <CoplanistraWordmark onClick={() => navTo('Dashboard')} />
+          <button className="coplan-sidebar-close" onClick={onClose} aria-label="Close menu" style={{
+            width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)',
+            color: '#fff', display: 'none', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+          }}><IconClose size={14}/></button>
         </div>
 
         <div style={{ padding: '14px 14px 6px' }}>
@@ -141,15 +147,15 @@
             padding: '8px 10px', background: 'rgba(255,255,255,0.05)',
             border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8,
             cursor: 'pointer', fontFamily: 'inherit', color: 'inherit',
-          }} aria-label="Switch organisation" onClick={() => window.Store.toast('Acme Holdings is your only workspace', 'info')}>
+          }} aria-label="Switch organisation" onClick={() => window.Store.toast('Arsela Resources is your only workspace', 'info')}>
             <div style={{
               width: 26, height: 26, borderRadius: 6,
               background: 'linear-gradient(135deg, #00A896, #14B8A6)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 11, fontWeight: 800, color: '#001F3D', flexShrink: 0,
-            }}>AH</div>
+            }}>AR</div>
             <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Acme Holdings</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Arsela Resources</div>
             </div>
             <span style={{
               fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.7)',
@@ -171,6 +177,7 @@
           <ArselaCredit />
         </div>
       </aside>
+      </>
     );
   }
 
@@ -203,7 +210,7 @@
           )}
         </button>
         {open && (
-          <div style={{
+          <div className="coplan-notif-panel" style={{
             position: 'absolute', top: 46, right: 0, width: 380,
             background: '#fff', border: '1px solid var(--arsela-border)',
             borderRadius: 12, boxShadow: 'var(--arsela-shadow-elevated)',
@@ -302,71 +309,104 @@
     );
   }
 
-  function Topbar({ title, breadcrumb, actions, role, notifOpen, notifCount, notifications }) {
+  function Topbar({ title, breadcrumb, actions, role, notifOpen, notifCount, notifications, onOpenMenu }) {
     const roleDef = window.ROLES[role];
+    const identity = window.ArsCurrentIdentity(role);
     const [q, setQ] = useState('');
+    const [searchOpen, setSearchOpen] = useState(false);
     const submitSearch = (e) => {
       e.preventDefault();
       if (!q.trim()) return;
       window.Router.go('/budgets?q=' + encodeURIComponent(q.trim()));
+      setSearchOpen(false);
     };
     return (
-      <header style={{
+      <header className="coplan-topbar" style={{
         height: 64, background: '#fff', borderBottom: '1px solid var(--arsela-border)',
-        display: 'flex', alignItems: 'center', padding: '0 28px', gap: 20, flexShrink: 0,
+        display: 'flex', alignItems: 'center', padding: '0 28px', gap: 16, flexShrink: 0,
         position: 'relative', zIndex: 30,
       }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <button className="coplan-hamburger" onClick={onOpenMenu} aria-label="Open menu" style={{
+          width: 36, height: 36, borderRadius: 8, border: '1px solid var(--arsela-border)', background: '#fff',
+          display: 'none', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--arsela-navy)',
+          flexShrink: 0,
+        }}>
+          <IconMenu size={18}/>
+        </button>
+
+        <div className="coplan-topbar-title" style={{ flex: 1, minWidth: 0 }}>
           {breadcrumb && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--arsela-text-muted)', marginBottom: 2 }}>
+            <div className="coplan-breadcrumb" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--arsela-text-muted)', marginBottom: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
               {breadcrumb.map((b, i) => (
                 <React.Fragment key={i}>
-                  {i > 0 && <IconChevronRight size={12} style={{ opacity: 0.5 }}/>}
-                  <span style={{ color: i === breadcrumb.length - 1 ? 'var(--arsela-navy)' : 'inherit', fontWeight: i === breadcrumb.length - 1 ? 600 : 500 }}>{b}</span>
+                  {i > 0 && <IconChevronRight size={12} style={{ opacity: 0.5, flexShrink: 0 }}/>}
+                  <span style={{ color: i === breadcrumb.length - 1 ? 'var(--arsela-navy)' : 'inherit', fontWeight: i === breadcrumb.length - 1 ? 600 : 500, overflow: 'hidden', textOverflow: 'ellipsis' }}>{b}</span>
                 </React.Fragment>
               ))}
             </div>
           )}
-          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)', letterSpacing: -0.2 }}>{title}</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)', letterSpacing: -0.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
         </div>
 
-        <form onSubmit={submitSearch} style={{
+        <form onSubmit={submitSearch} className="coplan-search-form" style={{
           display: 'flex', alignItems: 'center', gap: 8,
           background: '#F4F6F8', border: '1px solid var(--arsela-border)',
-          borderRadius: 8, padding: '0 12px', height: 38, width: 260,
+          borderRadius: 8, padding: '0 12px', height: 38, width: 260, flexShrink: 0,
         }}>
-          <IconSearch size={16} style={{ color: 'var(--arsela-text-subtle)' }}/>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search budgets, expenses, people…" style={{
+          <IconSearch size={16} style={{ color: 'var(--arsela-text-subtle)', flexShrink: 0 }}/>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search budgets, expenses…" style={{
             flex: 1, border: 'none', outline: 'none', background: 'transparent',
-            fontSize: 13, color: 'var(--arsela-navy)', minWidth: 0, fontFamily: 'inherit',
+            fontSize: 13, color: 'var(--arsela-navy)', minWidth: 0, fontFamily: 'inherit', width: '100%',
           }}/>
-          <span style={{ fontSize: 10, color: 'var(--arsela-text-subtle)', fontWeight: 600, background: '#fff', border: '1px solid var(--arsela-border)', padding: '1px 5px', borderRadius: 4 }}>⏎</span>
+          <span className="coplan-search-kbd" style={{ fontSize: 10, color: 'var(--arsela-text-subtle)', fontWeight: 600, background: '#fff', border: '1px solid var(--arsela-border)', padding: '1px 5px', borderRadius: 4, flexShrink: 0 }}>⏎</span>
         </form>
 
-        {actions}
+        <button className="coplan-search-toggle" onClick={() => setSearchOpen((v) => !v)} aria-label="Search" style={{
+          width: 38, height: 38, borderRadius: 8, background: '#fff', border: '1px solid var(--arsela-border)',
+          display: 'none', alignItems: 'center', justifyContent: 'center', color: 'var(--arsela-navy)', cursor: 'pointer', flexShrink: 0,
+        }}>
+          <IconSearch size={16}/>
+        </button>
 
-        <RoleSwitcher role={role}/>
+        <div className="coplan-topbar-actions">{actions}</div>
+
+        <div className="coplan-role-switcher-wrap">
+          <RoleSwitcher role={role}/>
+        </div>
 
         <NotifBell count={notifCount} open={notifOpen} events={notifications}
           onToggle={() => window.Store.toggleNotif()}
           onMarkAllRead={() => window.Store.markAllNotifsRead()}/>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingLeft: 16, borderLeft: '1px solid var(--arsela-border)' }}>
-          <ArsAvatar name={roleDef.user.name} size={34} tone={roleDef.tone === 'warn' ? 'warn' : roleDef.tone === 'purple' ? 'purple' : 'navy'}/>
-          <div style={{ minWidth: 0 }}>
+        <div className="coplan-user-block" style={{ display: 'flex', alignItems: 'center', gap: 10, paddingLeft: 16, borderLeft: '1px solid var(--arsela-border)', flexShrink: 0 }}>
+          <ArsAvatar name={identity.name} size={34} tone={roleDef.tone === 'warn' ? 'warn' : roleDef.tone === 'purple' ? 'purple' : 'navy'}/>
+          <div className="coplan-user-text" style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)', whiteSpace: 'nowrap' }}>{roleDef.user.name}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)', whiteSpace: 'nowrap' }}>{identity.name}</span>
               <ArsRoleBadge role={role}/>
             </div>
-            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', whiteSpace: 'nowrap' }}>{roleDef.user.title}</div>
+            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', whiteSpace: 'nowrap' }}>{identity.title}</div>
           </div>
           <button onClick={() => { window.Store.logout(); window.Router.go('/login'); }} title="Sign out" style={{
             width: 30, height: 30, borderRadius: 8, border: '1px solid var(--arsela-border)', background: '#fff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--arsela-text-muted)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--arsela-text-muted)', flexShrink: 0,
           }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
           </button>
         </div>
+
+        {searchOpen && (
+          <form onSubmit={submitSearch} className="coplan-search-mobile-panel" style={{
+            position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff',
+            borderBottom: '1px solid var(--arsela-border)', padding: 12, display: 'flex', gap: 8,
+            boxShadow: 'var(--arsela-shadow-elevated)', zIndex: 40,
+          }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, background: '#F4F6F8', border: '1px solid var(--arsela-border)', borderRadius: 8, padding: '0 12px', height: 40 }}>
+              <IconSearch size={16} style={{ color: 'var(--arsela-text-subtle)' }}/>
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search budgets, expenses…" style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 14, color: 'var(--arsela-navy)', fontFamily: 'inherit' }}/>
+            </div>
+          </form>
+        )}
       </header>
     );
   }
@@ -397,20 +437,25 @@
   // AppFrame — the connected shell every screen renders inside.
   function AppFrame({ children, active, title, breadcrumb, topActions, width, height }) {
     const [s, setS] = useState(window.Store.getState());
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     useEffect(() => window.Store.subscribe(setS), []);
+    // Close the mobile drawer automatically whenever the active screen changes.
+    useEffect(() => { setMobileMenuOpen(false); }, [active]);
 
     const notifCount = s.notifications.filter((n) => n.unread).length;
 
     return (
-      <div className="arsela-app" style={{
+      <div className="arsela-app coplan-shell" style={{
         width: '100%', height: '100vh', display: 'flex', overflow: 'hidden',
         background: 'var(--arsela-bg)',
       }}>
-        <Sidebar active={active} role={s.role} pendingApprovals={window.Store.pendingApprovalsCount()}/>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <Sidebar active={active} role={s.role} pendingApprovals={window.Store.pendingApprovalsCount()}
+          mobileOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)}/>
+        <div className="coplan-main-col" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <Topbar title={title} breadcrumb={breadcrumb} actions={topActions} role={s.role}
-            notifOpen={s.notifOpen} notifCount={notifCount} notifications={s.notifications}/>
-          <main className="arsela-scroll" style={{ flex: 1, overflow: 'auto', padding: 28 }}>
+            notifOpen={s.notifOpen} notifCount={notifCount} notifications={s.notifications}
+            onOpenMenu={() => setMobileMenuOpen(true)}/>
+          <main className="arsela-scroll coplan-main" style={{ flex: 1, overflow: 'auto', padding: 28 }}>
             {children}
           </main>
         </div>

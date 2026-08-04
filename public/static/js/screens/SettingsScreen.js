@@ -9,7 +9,7 @@
       if (raw) return JSON.parse(raw);
     } catch (e) {}
     return {
-      orgName: 'Acme Holdings',
+      orgName: 'Arsela Resources',
       fiscalYearStart: 'January',
       currency: 'MYR',
       emailDigest: true,
@@ -81,7 +81,7 @@
       <AppFrame
         active="Settings"
         title="Settings"
-        breadcrumb={['Acme Holdings', 'Manage', 'Settings']}
+        breadcrumb={['Arsela Resources', 'Manage', 'Settings']}
         topActions={
           <ArsButton size="md" icon={<IconCheck size={15}/>} onClick={saveOrgSettings} style={{ opacity: dirty ? 1 : 0.6 }}>Save changes</ArsButton>
         }
@@ -171,13 +171,14 @@
               <ArsSectionHeader title="Your profile"/>
               {(() => {
                 const s = window.Store.getState();
-                const roleDef = window.ROLES[s.role];
+                const identity = window.ArsCurrentIdentity(s.role);
                 return (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <ArsAvatar name={roleDef.user.name} size={44} tone="blue"/>
+                    <ArsAvatar name={identity.name} size={44} tone="blue"/>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--arsela-navy)' }}>{roleDef.user.name}</div>
-                      <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)' }}>{roleDef.user.title}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--arsela-navy)' }}>{identity.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)' }}>{identity.title}</div>
+                      {identity.email && <div style={{ fontSize: 11.5, color: 'var(--arsela-text-subtle)', marginTop: 1 }}>{identity.email}</div>}
                       <div style={{ marginTop: 6 }}><ArsRoleBadge role={s.role}/></div>
                     </div>
                   </div>

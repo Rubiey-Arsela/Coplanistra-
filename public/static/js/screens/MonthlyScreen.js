@@ -25,7 +25,8 @@
             ))}
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(31, ${cellSize}px)`, gap: cellGap }}>
+        <div className="coplan-scrollx">
+        <div className="coplan-grid-fixed" style={{ display: 'grid', gridTemplateColumns: `repeat(31, ${cellSize}px)`, gap: cellGap }}>
           {daily.map((v, i) => {
             const day = i + 1;
             const isBreach = day === 8 || day === 15 || day === 21;
@@ -56,6 +57,7 @@
               />
             );
           })}
+        </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 10, color: 'var(--arsela-text-subtle)' }}>
           <span>1</span>
@@ -141,7 +143,7 @@
       <AppFrame
         active="Monthly"
         title="Monthly Monitoring"
-        breadcrumb={['Acme Holdings', 'Plan', 'Monthly Monitoring']}
+        breadcrumb={['Arsela Resources', 'Plan', 'Monthly Monitoring']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton

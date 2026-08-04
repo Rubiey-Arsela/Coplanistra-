@@ -57,7 +57,7 @@
       <AppFrame
         active="CAPEX"
         title="CAPEX Portfolio"
-        breadcrumb={['Acme Holdings', 'Financials', 'CAPEX Portfolio']}
+        breadcrumb={['Arsela Resources', 'Financials', 'CAPEX Portfolio']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Exporting CAPEX portfolio…', 'info')}>Export</ArsButton>
@@ -139,9 +139,10 @@
 
           <ArsCard>
             <ArsSectionHeader title="Depreciation schedule" subtitle="Straight-line · asset class · RM millions/year"/>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="coplan-scrollx">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 420 }}>
               {DEP_SCHEDULE.map(d => (
-                <div key={d.cls} style={{ display: 'grid', gridTemplateColumns: '110px 60px 1fr 1fr 1fr', gap: 12, alignItems: 'center', fontSize: 13 }}>
+                <div key={d.cls} className="coplan-grid-fixed" style={{ display: 'grid', gridTemplateColumns: '110px 60px 1fr 1fr 1fr', gap: 12, alignItems: 'center', fontSize: 13 }}>
                   <span style={{ color: 'var(--arsela-navy)', fontWeight: 600 }}>{d.cls}</span>
                   <span style={{ color: 'var(--arsela-text-muted)', fontSize: 12 }}>{d.life}</span>
                   <span className="arsela-num" style={{ textAlign: 'right', color: 'var(--arsela-navy)' }}>{d.y1.toFixed(1)}M</span>
@@ -149,12 +150,13 @@
                   <span className="arsela-num" style={{ textAlign: 'right', color: 'var(--arsela-navy)', fontWeight: 600 }}>{d.y10.toFixed(1)}M</span>
                 </div>
               ))}
-              <div style={{ display: 'grid', gridTemplateColumns: '110px 60px 1fr 1fr 1fr', gap: 12, marginTop: 4, fontSize: 10, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-subtle)' }}>
+              <div className="coplan-grid-fixed" style={{ display: 'grid', gridTemplateColumns: '110px 60px 1fr 1fr 1fr', gap: 12, marginTop: 4, fontSize: 10, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-subtle)' }}>
                 <span></span><span></span>
                 <span style={{ textAlign: 'right' }}>Y1</span>
                 <span style={{ textAlign: 'right' }}>Y5 cum.</span>
                 <span style={{ textAlign: 'right' }}>Y10 cum.</span>
               </div>
+            </div>
             </div>
           </ArsCard>
         </div>

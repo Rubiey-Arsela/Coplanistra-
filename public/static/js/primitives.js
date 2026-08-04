@@ -12,7 +12,7 @@ const arsCard = ({ children, style, className = '', padded = true }) => (
 );
 const ArsCard = arsCard;
 
-const ArsButton = ({ children, variant = 'primary', size = 'md', icon, iconRight, onClick, style = {}, full }) => {
+const ArsButton = ({ children, variant = 'primary', size = 'md', icon, iconRight, onClick, style = {}, full, disabled }) => {
   const sizes = {
     sm: { padding: '6px 12px', fontSize: 13, height: 30, gap: 6 },
     md: { padding: '9px 16px', fontSize: 14, height: 38, gap: 8 },
@@ -41,10 +41,11 @@ const ArsButton = ({ children, variant = 'primary', size = 'md', icon, iconRight
     danger: { background: '#fff', color: 'var(--arsela-danger)', border: '1px solid #F5C2C2' },
   };
   return (
-    <button onClick={onClick} style={{
+    <button onClick={disabled ? undefined : onClick} disabled={disabled} style={{
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
       fontFamily: 'inherit', fontWeight: 600, borderRadius: 'var(--r-md)',
-      cursor: 'pointer', whiteSpace: 'nowrap', width: full ? '100%' : 'auto',
+      cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', width: full ? '100%' : 'auto',
+      opacity: disabled ? 0.6 : 1,
       ...sizes[size], ...variants[variant], ...style,
     }}>
       {icon}{children && <span>{children}</span>}{iconRight}
@@ -294,8 +295,75 @@ const ArsLifecycle = ({ status }) => {
   );
 };
 
+/* ---- ArsModal — generic centred dialog shell used by every Add/Edit
+   form across the app (Budgets, Expenses, CAPEX, Team & Access). ---- */
+const ArsModal = ({ open, onClose, title, subtitle, children, footer, width = 480 }) => {
+  if (!open) return null;
+  return (
+    <div className="ars-modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose && onClose(); }} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,15,31,0.5)', zIndex: 200,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+      backdropFilter: 'blur(2px)',
+    }}>
+      <div className="ars-modal" style={{
+        width: '100%', maxWidth: width, maxHeight: '90vh', overflowY: 'auto',
+        background: '#fff', borderRadius: 14, boxShadow: 'var(--arsela-shadow-elevated)',
+        animation: 'ars-toast-in .15s ease-out',
+      }}>
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12,
+          padding: '18px 22px', borderBottom: '1px solid var(--arsela-border)',
+        }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--arsela-navy)' }}>{title}</div>
+            {subtitle && <div style={{ fontSize: 12.5, color: 'var(--arsela-text-muted)', marginTop: 3 }}>{subtitle}</div>}
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{
+            width: 30, height: 30, borderRadius: 8, border: '1px solid var(--arsela-border)', background: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--arsela-text-muted)', flexShrink: 0,
+          }}><IconClose size={14}/></button>
+        </div>
+        <div style={{ padding: 22 }}>{children}</div>
+        {footer && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10,
+            padding: '16px 22px', borderTop: '1px solid var(--arsela-border)', background: 'var(--arsela-surface-alt)',
+            borderRadius: '0 0 14px 14px',
+          }}>{footer}</div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/* ---- ArsConfirmDialog — a small ArsModal preset for destructive confirms
+   (Delete buttons across Budgets / Expenses / CAPEX / Team & Access). ---- */
+const ArsConfirmDialog = ({ open, onClose, onConfirm, title = 'Are you sure?', message, confirmLabel = 'Delete', danger = true }) => (
+  <ArsModal open={open} onClose={onClose} title={title} width={400}
+    footer={<>
+      <ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton>
+      <ArsButton variant={danger ? 'danger' : 'primary'} onClick={() => { onConfirm && onConfirm(); onClose && onClose(); }}>{confirmLabel}</ArsButton>
+    </>}>
+    <div style={{ fontSize: 13.5, color: 'var(--arsela-text-muted)', lineHeight: 1.6 }}>{message}</div>
+  </ArsModal>
+);
+
+/* ---- Small labelled form field wrapper, used inside ArsModal forms ---- */
+const ArsField = ({ label, children, hint }) => (
+  <label style={{ display: 'block', marginBottom: 14 }}>
+    <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>{label}</div>
+    {children}
+    {hint && <div style={{ fontSize: 11, color: 'var(--arsela-text-subtle)', marginTop: 4 }}>{hint}</div>}
+  </label>
+);
+
+const arsFieldInputStyle = {
+  width: '100%', height: 38, borderRadius: 8, border: '1px solid var(--arsela-border-strong)',
+  padding: '0 12px', fontSize: 13.5, fontFamily: 'inherit', color: 'var(--arsela-navy)', background: '#fff',
+};
+
 Object.assign(window, {
   ArsCard, ArsButton, ArsBadge, ArsInput, ArsProgress, ArsAvatar, ArsSectionHeader,
   ArsVariance, ArsFigure, ArsTabs, ArsSkeleton, ArsEmpty, ArsRAG, ArsLifecycle,
-  fmtMYR, fmtPct,
+  fmtMYR, fmtPct, ArsModal, ArsConfirmDialog, ArsField, arsFieldInputStyle,
 });

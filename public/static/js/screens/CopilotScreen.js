@@ -29,7 +29,8 @@
   const CopilotMessage = ({ role, children, chips, chart, cite, onChipClick }) => {
     const isAi = role === 'ai';
     const s = window.Store.getState();
-    const userName = (window.ROLES[s.role] && window.ROLES[s.role].user && window.ROLES[s.role].user.name) || 'You';
+    const currentUser = window.Store.getCurrentUser();
+    const userName = (currentUser && currentUser.name) || 'You';
     return (
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'flex-start' }}>
         {isAi ? (
@@ -268,7 +269,7 @@
       <AppFrame
         active="Copilot"
         title="AI Copilot"
-        breadcrumb={['Acme Holdings', 'Analyse', 'AI Copilot']}
+        breadcrumb={['Arsela Resources', 'Analyse', 'AI Copilot']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton variant="secondary" size="md" icon={<IconRefresh size={15}/>} onClick={newChat}>New conversation</ArsButton>

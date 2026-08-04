@@ -124,7 +124,7 @@
       <AppFrame
         active="Expenses"
         title="Expenses"
-        breadcrumb={['Acme Holdings', 'Plan', 'Expenses']}
+        breadcrumb={['Arsela Resources', 'Plan', 'Expenses']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Export started', 'info')}>Export</ArsButton>

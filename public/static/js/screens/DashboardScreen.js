@@ -204,7 +204,7 @@
     );
 
     return (
-      <AppFrame active="Dashboard" title="Financial Overview" breadcrumb={['Acme Holdings', 'Plan', 'Dashboard']} topActions={roleActions}>
+      <AppFrame active="Dashboard" title="Financial Overview" breadcrumb={['Arsela Resources', 'Plan', 'Dashboard']} topActions={roleActions}>
         <div className="coplan-page">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>

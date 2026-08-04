@@ -20,3 +20,117 @@ button { font-family: inherit; }
   height: 100vh; display: flex; align-items: center; justify-content: center;
   background: var(--arsela-navy); color: #fff; font-family: 'Inter', sans-serif;
 }
+
+/* ============================================================
+   Responsive shell: sidebar off-canvas drawer + topbar collapse
+   ============================================================ */
+
+/* Sidebar: desktop default = static, always visible in flow */
+.coplan-sidebar {
+  position: relative;
+  transition: transform 0.22s ease;
+}
+.coplan-sidebar-overlay { display: none; }
+.coplan-sidebar-close { display: none !important; }
+
+/* Tablet & mobile: sidebar becomes a fixed off-canvas drawer */
+@media (max-width: 1024px) {
+  .coplan-hamburger { display: flex !important; }
+
+  .coplan-sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 120;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 24px rgba(0,0,0,0.25);
+  }
+  .coplan-sidebar.is-open {
+    transform: translateX(0);
+  }
+  .coplan-sidebar-close { display: flex !important; }
+  .coplan-sidebar-overlay {
+    display: block;
+    position: fixed; inset: 0; z-index: 110;
+    background: rgba(0,15,31,0.45);
+    animation: coplan-fade 0.15s ease-out;
+  }
+
+  /* Topbar: hide the inline search box, show the icon toggle instead */
+  .coplan-search-form { display: none !important; }
+  .coplan-search-toggle { display: flex !important; }
+  .coplan-topbar { padding: 0 14px !important; gap: 10px !important; }
+  .coplan-role-switcher-wrap { display: none; }
+}
+
+@media (min-width: 1025px) {
+  .coplan-search-mobile-panel { display: none !important; }
+}
+
+/* Small tablet / large phone: trim non-essential topbar chrome */
+@media (max-width: 860px) {
+  .coplan-breadcrumb { display: none !important; }
+  .coplan-user-text { display: none; }
+  .coplan-user-block { padding-left: 8px !important; border-left: none !important; gap: 6px !important; }
+}
+
+/* Phone: further collapse topbar + main padding */
+@media (max-width: 640px) {
+  .coplan-topbar { padding: 0 10px !important; gap: 8px !important; height: 56px !important; }
+  .coplan-topbar-title { min-width: 0; }
+  .coplan-main { padding: 14px !important; }
+  .coplan-sidebar { width: 82vw !important; max-width: 280px; }
+  .coplan-notif-panel { width: min(360px, calc(100vw - 24px)) !important; right: -8px !important; }
+  .ars-modal { max-width: calc(100vw - 24px) !important; }
+}
+
+@media (max-width: 480px) {
+  /* Keep the primary action visible but drop any secondary ones after it
+     to avoid the topbar overflowing on very narrow phones. */
+  .coplan-topbar-actions > *:nth-child(n+2) { display: none; }
+}
+
+/* ============================================================
+   Responsive grid fallback for the ~48 hardcoded inline
+   `gridTemplateColumns` layouts across screens. Rather than
+   editing every screen individually, collapse the common
+   multi-column stat/split layouts at tablet & phone widths.
+   `!important` is required to beat the inline `style` attribute.
+   Any grid that must NOT stack (calendar heatmaps, aligned table
+   rows) is given the `.coplan-grid-fixed` escape-hatch class and
+   wrapped in a horizontal-scroll container instead — see the
+   per-screen `.coplan-scrollx` rule below.
+   ============================================================ */
+@media (max-width: 1180px) {
+  .arsela-app div[style*="repeat(4,1fr)"]:not(.coplan-grid-fixed),
+  .arsela-app div[style*="repeat(4, 1fr)"]:not(.coplan-grid-fixed),
+  .arsela-app div[style*="repeat(5, 1fr)"]:not(.coplan-grid-fixed) {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+@media (max-width: 860px) {
+  .arsela-app div[style*="grid-template-columns"]:not(.coplan-grid-fixed) {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Horizontal-scroll escape hatch for grids that must keep their column
+   alignment (calendar heatmaps, table-style rows with a header) rather
+   than stack — prevents clipping without destroying row alignment. */
+.coplan-scrollx { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.coplan-scrollx > * { min-width: max-content; }
+
+/* Approvals list+detail split: remove the fixed 780px height once it
+   stacks into a single column, so both panels size to their content. */
+@media (max-width: 860px) {
+  .coplan-approvals-grid { height: auto !important; }
+}
+
+/* Login screen: drop the decorative right-hand hero panel on
+   tablet/mobile so the sign-in form gets the full viewport width. */
+@media (max-width: 900px) {
+  .coplan-login-hero { display: none !important; }
+  .coplan-login-form { flex: 1 1 100% !important; padding: 32px 24px !important; }
+}
+@media (max-width: 480px) {
+  .coplan-login-form { padding: 24px 18px !important; }
+}

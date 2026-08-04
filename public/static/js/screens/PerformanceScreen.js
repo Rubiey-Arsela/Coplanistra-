@@ -22,13 +22,14 @@
       : (kpi.actual >= kpi.target ? 'G' : kpi.actual >= kpi.target * 0.9 ? 'A' : 'R');
     const varPct = ((kpi.actual - kpi.target) / kpi.target) * 100;
     return (
-      <div onClick={onClick} style={{
+      <div onClick={onClick} className="coplan-grid-fixed" style={{
         display: 'grid',
         gridTemplateColumns: '1fr 100px 100px 90px 110px 60px',
         alignItems: 'center', gap: 12,
         padding: '14px 20px',
         borderBottom: '1px solid var(--arsela-border)',
         cursor: onClick ? 'pointer' : 'default',
+        minWidth: 640,
       }}
       onMouseEnter={e => onClick && (e.currentTarget.style.background = 'var(--arsela-surface-alt)')}
       onMouseLeave={e => onClick && (e.currentTarget.style.background = 'transparent')}>
@@ -60,11 +61,13 @@
         </div>
         <ArsBadge tone="navy" size="sm">{count} KPIs</ArsBadge>
       </div>
-      <div style={{
+      <div className="coplan-scrollx">
+      <div className="coplan-grid-fixed" style={{
         display: 'grid', gridTemplateColumns: '1fr 100px 100px 90px 110px 60px', gap: 12,
         padding: '10px 20px', background: 'var(--arsela-surface-alt)',
         fontSize: 10, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-muted)',
         borderBottom: '1px solid var(--arsela-border)',
+        minWidth: 640,
       }}>
         <span>KPI</span>
         <span style={{ textAlign: 'right' }}>Target</span>
@@ -74,6 +77,7 @@
         <span style={{ textAlign: 'right' }}>RAG</span>
       </div>
       {kpis.map((k, i) => <KpiRow key={i} kpi={k} onClick={onKpiClick ? () => onKpiClick(k) : undefined}/>)}
+      </div>
     </ArsCard>
   );
 
@@ -135,7 +139,7 @@
       <AppFrame
         active="Performance"
         title="Performance & KPIs"
-        breadcrumb={['Acme Holdings', 'Financials', 'Performance & KPIs']}
+        breadcrumb={['Arsela Resources', 'Financials', 'Performance & KPIs']}
         topActions={
           <div style={{ display: 'flex', gap: 8, position: 'relative' }} ref={periodRef}>
             <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => setShowPeriodMenu(v => !v)}>{period}</ArsButton>

@@ -64,7 +64,7 @@
 
     if (!selected) {
       return (
-        <AppFrame active="Approvals" title="Approvals" breadcrumb={['Acme Holdings', 'Plan', 'Approvals']}>
+        <AppFrame active="Approvals" title="Approvals" breadcrumb={['Arsela Resources', 'Plan', 'Approvals']}>
           <ArsEmpty icon={<IconApproval size={22}/>} title="No approvals" body="You're all caught up."/>
         </AppFrame>
       );
@@ -98,7 +98,7 @@
       <AppFrame
         active="Approvals"
         title="Approvals"
-        breadcrumb={['Acme Holdings', 'Plan', 'Approvals']}
+        breadcrumb={['Arsela Resources', 'Plan', 'Approvals']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton variant="secondary" size="md" icon={<IconFilter size={15}/>} onClick={() => window.Store.toast('Filter (demo)', 'info')}>Filter</ArsButton>
@@ -108,7 +108,7 @@
       >
         <div className="coplan-page">
           <ArsCard padded={false} style={{ overflow: 'hidden' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', height: 780 }}>
+            <div className="coplan-approvals-grid" style={{ display: 'grid', gridTemplateColumns: '360px 1fr', height: 780 }}>
               <div style={{ borderRight: '1px solid var(--arsela-border)', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--arsela-border)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

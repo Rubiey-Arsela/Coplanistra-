@@ -105,7 +105,7 @@
       <AppFrame
         active="Quarterly"
         title="Quarterly Planning"
-        breadcrumb={['Acme Holdings', 'Plan', 'Quarterly']}
+        breadcrumb={['Arsela Resources', 'Plan', 'Quarterly']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton variant="secondary" size="md" icon={<IconRefresh size={15}/>} onClick={() => window.Store.toast('Copied figures from Q2', 'info')}>Copy from Q2</ArsButton>

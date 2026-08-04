@@ -10,11 +10,11 @@
   );
 
   function LoginScreen() {
-    const [email, setEmail] = useState('keith.johnson@acmeholdings.com');
-    const [password, setPassword] = useState('demo1234');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [showPw, setShowPw] = useState(false);
-    const [role, setRole] = useState('finance');
     const [error, setError] = useState('');
+    const [submitting, setSubmitting] = useState(false);
 
     const submit = (e) => {
       e.preventDefault();
@@ -22,17 +22,23 @@
         setError('Please enter your email and password.');
         return;
       }
+      setSubmitting(true);
+      const result = window.Store.login(email.trim(), password);
+      setSubmitting(false);
+      if (!result.ok) {
+        setError(result.error || 'Sign in failed. Please try again.');
+        return;
+      }
       setError('');
-      window.Store.login(role);
       window.Router.go('/dashboard');
     };
 
     return (
-      <div className="arsela-app coplan-page" style={{
+      <div className="arsela-app coplan-page coplan-login" style={{
         width: '100%', height: '100vh', display: 'flex', overflow: 'hidden', background: '#fff',
       }}>
         {/* Left: form */}
-        <div style={{
+        <div className="coplan-login-form" style={{
           flex: '0 0 52%', display: 'flex', flexDirection: 'column',
           padding: '48px 72px', background: '#fff', position: 'relative', overflowY: 'auto',
         }}>
@@ -66,17 +72,13 @@
                 </div>
               </label>
 
-              <label style={{ display: 'block' }}>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Sign in as (demo role)</div>
-                <select value={role} onChange={(e) => setRole(e.target.value)} style={{
-                  width: '100%', height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)',
-                  padding: '0 12px', fontSize: 14, fontFamily: 'inherit', color: 'var(--arsela-navy)', background: '#fff',
-                }}>
-                  {Object.values(window.ROLES).map((r) => <option key={r.id} value={r.id}>{r.label} — {r.user.name}</option>)}
-                </select>
-              </label>
-
-              {error && <div style={{ fontSize: 12.5, color: 'var(--danger)', fontWeight: 600 }}>{error}</div>}
+              {error && (
+                <div style={{
+                  fontSize: 12.5, color: 'var(--danger)', fontWeight: 600,
+                  background: 'var(--danger-50)', border: '1px solid #F5C2C2',
+                  borderRadius: 8, padding: '9px 12px',
+                }}>{error}</div>
+              )}
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--arsela-navy)', cursor: 'pointer' }}>
@@ -86,19 +88,15 @@
                 <a style={{ fontSize: 13, color: 'var(--arsela-blue)', fontWeight: 600, textDecoration: 'none', cursor: 'pointer' }} onClick={() => window.Store.toast('Password reset link sent (demo)', 'info')}>Forgot password?</a>
               </div>
 
-              <ArsButton size="lg" full style={{ marginTop: 8 }} onClick={submit}>Sign in</ArsButton>
+              <ArsButton size="lg" full style={{ marginTop: 8 }} onClick={submit} disabled={submitting}>{submitting ? 'Signing in…' : 'Sign in'}</ArsButton>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '8px 0' }}>
-                <div style={{ flex: 1, height: 1, background: 'var(--arsela-border)' }}/>
-                <span style={{ fontSize: 11, color: 'var(--arsela-text-subtle)', fontWeight: 600, letterSpacing: 1.2 }}>OR</span>
-                <div style={{ flex: 1, height: 1, background: 'var(--arsela-border)' }}/>
+              <div style={{
+                marginTop: 8, fontSize: 11.5, color: 'var(--arsela-text-subtle)',
+                background: 'var(--arsela-surface-alt)', border: '1px solid var(--arsela-border)',
+                borderRadius: 8, padding: '10px 12px', lineHeight: 1.5,
+              }}>
+                Sign in with your company email address. Default password: <strong style={{ color: 'var(--arsela-text-muted)' }}>Arsela123</strong>
               </div>
-
-              <ArsButton variant="secondary" size="lg" full onClick={() => { window.Store.login(role); window.Router.go('/dashboard'); }} icon={
-                <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.6 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2c-2 1.4-4.5 2.4-7.2 2.4-5.2 0-9.6-3.3-11.3-8L6.2 32.6C9.5 39.1 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.2 4.2-4.1 5.6l6.2 5.2c-.4.4 6.6-4.8 6.6-14.8 0-1.3-.1-2.4-.4-3.5z"/></svg>
-              }>Sign in with Google Workspace</ArsButton>
-
-              <ArsButton variant="secondary" size="lg" full icon={<IconShield size={17}/>} onClick={() => { window.Store.login(role); window.Router.go('/dashboard'); }}>Use Single Sign-On (SSO)</ArsButton>
             </div>
           </form>
 
@@ -114,7 +112,7 @@
         </div>
 
         {/* Right: gradient panel */}
-        <div style={{
+        <div className="coplan-login-hero" style={{
           flex: 1, position: 'relative', overflow: 'hidden',
           background: 'linear-gradient(135deg, #0D3AB8 0%, #001F3D 60%, #000C1F 100%)',
           display: 'flex', flexDirection: 'column',

@@ -104,7 +104,7 @@
       setSubmitting(true);
       const record = window.Store.addBudget({
         name: name.trim(),
-        owner: s.role === 'employee' ? window.ROLES.employee.user.name : window.ROLES.finance.user.name,
+        owner: (window.Store.getCurrentUser() && window.Store.getCurrentUser().name) || 'Unknown',
         dept,
         period: 'FY2027',
         allocated: totalNum,
@@ -118,7 +118,7 @@
       <AppFrame
         active="Budgets"
         title="New Budget"
-        breadcrumb={['Acme Holdings', 'Plan', 'Budgets', 'New']}
+        breadcrumb={['Arsela Resources', 'Plan', 'Budgets', 'New']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton variant="ghost" size="md" onClick={() => window.Router.go('/budgets')}>Cancel</ArsButton>

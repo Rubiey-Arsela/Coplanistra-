@@ -119,7 +119,7 @@
       <AppFrame
         active="Cash Flow"
         title="Cash Flow Planning"
-        breadcrumb={['Acme Holdings', 'Financials', 'Cash Flow']}
+        breadcrumb={['Arsela Resources', 'Financials', 'Cash Flow']}
         topActions={
           <div style={{ display: 'flex', gap: 8, position: 'relative' }} ref={periodRef}>
             <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => setShowPeriodMenu(v => !v)}>{period}</ArsButton>

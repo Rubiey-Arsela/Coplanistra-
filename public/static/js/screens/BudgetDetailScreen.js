@@ -60,7 +60,7 @@
 
     if (!budget) {
       return (
-        <AppFrame active="Budgets" title="Budget not found" breadcrumb={['Acme Holdings', 'Plan', 'Budgets']}>
+        <AppFrame active="Budgets" title="Budget not found" breadcrumb={['Arsela Resources', 'Plan', 'Budgets']}>
           <ArsEmpty icon={<IconWallet size={22}/>} title="Budget not found" body={`No budget matches "${id}".`}
             action={<ArsButton onClick={() => window.Router.go('/budgets')}>Back to Budgets</ArsButton>}/>
         </AppFrame>
@@ -88,7 +88,7 @@
       <AppFrame
         active="Budgets"
         title={budget.name}
-        breadcrumb={['Acme Holdings', 'Plan', 'Budgets', budget.id]}
+        breadcrumb={['Arsela Resources', 'Plan', 'Budgets', budget.id]}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Export started', 'info')}>Export</ArsButton>

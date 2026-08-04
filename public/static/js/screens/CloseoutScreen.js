@@ -125,7 +125,7 @@
       <AppFrame
         active="FY Closeout"
         title="Fiscal Year Closeout · FY 2026"
-        breadcrumb={['Acme Holdings', 'Plan', 'Budgets', 'FY Closeout']}
+        breadcrumb={['Arsela Resources', 'Plan', 'Budgets', 'FY Closeout']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Exporting closeout report…', 'info')}>Export report</ArsButton>

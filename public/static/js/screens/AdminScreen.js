@@ -78,7 +78,7 @@
       <AppFrame
         active="Team & Access"
         title="Team & Access"
-        breadcrumb={['Acme Holdings','Manage','Team & Access']}
+        breadcrumb={['Arsela Resources','Manage','Team & Access']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton variant="secondary" size="md" icon={<IconDownload size={15}/>} onClick={() => window.Store.toast(`Exporting ${users.length} members to CSV…`, 'info')}>Export list</ArsButton>
