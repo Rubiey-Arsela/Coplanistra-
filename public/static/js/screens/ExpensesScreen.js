@@ -1,0 +1,306 @@
+/* Expenses screen — wired to Store, LIVE routing preview reacts to form input in real time */
+(function () {
+  const { useState, useEffect, useMemo } = React;
+
+  const CATEGORIES = ['Maintenance', 'IT & Software', 'HR', 'Machinery', 'Professional Fees', 'Travel', 'Other'];
+  // 3-tier approval routing per design spec:
+  //  < RM25K            -> Dept Manager only
+  //  RM25K - RM250K      -> Dept Manager -> Finance Manager
+  //  > RM250K            -> Dept Manager -> Finance Manager -> CFO / Executive
+  const ROUTING_TIER1 = 25_000;
+  const ROUTING_TIER2 = 250_000;
+
+  function RoutingPreview({ amount, dept }) {
+    const amt = Number(amount) || 0;
+    const deptManager = { 'Ports & Logistics': 'Faris H.', 'Digital & Data': 'Marcus L.', 'People & Culture': 'Priya N.', 'Energy & Assets': 'Zara M.', Property: 'Nurul A.', Aviation: 'Iman S.', Sustainability: 'Nadia Y.', Corporate: 'Keith J.' }[dept] || 'Dept Manager';
+    const needsFinance = amt >= ROUTING_TIER1;
+    const needsExec = amt >= ROUTING_TIER2;
+    let turnaround = '0.6 days';
+    if (needsExec) turnaround = '3.2 days'; else if (needsFinance) turnaround = '1.4 days';
+    return (
+      <div style={{ background: '#EEF3FF', border: '1px solid #D6E1FF', borderRadius: 8, padding: 12, marginTop: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+          <IconApproval size={14} style={{ color: 'var(--arsela-blue)' }}/>
+          <span style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-blue)', fontWeight: 700 }}>This will route to</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+          <ArsAvatar name={deptManager} size={22} tone="blue"/>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deptManager}</div>
+            <div style={{ fontSize: 10, color: 'var(--arsela-text-muted)' }}>Dept Manager</div>
+          </div>
+          {(needsFinance || needsExec) && <IconChevronRight size={12} style={{ color: 'var(--arsela-text-subtle)', flexShrink: 0 }}/>}
+          {needsFinance ? (
+            <>
+              <ArsAvatar name="Priya Nair" size={22} tone="teal"/>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Priya N.</div>
+                <div style={{ fontSize: 10, color: 'var(--arsela-text-muted)' }}>Finance Manager</div>
+              </div>
+            </>
+          ) : null}
+          {needsExec ? (
+            <>
+              <IconChevronRight size={12} style={{ color: 'var(--arsela-text-subtle)', flexShrink: 0 }}/>
+              <ArsAvatar name="Keith Johnson" size={22} tone="navy"/>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Keith J.</div>
+                <div style={{ fontSize: 10, color: 'var(--arsela-text-muted)' }}>CFO / Executive</div>
+              </div>
+            </>
+          ) : null}
+          <IconChevronRight size={12} style={{ color: 'var(--arsela-text-subtle)', flexShrink: 0 }}/>
+          <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--success)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><IconCheck size={13}/></div>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 10, lineHeight: 1.4 }}>
+          {needsExec
+            ? <>Amount {fmtMYR(amt)} exceeds {fmtMYR(ROUTING_TIER2)} — routes through <b style={{ color: 'var(--arsela-navy)' }}>Finance Manager</b> then <b style={{ color: 'var(--arsela-navy)' }}>CFO / Executive</b>. Est. turnaround <b style={{ color: 'var(--arsela-navy)' }}>{turnaround}</b>.</>
+            : needsFinance
+            ? <>Amount {fmtMYR(amt)} is between {fmtMYR(ROUTING_TIER1)} and {fmtMYR(ROUTING_TIER2)} — routes to <b style={{ color: 'var(--arsela-navy)' }}>Finance Manager</b> after department approval. Est. turnaround <b style={{ color: 'var(--arsela-navy)' }}>{turnaround}</b>.</>
+            : <>Amount {fmtMYR(amt)} is within department manager's approval limit ({fmtMYR(ROUTING_TIER1)}). Est. turnaround <b style={{ color: 'var(--arsela-navy)' }}>{turnaround}</b>.</>}
+        </div>
+      </div>
+    );
+  }
+
+  function ExpensesScreen() {
+    const [s, setS] = useState(window.Store.getState());
+    useEffect(() => window.Store.subscribe(setS), []);
+
+    const [tab, setTab] = useState('All');
+    const [q, setQ] = useState('');
+
+    // Quick-add form state — drives the LIVE routing preview
+    const [desc, setDesc] = useState('');
+    const [amount, setAmount] = useState('');
+    const [dept, setDept] = useState(s.budgets[0]?.dept || 'Ports & Logistics');
+    const [budgetId, setBudgetId] = useState(s.budgets[0]?.id || '');
+    const [category, setCategory] = useState(CATEGORIES[0]);
+    const [vendor, setVendor] = useState('');
+
+    const expenses = s.expenses;
+    const counts = useMemo(() => ({
+      All: expenses.length,
+      Pending: expenses.filter((e) => e.status === 'pending').length,
+      Approved: expenses.filter((e) => e.status === 'approved').length,
+      Rejected: expenses.filter((e) => e.status === 'rejected').length,
+    }), [expenses]);
+
+    const filtered = useMemo(() => expenses.filter((e) => {
+      if (tab !== 'All' && e.status.toLowerCase() !== tab.toLowerCase()) return false;
+      if (q.trim() && !e.desc.toLowerCase().includes(q.trim().toLowerCase()) && !e.vendor.toLowerCase().includes(q.trim().toLowerCase())) return false;
+      return true;
+    }), [expenses, tab, q]);
+
+    const submittedThisMonth = expenses.reduce((sum, e) => sum + e.amount, 0);
+    const pendingSum = expenses.filter((e) => e.status === 'pending').reduce((sum, e) => sum + e.amount, 0);
+    const approvedSum = expenses.filter((e) => e.status === 'approved').reduce((sum, e) => sum + e.amount, 0);
+
+    const selectedBudget = s.budgets.find((b) => b.id === budgetId);
+
+    const resetForm = () => {
+      setDesc(''); setAmount(''); setVendor('');
+    };
+
+    const submitExpense = (draft) => {
+      if (!draft && (!desc.trim() || !amount || Number(amount) <= 0)) {
+        window.Store.toast('Please enter a description and amount', 'danger');
+        return;
+      }
+      window.Store.addExpense({
+        desc: desc.trim() || 'Untitled expense',
+        amount: Number(amount) || 0,
+        dept,
+        vendor: vendor.trim() || 'Unspecified',
+        category,
+        draft,
+      });
+      resetForm();
+    };
+
+    const statusTone = { pending: 'warning', approved: 'success', rejected: 'danger' };
+
+    return (
+      <AppFrame
+        active="Expenses"
+        title="Expenses"
+        breadcrumb={['Acme Holdings', 'Plan', 'Expenses']}
+        topActions={
+          <div style={{ display: 'flex', gap: 8 }}>
+            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Export started', 'info')}>Export</ArsButton>
+            <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => document.getElementById('quick-add-desc')?.focus()}>New Expense</ArsButton>
+          </div>
+        }
+      >
+        <div className="coplan-page">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20 }}>
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 20 }}>
+                {[
+                  { l: 'Submitted total', v: fmtMYR(submittedThisMonth, { compact: true }), d: `${expenses.length} items`, tone: 'blue' },
+                  { l: 'Pending approval', v: fmtMYR(pendingSum, { compact: true }), d: `${counts.Pending} items`, tone: 'warning' },
+                  { l: 'Approved', v: fmtMYR(approvedSum, { compact: true }), d: `${counts.Approved} items`, tone: 'success' },
+                ].map((st, i) => (
+                  <ArsCard key={i}>
+                    <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>{st.l}</div>
+                    <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8, letterSpacing: -0.3 }}>{st.v}</div>
+                    <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{st.d}</div>
+                  </ArsCard>
+                ))}
+              </div>
+
+              <ArsCard padded={false}>
+                <div style={{ display: 'flex', borderBottom: '1px solid var(--arsela-border)', padding: '0 20px', gap: 4 }}>
+                  {['All', 'Pending', 'Approved', 'Rejected'].map((label) => (
+                    <div key={label} onClick={() => setTab(label)} style={{
+                      padding: '14px 14px', fontSize: 13, fontWeight: 600,
+                      color: tab === label ? 'var(--arsela-navy)' : 'var(--arsela-text-muted)',
+                      borderBottom: tab === label ? '2px solid var(--arsela-blue)' : '2px solid transparent',
+                      marginBottom: -1, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                    }}>
+                      {label}
+                      <span style={{ fontSize: 11, background: tab === label ? 'var(--arsela-blue-50)' : '#F1F3F7', color: tab === label ? 'var(--arsela-blue)' : 'var(--arsela-text-muted)', padding: '1px 7px', borderRadius: 999, fontWeight: 700 }}>{counts[label]}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ padding: '12px 20px', display: 'flex', gap: 8, borderBottom: '1px solid var(--arsela-border)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#F4F6F8', border: '1px solid var(--arsela-border)', borderRadius: 8, padding: '0 12px', height: 34, width: 260 }}>
+                    <IconSearch size={14} style={{ color: 'var(--arsela-text-subtle)' }}/>
+                    <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search expenses…" style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, fontFamily: 'inherit' }}/>
+                  </div>
+                </div>
+
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#FAFBFD', borderBottom: '1px solid var(--arsela-border)' }}>
+                      {['ID', 'Description', 'Vendor', 'Category', 'Amount', 'Status', ''].map((h, i) => (
+                        <th key={i} style={{ textAlign: h === 'Amount' ? 'right' : 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.6, textTransform: 'uppercase' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((e, i) => (
+                      <tr key={e.id} style={{ borderBottom: i < filtered.length - 1 ? '1px solid var(--arsela-border)' : 'none' }}>
+                        <td className="arsela-mono" style={{ padding: '12px 14px', fontSize: 12, color: 'var(--arsela-text-muted)' }}>{e.id}</td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>{e.desc}</div>
+                          <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{e.when} · {e.dept}</div>
+                        </td>
+                        <td style={{ padding: '12px 14px', fontSize: 13, color: 'var(--arsela-navy)' }}>{e.vendor}</td>
+                        <td style={{ padding: '12px 14px' }}><ArsBadge tone="neutral" size="sm">{e.category}</ArsBadge></td>
+                        <td className="arsela-num" style={{ padding: '12px 14px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(e.amount)}</td>
+                        <td style={{ padding: '12px 14px' }}><ArsBadge tone={statusTone[e.status] || 'neutral'} dot size="sm">{e.status}</ArsBadge></td>
+                        <td style={{ padding: '12px 14px' }}><IconMore size={16} style={{ color: 'var(--arsela-text-subtle)', cursor: 'pointer' }}/></td>
+                      </tr>
+                    ))}
+                    {filtered.length === 0 && (
+                      <tr><td colSpan={7}><ArsEmpty icon={<IconReceipt size={22}/>} title="No expenses found" body="Try a different tab or search term."/></td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </ArsCard>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <ArsCard>
+                <ArsSectionHeader title="Quick add expense" subtitle="Draft in seconds — routing updates live"/>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <label style={{ display: 'block' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Description</div>
+                    <input id="quick-add-desc" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="e.g. Fleet servicing — Port Klang yard" style={{
+                      width: '100%', height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 14, fontFamily: 'inherit', color: 'var(--arsela-navy)', boxSizing: 'border-box',
+                    }}/>
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <label style={{ display: 'block' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Amount (RM)</div>
+                      <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" style={{
+                        width: '100%', height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 14, fontFamily: 'inherit', color: 'var(--arsela-navy)', boxSizing: 'border-box',
+                      }}/>
+                    </label>
+                    <ArsInput label="Date" value={new Date().toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' })} icon={<IconCalendar size={14}/>}/>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Budget</div>
+                    <select value={budgetId} onChange={(e) => {
+                      const b = s.budgets.find((bb) => bb.id === e.target.value);
+                      setBudgetId(e.target.value);
+                      if (b) setDept(b.dept);
+                    }} style={{
+                      width: '100%', height: 42, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 13, fontFamily: 'inherit', color: 'var(--arsela-navy)', background: '#fff',
+                    }}>
+                      {s.budgets.map((b) => <option key={b.id} value={b.id}>{b.name} — {b.id}</option>)}
+                    </select>
+                    {selectedBudget && <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{fmtMYR(Math.max(0, selectedBudget.allocated - selectedBudget.spent), { compact: true })} remaining</div>}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Category</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {CATEGORIES.slice(0, 5).map((c) => (
+                          <button key={c} onClick={() => setCategory(c)} style={{
+                            padding: '5px 10px', fontSize: 12, fontWeight: 600, borderRadius: 999,
+                            background: category === c ? 'var(--arsela-blue-50)' : '#fff', color: category === c ? 'var(--arsela-blue)' : 'var(--arsela-navy)',
+                            border: '1px solid ' + (category === c ? '#D6E1FF' : 'var(--arsela-border-strong)'),
+                            cursor: 'pointer', fontFamily: 'inherit',
+                          }}>{c}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <label style={{ display: 'block' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Vendor</div>
+                      <input value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="Vendor name" style={{
+                        width: '100%', height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 14, fontFamily: 'inherit', color: 'var(--arsela-navy)', boxSizing: 'border-box',
+                      }}/>
+                    </label>
+                  </div>
+
+                  <div style={{
+                    border: '1.5px dashed var(--arsela-border-strong)', borderRadius: 8,
+                    padding: 16, textAlign: 'center', background: '#FAFBFD', cursor: 'pointer',
+                  }} onClick={() => window.Store.toast('Receipt upload (demo)', 'info')}>
+                    <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--arsela-blue-50)', color: 'var(--arsela-blue)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                      <IconFile size={18}/>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>Drop receipt or invoice</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 3 }}>PDF, PNG, JPG · up to 20MB</div>
+                  </div>
+
+                  <RoutingPreview amount={amount} dept={dept}/>
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                    <ArsButton variant="secondary" full onClick={() => submitExpense(true)}>Save draft</ArsButton>
+                    <ArsButton full onClick={() => submitExpense(false)}>Submit</ArsButton>
+                  </div>
+                </div>
+              </ArsCard>
+
+              <ArsCard>
+                <ArsSectionHeader title="Top vendors · MTD"/>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[
+                    ['ProConst Sdn Bhd', 892000, 92],
+                    ['SolarVest Holdings', 612500, 63],
+                    ['Amazon Web Services', 480000, 49],
+                    ['Vertiv Malaysia', 428900, 44],
+                  ].map(([n, v, p], i) => (
+                    <div key={i}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 4 }}>
+                        <span style={{ color: 'var(--arsela-navy)', fontWeight: 600 }}>{n}</span>
+                        <span className="arsela-num" style={{ color: 'var(--arsela-navy)', fontWeight: 700 }}>{fmtMYR(v, { compact: true })}</span>
+                      </div>
+                      <ArsProgress value={p} tone="blue" height={4}/>
+                    </div>
+                  ))}
+                </div>
+              </ArsCard>
+            </div>
+          </div>
+        </div>
+      </AppFrame>
+    );
+  }
+
+  Object.assign(window, { ExpensesScreen });
+})();

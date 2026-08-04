@@ -1,0 +1,22 @@
+/* Coplanistra — app-level styles layered on top of tokens.css */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; background: var(--arsela-bg); }
+#root { height: 100%; }
+a { color: inherit; }
+input, button, textarea, select { font-family: inherit; }
+button { font-family: inherit; }
+
+@keyframes ars-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Simple page transition */
+.coplan-page { animation: coplan-fade .15s ease-out; }
+@keyframes coplan-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* Loading splash */
+.coplan-splash {
+  height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: var(--arsela-navy); color: #fff; font-family: 'Inter', sans-serif;
+}

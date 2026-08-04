@@ -1,0 +1,198 @@
+/* ============================================================
+   Arsela Resources — Design System Tokens (v2)
+   For Coplanistra (Budgeting App)
+   Refinements: semantic colours w/ meaning, WCAG-AA contrast,
+   tokenised type scale, tabular figures, focus rings.
+   ============================================================ */
+
+:root {
+  /* ---- Brand ---- */
+  --arsela-navy:      #001F3D;   /* AA on white ✓ */
+  --arsela-navy-700:  #0B2A4D;
+  --arsela-navy-600:  #14375E;
+  --arsela-blue:      #1343CB;   /* AA on white ✓ */
+  --arsela-blue-600:  #2657DB;
+  --arsela-blue-50:   #EEF3FF;
+
+  /* Teal — brand accent. Fails AA for small text on white, so
+     - use --teal-brand for chart fills, icons ≥ 20px, large text ≥ 18px
+     - use --teal-text for any small text (darker, AA-compliant) */
+  --teal-brand:       #00A896;   /* accent / chart fill */
+  --teal-text:        #007A6E;   /* AA-safe small text */
+  --arsela-teal:      var(--teal-brand);   /* alias */
+  --arsela-teal-600:  var(--teal-text);
+  --arsela-teal-50:   #E6F7F4;
+
+  /* ---- Neutrals ---- */
+  --arsela-bg:            #F4F6F8;
+  --arsela-card:          #FFFFFF;
+  --arsela-surface-alt:   #FAFBFD;
+  --arsela-border:        #E2E6F0;
+  --arsela-border-strong: #CED4E0;
+  --arsela-text:          #001F3D;
+  --arsela-text-muted:    #5B6B82;
+  --arsela-text-subtle:   #8492A6;
+
+  /* ---- Semantic (financial meaning) ---- */
+  /* Success = under plan / savings / approved */
+  --success:      #1A8754;   /* AA on white ✓ */
+  --success-500:  #16A34A;   /* chart fill / bg gradients */
+  --success-50:   #ECFDF3;
+
+  /* Warning = at risk / nearing cap / pending */
+  --warning:      #B4740A;   /* AA-safe small text */
+  --warning-500:  #E0A100;   /* chart / bg accents */
+  --warning-50:   #FFF8E6;
+
+  /* Danger = over plan / breach / rejected */
+  --danger:       #D64045;   /* AA on white ✓ */
+  --danger-500:   #EF4444;   /* chart / bg */
+  --danger-50:    #FEECEC;
+
+  /* Info = neutral notice / in-progress */
+  --info:         #1343CB;   /* same as brand blue */
+  --info-50:      #EEF3FF;
+
+  /* Legacy aliases (used by earlier screens) */
+  --arsela-success:      var(--success);
+  --arsela-success-50:   var(--success-50);
+  --arsela-warning:      var(--warning-500);
+  --arsela-warning-50:   var(--warning-50);
+  --arsela-danger:       var(--danger);
+  --arsela-danger-50:    var(--danger-50);
+
+  /* ---- Effects ---- */
+  --arsela-shadow-card:     0 1px 2px rgba(0,31,61,0.04), 0 1px 3px rgba(0,31,61,0.03);
+  --arsela-shadow-hover:    0 4px 12px rgba(0,31,61,0.08);
+  --arsela-shadow-elevated: 0 12px 32px rgba(0,31,61,0.10);
+  --arsela-gradient-brand:   linear-gradient(135deg, #1343CB 0%, #001F3D 100%);
+  --arsela-gradient-teal:    linear-gradient(135deg, #1343CB 0%, #00A896 100%);
+  --arsela-gradient-sidebar: linear-gradient(180deg, #001F3D 0%, #001126 100%);
+  --arsela-gradient-ai:      linear-gradient(135deg, #14375E 0%, #007A6E 100%);
+
+  /* ---- Radii ---- */
+  --r-xs: 4px;  --r-sm: 6px;  --r-md: 8px;  --r-lg: 12px;  --r-xl: 16px;  --r-2xl: 20px;  --r-full: 999px;
+
+  /* ---- Type scale (tokenised: 12/14/16/20/24/32) ---- */
+  --fs-xs:   12px;   --lh-xs:   1.5;
+  --fs-sm:   14px;   --lh-sm:   1.5;
+  --fs-md:   16px;   --lh-md:   1.5;
+  --fs-lg:   20px;   --lh-lg:   1.3;
+  --fs-xl:   24px;   --lh-xl:   1.25;
+  --fs-2xl:  32px;   --lh-2xl:  1.2;
+
+  /* ---- Focus ---- */
+  --focus-ring: 0 0 0 2px #fff, 0 0 0 4px var(--arsela-blue);
+}
+
+/* ============================================================
+   Fonts
+   Inter as primary (guaranteed availability, excellent for UI +
+   supports tnum). Aptos kept as label for platforms that have it.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+.arsela-app, .arsela-app * {
+  font-family: 'Inter', 'Aptos', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.arsela-app {
+  color: var(--arsela-text);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  background: var(--arsela-bg);
+  /* Global tabular figures — CRITICAL for a budgeting tool.
+     Every currency & % renders aligned by decimal automatically. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+}
+
+/* ---- Type scale utilities ---- */
+.arsela-h1  { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -0.01em; line-height: var(--lh-2xl); }
+.arsela-h2  { font-size: var(--fs-xl);  font-weight: 700; letter-spacing: -0.005em; line-height: var(--lh-xl); }
+.arsela-h3  { font-size: var(--fs-lg);  font-weight: 700; letter-spacing: -0.005em; line-height: var(--lh-lg); }
+.arsela-sub { font-size: var(--fs-md);  font-weight: 600; line-height: var(--lh-md); }
+.arsela-body { font-size: var(--fs-sm); font-weight: 400; line-height: var(--lh-sm); }
+.arsela-caption { font-size: var(--fs-xs); font-weight: 400; color: var(--arsela-text-muted); line-height: var(--lh-xs); }
+.arsela-mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.arsela-num  { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
+
+/* Financial figure — for KPI value / large numbers */
+.arsela-fig {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+/* Semantic text helpers */
+.text-pos { color: var(--success); }
+.text-neg { color: var(--danger); }
+.text-warn { color: var(--warning); }
+.text-muted { color: var(--arsela-text-muted); }
+
+/* ---- Interactions ---- */
+.arsela-app *:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-sm);
+}
+
+/* Table row hover baseline */
+.arsela-app tbody tr {
+  transition: background 120ms ease;
+}
+.arsela-app tbody tr:hover {
+  background: var(--arsela-surface-alt);
+}
+
+/* Scrollbar polish */
+.arsela-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.arsela-scroll::-webkit-scrollbar-thumb { background: #C7CED9; border-radius: 4px; }
+.arsela-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* Chart polish */
+.arsela-chart-line { stroke-linecap: round; stroke-linejoin: round; fill: none; }
+
+/* ---- Skeleton (loading state) ---- */
+@keyframes ars-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+/* ---- Live dot pulse ---- */
+@keyframes ars-live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(0,168,150,0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(0,168,150,0); }
+  100% { box-shadow: 0 0 0 0 rgba(0,168,150,0); }
+}
+
+/* ---- Highlight flash (used when a figure updates from an approval) ---- */
+@keyframes ars-flash {
+  0%   { background-color: rgba(0,168,150,0); }
+  20%  { background-color: rgba(0,168,150,0.35); }
+  100% { background-color: rgba(0,168,150,0); }
+}
+.ars-flash {
+  animation: ars-flash 2.2s ease-out;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin: -2px -6px;
+}
+.ars-skel {
+  background: linear-gradient(90deg, #EEF1F6 0%, #F6F8FB 50%, #EEF1F6 100%);
+  background-size: 800px 100%;
+  animation: ars-shimmer 1.4s linear infinite;
+  border-radius: var(--r-sm);
+  display: inline-block;
+}
+
+/* Sticky table headers (opt-in via .ars-table-scroll wrapper) */
+.ars-table-scroll { overflow: auto; max-height: 100%; }
+.ars-table-scroll thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--arsela-surface-alt);
+  box-shadow: 0 1px 0 var(--arsela-border);
+}

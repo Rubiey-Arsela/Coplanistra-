@@ -1,0 +1,301 @@
+/* Reusable primitives — cards, buttons, badges, inputs, tables — Arsela design system */
+
+const arsCard = ({ children, style, className = '', padded = true }) => (
+  <div className={className} style={{
+    background: 'var(--arsela-card)',
+    border: '1px solid var(--arsela-border)',
+    borderRadius: 'var(--r-lg)',
+    boxShadow: 'var(--arsela-shadow-card)',
+    padding: padded ? 20 : 0,
+    ...style
+  }}>{children}</div>
+);
+const ArsCard = arsCard;
+
+const ArsButton = ({ children, variant = 'primary', size = 'md', icon, iconRight, onClick, style = {}, full }) => {
+  const sizes = {
+    sm: { padding: '6px 12px', fontSize: 13, height: 30, gap: 6 },
+    md: { padding: '9px 16px', fontSize: 14, height: 38, gap: 8 },
+    lg: { padding: '12px 20px', fontSize: 15, height: 46, gap: 10 },
+  };
+  const variants = {
+    primary: {
+      background: 'linear-gradient(180deg, #1E52DA 0%, #1343CB 100%)',
+      color: '#fff',
+      border: '1px solid #0F38B0',
+      boxShadow: '0 1px 0 rgba(255,255,255,0.15) inset, 0 1px 2px rgba(19,67,203,0.25)',
+    },
+    secondary: {
+      background: '#fff',
+      color: 'var(--arsela-navy)',
+      border: '1px solid var(--arsela-border-strong)',
+      boxShadow: '0 1px 2px rgba(0,31,61,0.04)',
+    },
+    ghost: { background: 'transparent', color: 'var(--arsela-navy)', border: '1px solid transparent' },
+    teal: {
+      background: 'linear-gradient(180deg, #00B8A5 0%, #00A896 100%)',
+      color: '#fff',
+      border: '1px solid #008E7D',
+    },
+    navy: { background: 'var(--arsela-navy)', color: '#fff', border: '1px solid var(--arsela-navy)' },
+    danger: { background: '#fff', color: 'var(--arsela-danger)', border: '1px solid #F5C2C2' },
+  };
+  return (
+    <button onClick={onClick} style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'inherit', fontWeight: 600, borderRadius: 'var(--r-md)',
+      cursor: 'pointer', whiteSpace: 'nowrap', width: full ? '100%' : 'auto',
+      ...sizes[size], ...variants[variant], ...style,
+    }}>
+      {icon}{children && <span>{children}</span>}{iconRight}
+    </button>
+  );
+};
+
+const ArsBadge = ({ children, tone = 'neutral', size = 'md', dot }) => {
+  const tones = {
+    neutral: { bg: '#F1F3F7', fg: '#3B4A63', dot: '#8492A6' },
+    blue:    { bg: 'var(--arsela-blue-50)', fg: 'var(--arsela-blue)', dot: 'var(--arsela-blue)' },
+    teal:    { bg: 'var(--arsela-teal-50)', fg: 'var(--arsela-teal-600)', dot: 'var(--arsela-teal)' },
+    success: { bg: 'var(--arsela-success-50)', fg: 'var(--arsela-success)', dot: 'var(--arsela-success)' },
+    warning: { bg: 'var(--arsela-warning-50)', fg: '#B4740A', dot: 'var(--arsela-warning)' },
+    danger:  { bg: 'var(--arsela-danger-50)', fg: 'var(--arsela-danger)', dot: 'var(--arsela-danger)' },
+    navy:    { bg: '#E7EBF3', fg: 'var(--arsela-navy)', dot: 'var(--arsela-navy)' },
+  };
+  const t = tones[tone] || tones.neutral;
+  const isSm = size === 'sm';
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      background: t.bg, color: t.fg,
+      padding: isSm ? '2px 8px' : '4px 10px',
+      borderRadius: 'var(--r-full)', fontSize: isSm ? 11 : 12,
+      fontWeight: 600, letterSpacing: 0.1, lineHeight: 1.3, whiteSpace: 'nowrap',
+    }}>
+      {dot && <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.dot }} />}
+      {children}
+    </span>
+  );
+};
+
+const ArsInput = ({ label, value, placeholder, icon, style, type = 'text', hint, right }) => (
+  <label style={{ display: 'block', ...style }}>
+    {label && <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>{label}</div>}
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      background: '#fff', border: '1px solid var(--arsela-border-strong)',
+      borderRadius: 'var(--r-md)', padding: '0 12px', height: 40,
+    }}>
+      {icon && <span style={{ color: 'var(--arsela-text-subtle)' }}>{icon}</span>}
+      <input type={type} defaultValue={value} placeholder={placeholder} style={{
+        flex: 1, border: 'none', outline: 'none', background: 'transparent',
+        fontSize: 14, fontFamily: 'inherit', color: 'var(--arsela-navy)',
+        minWidth: 0,
+      }}/>
+      {right}
+    </div>
+    {hint && <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 6 }}>{hint}</div>}
+  </label>
+);
+
+const ArsProgress = ({ value = 0, tone = 'blue', height = 6, showValue = false }) => {
+  const colors = {
+    blue: 'linear-gradient(90deg, #1343CB, #2657DB)',
+    teal: 'linear-gradient(90deg, #00A896, #00C4B0)',
+    warning: 'linear-gradient(90deg, #F59E0B, #FBBF24)',
+    danger: 'linear-gradient(90deg, #EF4444, #F87171)',
+    success: 'linear-gradient(90deg, #16A34A, #22C55E)',
+  };
+  const clamped = Math.min(100, Math.max(0, value));
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ flex: 1, background: '#EEF1F6', borderRadius: 'var(--r-full)', height, overflow: 'hidden' }}>
+        <div style={{ width: `${clamped}%`, height: '100%', background: colors[tone], borderRadius: 'var(--r-full)' }} />
+      </div>
+      {showValue && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', minWidth: 36, textAlign: 'right' }}>{clamped}%</span>}
+    </div>
+  );
+};
+
+const ArsAvatar = ({ name, size = 32, tone = 'blue' }) => {
+  const bg = {
+    blue: 'linear-gradient(135deg, #1343CB, #2657DB)',
+    teal: 'linear-gradient(135deg, #00A896, #14B8A6)',
+    navy: 'linear-gradient(135deg, #001F3D, #0B2A4D)',
+    warn: 'linear-gradient(135deg, #F59E0B, #F97316)',
+    purple: 'linear-gradient(135deg, #6D28D9, #4C1D95)',
+  }[tone];
+  const initials = name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      width: size, height: size, borderRadius: '50%', background: bg, color: '#fff',
+      fontSize: size * 0.36, fontWeight: 700, letterSpacing: 0.5, flexShrink: 0,
+    }}>{initials}</span>
+  );
+};
+
+const ArsSectionHeader = ({ title, subtitle, action }) => (
+  <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 16 }}>
+    <div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--arsela-navy)', letterSpacing: -0.1 }}>{title}</div>
+      {subtitle && <div style={{ fontSize: 13, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{subtitle}</div>}
+    </div>
+    {action}
+  </div>
+);
+
+/* Format MYR currency */
+const fmtMYR = (n, opts = {}) => {
+  const { compact = false, decimals = 0 } = opts;
+  if (compact && Math.abs(n) >= 1_000_000) return `RM ${(n/1_000_000).toFixed(2)}M`;
+  if (compact && Math.abs(n) >= 1_000) return `RM ${(n/1_000).toFixed(1)}K`;
+  return `RM ${n.toLocaleString('en-MY', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+};
+const fmtPct = (n, opts = {}) => {
+  const { showSign = true, decimals = 1 } = opts;
+  const s = n.toFixed(decimals);
+  return (showSign && n > 0 ? '+' : '') + s + '%';
+};
+
+/* -------- Variance indicator (▲▼ + color + text, colour-blind safe) -------- */
+const ArsVariance = ({ value, format = 'pct', decimals = 1, size = 'md', invert = false, showArrow = true }) => {
+  /* invert = true → positive value is BAD (e.g. over-budget), useful in spend contexts */
+  const isPositive = value > 0;
+  const good = invert ? !isPositive : isPositive;
+  const neutral = value === 0;
+  const color = neutral ? 'var(--arsela-text-muted)' : good ? 'var(--success)' : 'var(--danger)';
+  const arrow = neutral ? '•' : isPositive ? '▲' : '▼';
+  const abs = Math.abs(value);
+  const text = format === 'pct'
+    ? (isPositive ? '+' : value < 0 ? '−' : '') + abs.toFixed(decimals) + '%'
+    : (isPositive ? '+' : value < 0 ? '−' : '') + fmtMYR(abs, { compact: true });
+  const fs = size === 'sm' ? 11 : size === 'lg' ? 14 : 12.5;
+  return (
+    <span className="arsela-num" style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      color, fontWeight: 700, fontSize: fs, lineHeight: 1,
+      whiteSpace: 'nowrap',
+    }}>
+      {showArrow && <span style={{ fontSize: fs - 2 }} aria-hidden>{arrow}</span>}
+      <span>{text}</span>
+    </span>
+  );
+};
+
+/* -------- Financial KPI number (large tabular figure + optional variance) -------- */
+const ArsFigure = ({ value, unit = 'RM', size = 32, tone = 'navy' }) => (
+  <div style={{
+    fontSize: size, fontWeight: 700, letterSpacing: -0.5,
+    color: tone === 'navy' ? 'var(--arsela-navy)' : tone === 'success' ? 'var(--success)' : tone === 'danger' ? 'var(--danger)' : 'var(--arsela-navy)',
+    fontVariantNumeric: 'tabular-nums', display: 'flex', alignItems: 'baseline', gap: 6,
+  }} className="arsela-num">
+    {unit && <span style={{ fontSize: size * 0.42, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>{unit}</span>}
+    <span>{value}</span>
+  </div>
+);
+
+/* -------- Tabs / sub-nav -------- */
+const ArsTabs = ({ tabs, active, onSelect }) => (
+  <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--arsela-border)' }} role="tablist">
+    {tabs.map(t => {
+      const isActive = t === active || t.id === active;
+      const label = typeof t === 'string' ? t : t.label;
+      const key = typeof t === 'string' ? t : t.id;
+      return (
+        <button
+          key={key} role="tab" aria-selected={isActive}
+          onClick={() => onSelect && onSelect(key)}
+          style={{
+            padding: '10px 16px', fontSize: 13.5, fontWeight: 600,
+            color: isActive ? 'var(--arsela-navy)' : 'var(--arsela-text-muted)',
+            background: 'transparent',
+            border: 'none',
+            borderBottom: isActive ? '2px solid var(--arsela-blue)' : '2px solid transparent',
+            marginBottom: -1, cursor: 'pointer', fontFamily: 'inherit',
+          }}
+        >{label}</button>
+      );
+    })}
+  </div>
+);
+
+/* -------- Skeleton loader -------- */
+const ArsSkeleton = ({ w = '100%', h = 16, radius = 4, style }) => (
+  <span className="ars-skel" style={{
+    width: w, height: h, borderRadius: radius,
+    ...style,
+  }}/>
+);
+
+/* -------- Empty state -------- */
+const ArsEmpty = ({ icon, title, body, action }) => (
+  <div style={{
+    padding: '48px 24px', textAlign: 'center',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+  }}>
+    <div style={{
+      width: 56, height: 56, borderRadius: 14,
+      background: 'var(--arsela-blue-50)', color: 'var(--arsela-blue)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>{icon}</div>
+    <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--arsela-navy)' }}>{title}</div>
+    <div style={{ fontSize: 13, color: 'var(--arsela-text-muted)', maxWidth: 320 }}>{body}</div>
+    {action && <div style={{ marginTop: 6 }}>{action}</div>}
+  </div>
+);
+
+/* -------- RAG status pill (Red-Amber-Green, colour-blind safe with letter) -------- */
+const ArsRAG = ({ status }) => {
+  /* status: 'R' | 'A' | 'G' | 'ontrack' | 'atrisk' | 'offtrack' */
+  const map = {
+    G: { c: 'var(--success)', bg: 'var(--success-50)', letter: 'G', label: 'On track' },
+    A: { c: 'var(--warning)', bg: 'var(--warning-50)', letter: 'A', label: 'At risk' },
+    R: { c: 'var(--danger)',  bg: 'var(--danger-50)',  letter: 'R', label: 'Off track' },
+  };
+  const k = status === 'ontrack' ? 'G' : status === 'atrisk' ? 'A' : status === 'offtrack' ? 'R' : status;
+  const t = map[k] || map.G;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      padding: '3px 10px 3px 4px', borderRadius: 999,
+      background: t.bg, color: t.c, fontSize: 12, fontWeight: 700,
+    }}>
+      <span style={{
+        width: 18, height: 18, borderRadius: '50%', background: t.c, color: '#fff',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 10, fontWeight: 800,
+      }} aria-hidden>{t.letter}</span>
+      {t.label}
+    </span>
+  );
+};
+
+/* -------- Budget lifecycle badge (Draft / Active / Amendment Pending / Closed / Archived) -------- */
+const ArsLifecycle = ({ status }) => {
+  const map = {
+    draft:      { bg: '#EEF1F6', fg: '#5B6B82', label: 'Draft',              dot: '#8492A6' },
+    active:     { bg: '#ECFDF3', fg: '#1A8754', label: 'Active',             dot: '#1A8754' },
+    amendment:  { bg: '#FFF8E6', fg: '#B4740A', label: 'Amendment Pending',  dot: '#E0A100' },
+    closed:     { bg: '#E7EBF3', fg: '#001F3D', label: 'Closed',             dot: '#001F3D' },
+    archived:   { bg: '#F3F0FA', fg: '#5B21B6', label: 'Archived',           dot: '#7C3AED' },
+    over:       { bg: '#FEECEC', fg: '#D64045', label: 'Over Budget',        dot: '#D64045' },
+  };
+  const t = map[status] || map.draft;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      padding: '3px 9px', borderRadius: 999, background: t.bg, color: t.fg,
+      fontSize: 11, fontWeight: 700, letterSpacing: 0.2, whiteSpace: 'nowrap',
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.dot }}/>
+      {t.label}
+    </span>
+  );
+};
+
+Object.assign(window, {
+  ArsCard, ArsButton, ArsBadge, ArsInput, ArsProgress, ArsAvatar, ArsSectionHeader,
+  ArsVariance, ArsFigure, ArsTabs, ArsSkeleton, ArsEmpty, ArsRAG, ArsLifecycle,
+  fmtMYR, fmtPct,
+});

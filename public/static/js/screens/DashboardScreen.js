@@ -1,0 +1,365 @@
+/* Dashboard — role-aware, wired to Store (role switch re-renders live) */
+(function () {
+  const StatCard = ({ label, value, delta, deltaTone, sub, icon, tone = 'blue' }) => {
+    const iconBg = {
+      blue: { bg: 'var(--arsela-blue-50)', fg: 'var(--arsela-blue)' },
+      teal: { bg: 'var(--arsela-teal-50)', fg: 'var(--arsela-teal-600)' },
+      navy: { bg: '#E7EBF3', fg: 'var(--arsela-navy)' },
+      warn: { bg: 'var(--arsela-warning-50)', fg: '#B4740A' },
+    }[tone];
+    return (
+      <ArsCard>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <div style={{ fontSize: 12.5, color: 'var(--arsela-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+          <div style={{
+            width: 32, height: 32, borderRadius: 8, background: iconBg.bg, color: iconBg.fg,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>{icon}</div>
+        </div>
+        <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--arsela-navy)', letterSpacing: -0.4, marginTop: 14, lineHeight: 1 }} className="arsela-num">{value}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+          {delta && <ArsBadge tone={deltaTone} size="sm">{delta}</ArsBadge>}
+          {sub && <span style={{ fontSize: 12, color: 'var(--arsela-text-muted)' }}>{sub}</span>}
+        </div>
+      </ArsCard>
+    );
+  };
+
+  const BudgetChart = () => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'];
+    const budget = [32, 34, 36, 38, 38, 40, 42];
+    const actual = [28, 33, 31, 39, 36, 38, 40];
+    const forecast = [42, 42, 44, 45, 46];
+    const w = 660, h = 240, pad = { l: 44, r: 20, t: 20, b: 30 };
+    const max = 55;
+    const barW = 22;
+    const gap = (w - pad.l - pad.r) / months.length;
+    const yFor = (v) => pad.t + (h - pad.t - pad.b) * (1 - v / max);
+    const xFor = (i) => pad.l + gap * i + gap / 2;
+
+    return (
+      <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block' }}>
+        <defs>
+          <linearGradient id="barBudget" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#B9CBFF"/><stop offset="1" stopColor="#DDE6FF"/></linearGradient>
+          <linearGradient id="barActual" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#1E52DA"/><stop offset="1" stopColor="#1343CB"/></linearGradient>
+        </defs>
+        {[0, 15, 30, 45].map((v) => (
+          <g key={v}>
+            <line x1={pad.l} x2={w - pad.r} y1={yFor(v)} y2={yFor(v)} stroke="#EEF1F6" strokeWidth="1"/>
+            <text x={pad.l - 8} y={yFor(v) + 4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">RM{v}M</text>
+          </g>
+        ))}
+        {months.map((m, i) => {
+          const b = budget[i], a = actual[i];
+          return (
+            <g key={m}>
+              <rect x={xFor(i) - barW - 2} y={yFor(b)} width={barW} height={yFor(0) - yFor(b)} fill="url(#barBudget)" rx="3"/>
+              <rect x={xFor(i) + 2} y={yFor(a)} width={barW} height={yFor(0) - yFor(a)} fill="url(#barActual)" rx="3"/>
+              <text x={xFor(i)} y={h - 10} fontSize="11" fill="#5B6B82" textAnchor="middle" fontWeight="600">{m}</text>
+            </g>
+          );
+        })}
+        <path d={`M ${xFor(6)} ${yFor(actual[6])} L ${xFor(7)} ${yFor(forecast[1])} L ${xFor(8)} ${yFor(forecast[2])} L ${xFor(9)} ${yFor(forecast[3])} L ${xFor(10)} ${yFor(forecast[4])}`} stroke="#00A896" strokeWidth="2" strokeDasharray="5 4" fill="none"/>
+        <line x1={xFor(6) + 14} x2={xFor(6) + 14} y1={pad.t} y2={h - pad.b} stroke="#00A896" strokeWidth="1" strokeDasharray="2 3" opacity="0.7"/>
+        <text x={xFor(6) + 18} y={pad.t + 12} fontSize="10" fill="#00A896" fontWeight="700">TODAY</text>
+      </svg>
+    );
+  };
+
+  const CategoryDonut = () => {
+    const data = [
+      { label: 'Operations', value: 38, color: '#1343CB' },
+      { label: 'Logistics', value: 22, color: '#00A896' },
+      { label: 'Digital', value: 16, color: '#2657DB' },
+      { label: 'People', value: 14, color: '#5B9EFF' },
+      { label: 'Other', value: 10, color: '#B9CBFF' },
+    ];
+    const total = data.reduce((s, d) => s + d.value, 0);
+    const cx = 90, cy = 90, r = 70, sw = 22;
+    let acc = 0;
+    const circ = 2 * Math.PI * r;
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
+        <svg width="180" height="180">
+          <circle cx={cx} cy={cy} r={r} stroke="#F1F3F7" strokeWidth={sw} fill="none"/>
+          {data.map((d, i) => {
+            const len = (d.value / total) * circ;
+            const off = -acc;
+            acc += len;
+            return <circle key={i} cx={cx} cy={cy} r={r} stroke={d.color} strokeWidth={sw} fill="none" strokeDasharray={`${len} ${circ}`} strokeDashoffset={off} transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="butt"/>;
+          })}
+          <text x={cx} y={cy - 4} textAnchor="middle" fontSize="12" fill="#5B6B82" fontWeight="600">Total</text>
+          <text x={cx} y={cy + 16} textAnchor="middle" fontSize="20" fill="#001F3D" fontWeight="700">RM 248M</text>
+        </svg>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {data.map((d) => (
+            <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: d.color }}/>
+              <span style={{ flex: 1, fontSize: 13, color: 'var(--arsela-navy)', fontWeight: 500 }}>{d.label}</span>
+              <span className="arsela-num" style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>{d.value}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const BudgetHealthWidget = ({ categories }) => (
+    <ArsCard>
+      <ArsSectionHeader
+        title="Budget health"
+        subtitle="Utilisation by category · semantic colour is meaning"
+        action={
+          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--arsela-text-muted)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--success)' }}/>Under (&lt; 80%)</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--warning-500)' }}/>Near (80–100%)</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--danger)' }}/>Over (&gt; 100%)</span>
+          </div>
+        }
+      />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '18px 24px' }}>
+        {categories.map((c) => {
+          const pct = Math.round((c.spent / c.budget) * 100);
+          const tone = pct > 100 ? 'danger' : pct > 80 ? 'warning' : 'success';
+          return (
+            <div key={c.name}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>{c.name}</span>
+                <span className="arsela-num" style={{ fontSize: 12, color: 'var(--arsela-text-muted)' }}>{fmtMYR(c.spent, { compact: true })} / {fmtMYR(c.budget, { compact: true })}</span>
+              </div>
+              <ArsProgress value={Math.min(120, pct)} tone={tone} height={8}/>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11 }}>
+                <ArsLifecycle status={pct > 100 ? 'over' : 'active'}/>
+                <span className="arsela-num" style={{ fontWeight: 700, color: tone === 'danger' ? 'var(--danger)' : tone === 'warning' ? 'var(--warning)' : 'var(--success)' }}>{pct}%</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </ArsCard>
+  );
+
+  const roleGreetings = {
+    executive: { hi: 'Good morning, Datuk.', sub: 'Group is tracking ahead of plan through mid-year — headline strengths in Energy and Digital.' },
+    finance: { hi: 'Good morning, Priya.', sub: "Here's how your organisation is tracking against plan · Q3 reforecast cycle closes 31 July." },
+    approver: { hi: 'Good morning, Marcus.', sub: 'You have items awaiting your review.' },
+    employee: { hi: 'Good morning, Aisha.', sub: 'Your expenses and budget usage at a glance.' },
+    admin: { hi: 'Good morning, Keith.', sub: 'All integrations healthy · pending user provisioning requests.' },
+  };
+
+  function DashboardScreen() {
+    const [s, setS] = React.useState(window.Store.getState());
+    React.useEffect(() => window.Store.subscribe(setS), []);
+    const role = s.role;
+    const greet = roleGreetings[role] || roleGreetings.finance;
+    const pendingApprovals = window.Store.pendingApprovalsCount();
+    const pendingExpenses = s.expenses.filter((e) => e.status === 'pending').length;
+
+    const departments = [
+      { name: 'Ports & Logistics', owner: 'Faris H.', budget: 62_400_000, spent: 41_200_000, tone: 'blue' },
+      { name: 'Operations', owner: 'Aisha R.', budget: 48_000_000, spent: 44_800_000, tone: 'warn' },
+      { name: 'Digital & Data', owner: 'Marcus L.', budget: 28_000_000, spent: 12_600_000, tone: 'teal' },
+      { name: 'People & Culture', owner: 'Priya N.', budget: 21_000_000, spent: 18_900_000, tone: 'warn' },
+      { name: 'Energy & Assets', owner: 'Zara M.', budget: 34_500_000, spent: 19_200_000, tone: 'blue' },
+    ];
+
+    const budgetHealthData = [
+      { name: 'Payroll', budget: 15_300_000, spent: 14_100_000 },
+      { name: 'Information Tech.', budget: 3_900_000, spent: 4_400_000 },
+      { name: 'Software Licences', budget: 1_800_000, spent: 2_000_000 },
+      { name: 'Marketing', budget: 2_600_000, spent: 1_820_000 },
+      { name: 'Professional Fees', budget: 1_600_000, spent: 1_440_000 },
+      { name: 'Travel', budget: 1_100_000, spent: 620_000 },
+      { name: 'Utilities', budget: 1_400_000, spent: 1_260_000 },
+      { name: 'Maintenance', budget: 1_200_000, spent: 1_120_000 },
+    ];
+
+    const activities = [
+      { who: 'Faris Hamzah', action: 'submitted', target: 'Q3 CAPEX — Port Klang expansion', amount: 'RM 4.2M', when: '12 min ago', tone: 'blue' },
+      { who: 'Aisha Rashid', action: 'approved', target: 'August operating budget · Ops', amount: 'RM 3.6M', when: '1 h ago', tone: 'teal' },
+      { who: 'System', action: 'flagged over-spend on', target: 'People & Culture — training', amount: '+9.2%', when: '3 h ago', tone: 'warn' },
+      { who: 'Marcus Lim', action: 'created', target: 'Data centre — cooling retrofit', amount: 'RM 1.8M', when: 'Yesterday', tone: 'navy' },
+    ];
+
+    const roleActions = role === 'employee' ? (
+      <div style={{ display: 'flex', gap: 8 }}>
+        <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => window.Router.go('/expenses')}>Add Expense</ArsButton>
+      </div>
+    ) : role === 'approver' ? (
+      <div style={{ display: 'flex', gap: 8 }}>
+        <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Export started', 'info')}>Export</ArsButton>
+        <ArsButton size="md" icon={<IconCheck size={15}/>} onClick={() => window.Router.go('/approvals')}>Review Queue ({pendingApprovals})</ArsButton>
+      </div>
+    ) : role === 'executive' ? (
+      <div style={{ display: 'flex', gap: 8 }}>
+        <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>}>Q3 · FY 2026</ArsButton>
+        <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Board pack export started', 'info')}>Board Pack</ArsButton>
+      </div>
+    ) : (
+      <div style={{ display: 'flex', gap: 8 }}>
+        <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>}>Q3 · FY 2026</ArsButton>
+        <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Export started', 'info')}>Export</ArsButton>
+        <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>
+      </div>
+    );
+
+    return (
+      <AppFrame active="Dashboard" title="Financial Overview" breadcrumb={['Acme Holdings', 'Plan', 'Dashboard']} topActions={roleActions}>
+        <div className="coplan-page">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', letterSpacing: -0.3 }}>{greet.hi}</div>
+                <ArsRoleBadge role={role}/>
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--arsela-text-muted)', marginTop: 4 }}>
+                {greet.sub} · <span style={{ color: 'var(--arsela-navy)', fontWeight: 600 }}>22 July 2026</span>
+              </div>
+            </div>
+            <ArsLiveDot label="Live · updated 2 min ago"/>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+            {role === 'employee' ? (
+              <>
+                <StatCard label="My Expenses · MTD" value="RM 4,820" delta="▲ +12% vs Jun" deltaTone="blue" sub="9 submitted" icon={<IconReceipt size={17}/>} tone="blue"/>
+                <StatCard label="Pending Review" value={String(pendingExpenses)} delta="● with mgr" deltaTone="warning" sub="Avg 1.4 days" icon={<IconClock size={17}/>} tone="warn"/>
+                <StatCard label="Approved · YTD" value="RM 38.4K" delta="18 items" deltaTone="success" sub="97% approval rate" icon={<IconCheck size={17}/>} tone="teal"/>
+                <StatCard label="Team Budget Left" value="RM 4.2M" delta="● 62% used" deltaTone="warning" sub="Ops · Klang" icon={<IconWallet size={17}/>} tone="navy"/>
+              </>
+            ) : role === 'approver' ? (
+              <>
+                <StatCard label="Approval Queue" value={String(pendingApprovals)} delta="▲ urgent" deltaTone="danger" sub="Oldest: 3 days" icon={<IconApproval size={17}/>} tone="warn"/>
+                <StatCard label="My Dept Budget" value="RM 28M" delta="45% burn" deltaTone="teal" sub="Digital & Data" icon={<IconWallet size={17}/>} tone="teal"/>
+                <StatCard label="Avg Approval Time" value="1.8 days" delta="▼ 0.4d faster" deltaTone="success" sub="last 30 days" icon={<IconClock size={17}/>} tone="navy"/>
+                <StatCard label="Rejected This Mo." value="2" delta="of 21 items" deltaTone="blue" sub="90% approved" icon={<IconClose size={17}/>} tone="blue"/>
+              </>
+            ) : role === 'executive' ? (
+              <>
+                <StatCard label="Group Revenue · YTD" value="RM 842M" delta="▲ +6.4% vs plan" deltaTone="success" sub="Q3 tracking ahead" icon={<IconTrend size={17}/>} tone="teal"/>
+                <StatCard label="Operating Margin" value="22.8%" delta="▲ +1.2 pts YoY" deltaTone="success" sub="highest since FY23" icon={<IconChart size={17}/>} tone="blue"/>
+                <StatCard label="EBITDA" value="RM 194M" delta="▲ +9.1% vs plan" deltaTone="success" sub="H1 print" icon={<IconWallet size={17}/>} tone="navy"/>
+                <StatCard label="Cash Position" value="RM 173M" delta="▼ −3.4% MoM" deltaTone="warning" sub="CAPEX-driven" icon={<IconFile size={17}/>} tone="warn"/>
+              </>
+            ) : (
+              <>
+                <StatCard label="Total Budget · FY26" value="RM 248.4M" delta="▲ +4.1% YoY" deltaTone="blue" sub="vs RM 238.6M FY25" icon={<IconWallet size={17}/>} tone="blue"/>
+                <StatCard label="Spent to Date" value="RM 156.7M" delta="63.1% burn" deltaTone="teal" sub="of annual budget" icon={<IconTrend size={17}/>} tone="teal"/>
+                <StatCard label="Committed" value="RM 41.2M" delta="● On track" deltaTone="success" sub="POs & contracts" icon={<IconFile size={17}/>} tone="navy"/>
+                <StatCard label="Variance vs Plan" value="+RM 2.8M" delta="▲ 1.8% over" deltaTone="warning" sub="drivers: Ops, People" icon={<IconArrowUp size={17}/>} tone="warn"/>
+              </>
+            )}
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <BudgetHealthWidget categories={budgetHealthData}/>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 20 }}>
+            <ArsCard>
+              <ArsSectionHeader
+                title="Budget vs Actual — Rolling 12 months"
+                subtitle="Monthly plan against realised spend · forecast in teal"
+                action={
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {['Group', 'By Dept', 'By Cost Centre'].map((t, i) => (
+                      <button key={t} style={{
+                        padding: '6px 12px', fontSize: 12, fontWeight: 600,
+                        borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                        background: i === 0 ? 'var(--arsela-navy)' : '#fff', color: i === 0 ? '#fff' : 'var(--arsela-navy)',
+                        border: '1px solid ' + (i === 0 ? 'var(--arsela-navy)' : 'var(--arsela-border-strong)'),
+                      }}>{t}</button>
+                    ))}
+                  </div>
+                }
+              />
+              <div style={{ display: 'flex', gap: 20, marginBottom: 8, fontSize: 12, color: 'var(--arsela-text-muted)' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: 'linear-gradient(180deg,#B9CBFF,#DDE6FF)' }}/> Planned</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: 'linear-gradient(180deg,#1E52DA,#1343CB)' }}/> Actual</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 20, height: 2, background: '#00A896' }}/> Forecast</span>
+              </div>
+              <BudgetChart/>
+            </ArsCard>
+            <ArsCard>
+              <ArsSectionHeader title="Category Mix" subtitle="Share of planned FY26" action={<IconMore size={16} style={{ color: 'var(--arsela-text-subtle)', cursor: 'pointer' }}/>}/>
+              <CategoryDonut/>
+            </ArsCard>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
+            <ArsCard padded={false}>
+              <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--arsela-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)' }}>Departments · Utilisation</div>
+                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Spend to date vs allocated FY26 budget</div>
+                </div>
+                <a style={{ fontSize: 12, color: 'var(--arsela-blue)', fontWeight: 600, cursor: 'pointer' }} onClick={() => window.Router.go('/budgets')}>View all →</a>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#FAFBFD', borderBottom: '1px solid var(--arsela-border)' }}>
+                    {['Department', 'Owner', 'Utilisation', 'Spent', 'Remaining', 'Status'].map((h) => (
+                      <th key={h} style={{ textAlign: h === 'Spent' || h === 'Remaining' ? 'right' : 'left', padding: '10px 20px', fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.6, textTransform: 'uppercase' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {departments.map((d, i) => {
+                    const pct = Math.round((d.spent / d.budget) * 100);
+                    const tone = pct > 90 ? 'danger' : pct > 75 ? 'warning' : 'blue';
+                    const status = pct > 90 ? ['danger', 'Watch'] : pct > 75 ? ['warning', 'Nearing cap'] : ['success', 'On track'];
+                    return (
+                      <tr key={d.name} style={{ borderBottom: i < departments.length - 1 ? '1px solid var(--arsela-border)' : 'none' }}>
+                        <td style={{ padding: '14px 20px' }}><div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--arsela-navy)' }}>{d.name}</div></td>
+                        <td style={{ padding: '14px 20px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <ArsAvatar name={d.owner} size={26} tone={d.tone === 'warn' ? 'warn' : d.tone}/>
+                            <span style={{ fontSize: 13, color: 'var(--arsela-navy)' }}>{d.owner}</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '14px 20px', width: 200 }}><ArsProgress value={pct} tone={tone} showValue/></td>
+                        <td className="arsela-num" style={{ padding: '14px 20px', textAlign: 'right', fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>{fmtMYR(d.spent, { compact: true })}</td>
+                        <td className="arsela-num" style={{ padding: '14px 20px', textAlign: 'right', fontSize: 13, color: 'var(--arsela-text-muted)' }}>{fmtMYR(d.budget - d.spent, { compact: true })}</td>
+                        <td style={{ padding: '14px 20px' }}><ArsBadge tone={status[0]} dot size="sm">{status[1]}</ArsBadge></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </ArsCard>
+
+            <ArsCard padded={false}>
+              <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--arsela-border)' }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)' }}>Recent Activity</div>
+                <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Approvals, submissions & alerts</div>
+              </div>
+              <div>
+                {activities.map((a, i) => (
+                  <div key={i} style={{ padding: '14px 20px', borderBottom: i < activities.length - 1 ? '1px solid var(--arsela-border)' : 'none', display: 'flex', gap: 12 }}>
+                    <div style={{
+                      width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                      background: a.tone === 'teal' ? 'var(--arsela-teal-50)' : a.tone === 'warn' ? 'var(--arsela-warning-50)' : a.tone === 'navy' ? '#E7EBF3' : 'var(--arsela-blue-50)',
+                      color: a.tone === 'teal' ? 'var(--arsela-teal-600)' : a.tone === 'warn' ? '#B4740A' : a.tone === 'navy' ? 'var(--arsela-navy)' : 'var(--arsela-blue)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {a.tone === 'teal' ? <IconCheck size={16}/> : a.tone === 'warn' ? <IconInfo size={16}/> : a.tone === 'navy' ? <IconPlus size={16}/> : <IconReceipt size={16}/>}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: 'var(--arsela-navy)', lineHeight: 1.4 }}><b>{a.who}</b> <span style={{ color: 'var(--arsela-text-muted)' }}>{a.action}</span> {a.target}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+                        <ArsBadge tone={a.tone === 'warn' ? 'warning' : a.tone === 'teal' ? 'teal' : 'blue'} size="sm">{a.amount}</ArsBadge>
+                        <span style={{ fontSize: 11.5, color: 'var(--arsela-text-subtle)' }}>{a.when}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ArsCard>
+          </div>
+        </div>
+      </AppFrame>
+    );
+  }
+
+  Object.assign(window, { DashboardScreen });
+})();
