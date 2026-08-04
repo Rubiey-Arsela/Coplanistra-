@@ -40,6 +40,15 @@
     const [selectedId, setSelectedId] = useState(items[0]?.id || null);
     const [note, setNote] = useState('');
     const [filter, setFilter] = useState('All');
+    const [showFilterMenu, setShowFilterMenu] = useState(false);
+    const [withdrawTarget, setWithdrawTarget] = useState(null);
+    const filterRef = React.useRef(null);
+    useEffect(() => {
+      if (!showFilterMenu) return;
+      const h = (e) => { if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilterMenu(false); };
+      document.addEventListener('mousedown', h);
+      return () => document.removeEventListener('mousedown', h);
+    }, [showFilterMenu]);
 
     const selected = items.find((it) => it.id === selectedId) || items[0];
 
@@ -100,8 +109,24 @@
         title="Approvals"
         breadcrumb={['Arsela Resources', 'Plan', 'Approvals']}
         topActions={
-          <div style={{ display: 'flex', gap: 8 }}>
-            <ArsButton variant="secondary" size="md" icon={<IconFilter size={15}/>} onClick={() => window.Store.toast('Filter (demo)', 'info')}>Filter</ArsButton>
+          <div style={{ display: 'flex', gap: 8, position: 'relative' }} ref={filterRef}>
+            <ArsButton variant="secondary" size="md" icon={<IconFilter size={15}/>} onClick={() => setShowFilterMenu((v) => !v)}>Filter{filter !== 'All' ? `: ${filter}` : ''}</ArsButton>
+            {showFilterMenu && (
+              <div style={{
+                position: 'absolute', top: 42, left: 0, minWidth: 160,
+                background: '#fff', border: '1px solid var(--arsela-border)', borderRadius: 10,
+                boxShadow: 'var(--arsela-shadow-elevated)', zIndex: 50, padding: 4,
+              }}>
+                {['All', 'Budgets', 'Expenses', 'Other'].map((f) => (
+                  <button key={f} onClick={() => { setFilter(f); setShowFilterMenu(false); }} style={{
+                    display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 6,
+                    border: 'none', background: f === filter ? 'var(--arsela-blue-50)' : 'transparent',
+                    color: f === filter ? 'var(--arsela-blue)' : 'var(--arsela-navy)',
+                    fontSize: 13, fontWeight: f === filter ? 700 : 500, cursor: 'pointer', fontFamily: 'inherit',
+                  }}>{f}</button>
+                ))}
+              </div>
+            )}
             <ArsButton variant="secondary" size="md" onClick={approveAllSafe}>Approve all safe</ArsButton>
           </div>
         }
@@ -227,10 +252,14 @@
                   </div>
                 </div>
 
-                <div style={{ padding: '16px 24px', borderTop: '1px solid var(--arsela-border)', background: '#FAFBFD', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ padding: '16px 24px', borderTop: '1px solid var(--arsela-border)', background: '#FAFBFD', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <input value={note} onChange={(e) => setNote(e.target.value)} disabled={selected.status !== 'pending'} placeholder="Add a note before deciding…" style={{
-                    flex: 1, height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 13, fontFamily: 'inherit', color: 'var(--arsela-navy)', background: selected.status !== 'pending' ? '#F1F3F7' : '#fff',
+                    flex: 1, minWidth: 160, height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 13, fontFamily: 'inherit', color: 'var(--arsela-navy)', background: selected.status !== 'pending' ? '#F1F3F7' : '#fff',
                   }}/>
+                  <button onClick={() => setWithdrawTarget(selected)} title="Withdraw / delete this item" style={{
+                    width: 40, height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', background: '#fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--arsela-danger)', flexShrink: 0,
+                  }}><IconTrash size={15}/></button>
                   <ArsButton variant="danger" icon={<IconClose size={14}/>} onClick={() => decide('reject')} style={{ opacity: selected.status !== 'pending' ? 0.5 : 1, pointerEvents: selected.status !== 'pending' ? 'none' : 'auto' }}>Reject</ArsButton>
                   <ArsButton variant="secondary" onClick={() => decide('changes')} style={{ opacity: selected.status !== 'pending' ? 0.5 : 1, pointerEvents: selected.status !== 'pending' ? 'none' : 'auto' }}>Request changes</ArsButton>
                   <ArsButton variant="teal" icon={<IconCheck size={14}/>} onClick={() => decide('approve')} style={{ opacity: selected.status !== 'pending' ? 0.5 : 1, pointerEvents: selected.status !== 'pending' ? 'none' : 'auto' }}>Approve · {fmtMYR(selected.amount, { compact: true })}</ArsButton>
@@ -239,6 +268,20 @@
             </div>
           </ArsCard>
         </div>
+
+        <ArsConfirmDialog
+          open={!!withdrawTarget}
+          onClose={() => setWithdrawTarget(null)}
+          onConfirm={() => {
+            if (!withdrawTarget) return;
+            const nextPending = items.find((it) => it.id !== withdrawTarget.id && it.status === 'pending');
+            window.Store.deleteApproval(withdrawTarget.id);
+            if (nextPending) setSelectedId(nextPending.id);
+          }}
+          title="Withdraw approval item?"
+          message={withdrawTarget ? `This will permanently remove "${withdrawTarget.title}" (${withdrawTarget.id}) from the approvals queue. This cannot be undone.` : ''}
+          confirmLabel="Withdraw"
+        />
       </AppFrame>
     );
   }

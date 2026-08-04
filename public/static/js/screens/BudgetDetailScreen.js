@@ -50,9 +50,88 @@
     { cat: 'Training & mobilisation', vendor: 'Internal', share: 0.07, tone: 'warn' },
   ];
 
+  const BUDGET_STATUS_OPTIONS = ['draft', 'active', 'amendment', 'over', 'closed', 'archived'];
+
+  function EditBudgetDetailModal({ budget, onClose }) {
+    const [form, setForm] = useState(() => ({
+      name: budget.name, dept: budget.dept, period: budget.period,
+      allocated: budget.allocated, spent: budget.spent, status: budget.status,
+    }));
+    const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+    const save = () => {
+      if (!form.name.trim()) { window.Store.toast('Budget name is required', 'danger'); return; }
+      window.Store.updateBudget(budget.id, {
+        name: form.name.trim(), dept: form.dept.trim(), period: form.period.trim(),
+        allocated: Number(form.allocated) || 0, spent: Number(form.spent) || 0, status: form.status,
+      });
+      onClose();
+    };
+    return (
+      <ArsModal open onClose={onClose} title={`Edit ${budget.id}`} subtitle={budget.name}
+        footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={save}>Save changes</ArsButton></>}>
+        <ArsField label="Budget name"><input value={form.name} onChange={set('name')} style={arsFieldInputStyle}/></ArsField>
+        <ArsField label="Department"><input value={form.dept} onChange={set('dept')} style={arsFieldInputStyle}/></ArsField>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}><ArsField label="Period"><input value={form.period} onChange={set('period')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="Status">
+            <select value={form.status} onChange={set('status')} style={arsFieldInputStyle}>
+              {BUDGET_STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </ArsField></div>
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}><ArsField label="Allocated (RM)"><input type="number" value={form.allocated} onChange={set('allocated')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="Spent (RM)"><input type="number" value={form.spent} onChange={set('spent')} style={arsFieldInputStyle}/></ArsField></div>
+        </div>
+      </ArsModal>
+    );
+  }
+
+  function AddLineModal({ onClose, onAdd }) {
+    const [form, setForm] = useState({ cat: '', vendor: '', planned: '', committed: '', actual: '' });
+    const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+    const save = () => {
+      if (!form.cat.trim()) { window.Store.toast('Category name is required', 'danger'); return; }
+      onAdd({
+        cat: form.cat.trim(),
+        vendor: form.vendor.trim() || '—',
+        planned: Number(form.planned) || 0,
+        committed: Number(form.committed) || 0,
+        actual: Number(form.actual) || 0,
+        tone: 'blue',
+      });
+      onClose();
+    };
+    return (
+      <ArsModal open onClose={onClose} title="Add line item" subtitle="New budget category"
+        footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={save}>Add line</ArsButton></>}>
+        <ArsField label="Category name"><input value={form.cat} onChange={set('cat')} style={arsFieldInputStyle} placeholder="e.g. Site security"/></ArsField>
+        <ArsField label="Vendor"><input value={form.vendor} onChange={set('vendor')} style={arsFieldInputStyle} placeholder="e.g. Internal"/></ArsField>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}><ArsField label="Planned (RM)"><input type="number" value={form.planned} onChange={set('planned')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="Committed (RM)"><input type="number" value={form.committed} onChange={set('committed')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="Actual (RM)"><input type="number" value={form.actual} onChange={set('actual')} style={arsFieldInputStyle}/></ArsField></div>
+        </div>
+      </ArsModal>
+    );
+  }
+
   function BudgetDetailScreen() {
     const [s, setS] = useState(window.Store.getState());
     useEffect(() => window.Store.subscribe(setS), []);
+    const [editOpen, setEditOpen] = useState(false);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [extraLines, setExtraLines] = useState([]);
+    const [addLineOpen, setAddLineOpen] = useState(false);
+    const [catFilter, setCatFilter] = useState('All');
+    const [showFilterMenu, setShowFilterMenu] = useState(false);
+    const filterRef = React.useRef(null);
+    useEffect(() => {
+      if (!showFilterMenu) return;
+      const h = (e) => { if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilterMenu(false); };
+      document.addEventListener('mousedown', h);
+      return () => document.removeEventListener('mousedown', h);
+    }, [showFilterMenu]);
 
     const { segments } = window.Router.current();
     const id = segments[1]; // /budgets/:id
@@ -72,12 +151,18 @@
     const remaining = Math.max(0, budget.allocated - budget.spent);
     const utilisation = Math.round((budget.spent / budget.allocated) * 100);
 
-    const lineItems = useMemo(() => demoLineItemTemplate.map((t) => {
-      const planned = Math.round(budget.allocated * t.share);
-      const actual = Math.round(budget.spent * t.share);
-      const committedLine = Math.round(committed * t.share);
-      return { ...t, planned, committed: committedLine, actual };
-    }), [budget]);
+    const allLineItems = useMemo(() => {
+      const base = demoLineItemTemplate.map((t) => {
+        const planned = Math.round(budget.allocated * t.share);
+        const actual = Math.round(budget.spent * t.share);
+        const committedLine = Math.round(committed * t.share);
+        return { ...t, planned, committed: committedLine, actual };
+      });
+      return [...base, ...extraLines];
+    }, [budget, extraLines]);
+
+    const lineCategories = useMemo(() => ['All', ...Array.from(new Set(allLineItems.map((l) => l.cat)))], [allLineItems]);
+    const lineItems = useMemo(() => catFilter === 'All' ? allLineItems : allLineItems.filter((l) => l.cat === catFilter), [allLineItems, catFilter]);
 
     const total = lineItems.reduce((s, l) => ({ p: s.p + l.planned, c: s.c + l.committed, a: s.a + l.actual }), { p: 0, c: 0, a: 0 });
     const totalPct = total.p ? Math.round((total.a / total.p) * 100) : 0;
@@ -91,8 +176,9 @@
         breadcrumb={['Arsela Resources', 'Plan', 'Budgets', budget.id]}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
-            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Export started', 'info')}>Export</ArsButton>
-            <ArsButton variant="secondary" size="md" icon={<IconEdit size={15}/>} onClick={() => window.Store.toast('Edit mode (demo)', 'info')}>Edit</ArsButton>
+            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Exporting budget detail…', 'info')}>Export</ArsButton>
+            <ArsButton variant="secondary" size="md" icon={<IconEdit size={15}/>} onClick={() => setEditOpen(true)}>Edit</ArsButton>
+            <ArsButton variant="danger" size="md" icon={<IconTrash size={15}/>} onClick={() => setDeleteOpen(true)}>Delete</ArsButton>
             <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => window.Router.go('/expenses')}>Add Expense</ArsButton>
           </div>
         }
@@ -205,7 +291,7 @@
             </ArsCard>
 
             <ArsCard>
-              <ArsSectionHeader title="Approvers & Team" action={<a style={{ fontSize: 12, color: 'var(--arsela-blue)', fontWeight: 600, cursor: 'pointer' }} onClick={() => window.Store.toast('Manage approvers (demo)', 'info')}>Manage</a>}/>
+              <ArsSectionHeader title="Approvers & Team" action={<a style={{ fontSize: 12, color: 'var(--arsela-blue)', fontWeight: 600, cursor: 'pointer' }} onClick={() => window.Router.go('/approvals')}>Manage</a>}/>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[
                   { name: 'Keith Johnson', role: 'Group Finance Lead', tag: 'Final Approver', tone: 'navy' },
@@ -240,9 +326,20 @@
                 <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)' }}>Line Items</div>
                 <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{lineItems.length} categories · variance shown against plan</div>
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <ArsButton variant="secondary" size="sm" icon={<IconFilter size={14}/>} onClick={() => window.Store.toast('Filter (demo)', 'info')}>Filter</ArsButton>
-                <ArsButton variant="secondary" size="sm" icon={<IconPlus size={14}/>} onClick={() => window.Store.toast('Add line (demo)', 'info')}>Add line</ArsButton>
+              <div style={{ display: 'flex', gap: 8, position: 'relative' }} ref={filterRef}>
+                <ArsButton variant="secondary" size="sm" icon={<IconFilter size={14}/>} onClick={() => setShowFilterMenu((v) => !v)}>Filter{catFilter !== 'All' ? `: ${catFilter}` : ''}</ArsButton>
+                {showFilterMenu && (
+                  <div style={{ position: 'absolute', top: '110%', right: 90, background: '#fff', border: '1px solid var(--arsela-border)', borderRadius: 10, boxShadow: '0 8px 24px rgba(15,23,60,0.14)', minWidth: 200, zIndex: 20, padding: 6 }}>
+                    {lineCategories.map((c) => (
+                      <button key={c} onClick={() => { setCatFilter(c); setShowFilterMenu(false); }} style={{
+                        display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', fontSize: 13,
+                        background: c === catFilter ? 'var(--arsela-blue-50)' : 'transparent', color: 'var(--arsela-navy)',
+                        border: 'none', borderRadius: 6, cursor: 'pointer',
+                      }}>{c}</button>
+                    ))}
+                  </div>
+                )}
+                <ArsButton variant="secondary" size="sm" icon={<IconPlus size={14}/>} onClick={() => setAddLineOpen(true)}>Add line</ArsButton>
               </div>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -286,6 +383,17 @@
             </table>
           </ArsCard>
         </div>
+        {editOpen && <EditBudgetDetailModal budget={budget} onClose={() => setEditOpen(false)}/>}
+        {addLineOpen && <AddLineModal onClose={() => setAddLineOpen(false)} onAdd={(line) => setExtraLines((prev) => [...prev, line])}/>}
+        <ArsConfirmDialog
+          open={deleteOpen}
+          onClose={() => setDeleteOpen(false)}
+          onConfirm={() => { window.Store.deleteBudget(budget.id); window.Router.go('/budgets'); }}
+          title="Delete budget?"
+          message={`This will permanently remove "${budget.name}" (${budget.id}). This cannot be undone.`}
+          confirmLabel="Delete"
+          danger
+        />
       </AppFrame>
     );
   }

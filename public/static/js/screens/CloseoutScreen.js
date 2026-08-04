@@ -97,15 +97,25 @@
       s.budgets.forEach((b) => { m[b.id] = defaultDecision(b); });
       return m;
     });
+    const [decisionFilter, setDecisionFilter] = useState('All');
+    const [showFilterMenu, setShowFilterMenu] = useState(false);
+    const filterRef = React.useRef(null);
+    React.useEffect(() => {
+      if (!showFilterMenu) return;
+      const h = (e) => { if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilterMenu(false); };
+      document.addEventListener('mousedown', h);
+      return () => document.removeEventListener('mousedown', h);
+    }, [showFilterMenu]);
 
-    const rows = s.budgets.map((b) => ({ ...b, closeoutDecision: decisions[b.id]?.decision, closeoutNote: decisions[b.id]?.note }));
+    const allRows = s.budgets.map((b) => ({ ...b, closeoutDecision: decisions[b.id]?.decision, closeoutNote: decisions[b.id]?.note }));
+    const rows = decisionFilter === 'All' ? allRows : allRows.filter((b) => b.closeoutDecision === decisionFilter);
 
-    const carry = rows.filter((b) => b.closeoutDecision === 'carry');
-    const release = rows.filter((b) => b.closeoutDecision === 'release');
-    const archive = rows.filter((b) => b.closeoutDecision === 'archive');
+    const carry = allRows.filter((b) => b.closeoutDecision === 'carry');
+    const release = allRows.filter((b) => b.closeoutDecision === 'release');
+    const archive = allRows.filter((b) => b.closeoutDecision === 'archive');
     const carrySum = carry.reduce((sum, b) => sum + Math.max(0, b.allocated - b.spent), 0);
     const releaseSum = release.reduce((sum, b) => sum + Math.max(0, b.allocated - b.spent), 0);
-    const totalBudget = rows.reduce((sum, b) => sum + b.allocated, 0);
+    const totalBudget = allRows.reduce((sum, b) => sum + b.allocated, 0);
 
     const setDecision = (id, decision) => setDecisions((cur) => ({ ...cur, [id]: { decision, note: 'Manually set' } }));
 
@@ -167,7 +177,20 @@
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <ArsButton variant="secondary" size="sm" icon={<IconRefresh size={13}/>} onClick={applyAiDefaults}>Apply AI defaults</ArsButton>
-                <ArsButton variant="secondary" size="sm" icon={<IconFilter size={13}/>} onClick={() => window.Store.toast('Filter (demo)', 'info')}>Filter</ArsButton>
+                <div style={{ position: 'relative' }} ref={filterRef}>
+                  <ArsButton variant="secondary" size="sm" icon={<IconFilter size={13}/>} onClick={() => setShowFilterMenu((v) => !v)}>Filter{decisionFilter !== 'All' ? `: ${decisionFilter}` : ''}</ArsButton>
+                  {showFilterMenu && (
+                    <div style={{ position: 'absolute', top: '110%', right: 0, background: '#fff', border: '1px solid var(--arsela-border)', borderRadius: 10, boxShadow: '0 8px 24px rgba(15,23,60,0.14)', minWidth: 180, zIndex: 20, padding: 6 }}>
+                      {['All', 'carry', 'release', 'archive'].map((f) => (
+                        <button key={f} onClick={() => { setDecisionFilter(f); setShowFilterMenu(false); }} style={{
+                          display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', fontSize: 13,
+                          background: f === decisionFilter ? 'var(--arsela-blue-50)' : 'transparent', color: 'var(--arsela-navy)',
+                          border: 'none', borderRadius: 6, cursor: 'pointer', textTransform: 'capitalize',
+                        }}>{f}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>

@@ -1,15 +1,7 @@
-/* CAPEX Portfolio — asset-level view with depreciation, approval status */
+/* CAPEX Portfolio — asset-level view with depreciation, approval status.
+   Wired to window.Store.capexProjects with real Add / Edit / Delete. */
 (function () {
-
-  const CAPEX_PROJECTS = [
-    { code: 'CAP-2601', p: 'Port Klang Terminal 3 — Berth Expansion', cat: 'Buildings', approved: 145e6, committed: 92.3e6, spent: 61.2e6, stage: 'Executing',  owner: 'Faris H.', eta: 'Q4 2027' },
-    { code: 'CAP-2602', p: 'Solar Farm — Northern Phase II',           cat: 'Machinery', approved:  88.5e6, committed: 44.8e6, spent: 18.4e6, stage: 'Executing',  owner: 'Zara M.',   eta: 'Q2 2027' },
-    { code: 'CAP-2603', p: 'Data Centre — Cyberjaya Node',              cat: 'Buildings', approved: 210e6,   committed: 168.2e6, spent: 94.7e6, stage: 'Executing',  owner: 'Marcus L.', eta: 'Q1 2027' },
-    { code: 'CAP-2604', p: 'Fleet Renewal — Container Handlers',        cat: 'Machinery', approved:  42e6,   committed: 41.2e6, spent: 41.2e6, stage: 'Completing', owner: 'Faris H.', eta: 'Q3 2026' },
-    { code: 'CAP-2605', p: 'ERP Modernisation Programme',               cat: 'Software',  approved:  28.4e6, committed: 22.1e6, spent: 14.6e6, stage: 'Executing',  owner: 'Marcus L.', eta: 'Q4 2026' },
-    { code: 'CAP-2606', p: 'LNG Storage — Southern Phase I',            cat: 'Buildings', approved: 320e6,   committed: 48e6,   spent:  8.4e6, stage: 'Approved',   owner: 'Zara M.',   eta: 'Q3 2028' },
-    { code: 'CAP-2607', p: 'Cold Chain Facility — Central',              cat: 'Buildings', approved:  38.6e6, committed:  4.2e6, spent:  0,     stage: 'Approved',   owner: 'Nurul A.', eta: 'Q2 2027' },
-  ];
+  const { useState, useEffect, useMemo } = React;
 
   const DEP_SCHEDULE = [
     { cls: 'Buildings',   life: '30 yrs', y1: 22.4, y5: 112.0, y10: 224.0 },
@@ -19,13 +11,80 @@
   ];
 
   const STAGE_FILTERS = ['All', 'Executing', 'Completing', 'Approved'];
+  const CATEGORY_OPTIONS = ['Buildings', 'Machinery', 'Software', 'IT hardware'];
+  const STAGE_OPTIONS = ['Approved', 'Executing', 'Completing'];
+
+  function ProjectFormModal({ project, onClose }) {
+    const isEdit = !!project;
+    const [form, setForm] = useState(() => ({
+      name: project?.name || '',
+      category: project?.category || CATEGORY_OPTIONS[0],
+      owner: project?.owner || '',
+      eta: project?.eta || '',
+      stage: project?.stage || 'Approved',
+      approved: project?.approved ?? '',
+      committed: project?.committed ?? 0,
+      spent: project?.spent ?? 0,
+    }));
+    const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+    const save = () => {
+      if (!form.name.trim()) { window.Store.toast('Project name is required', 'danger'); return; }
+      const patch = {
+        name: form.name.trim(), category: form.category, owner: form.owner.trim() || 'Unassigned',
+        eta: form.eta.trim() || 'TBD', stage: form.stage,
+        approved: Number(form.approved) || 0, committed: Number(form.committed) || 0, spent: Number(form.spent) || 0,
+      };
+      if (isEdit) {
+        window.Store.updateCapexProject(project.code, patch);
+      } else {
+        window.Store.addCapexProject(patch);
+      }
+      onClose();
+    };
+
+    return (
+      <ArsModal open onClose={onClose} title={isEdit ? `Edit ${project.code}` : 'New CAPEX project'}
+        subtitle={isEdit ? project.name : 'Adds to the capital projects portfolio'}
+        footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={save}>{isEdit ? 'Save changes' : 'Create project'}</ArsButton></>}>
+        <ArsField label="Project name"><input value={form.name} onChange={set('name')} style={arsFieldInputStyle}/></ArsField>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}><ArsField label="Category">
+            <select value={form.category} onChange={set('category')} style={arsFieldInputStyle}>
+              {CATEGORY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="Stage">
+            <select value={form.stage} onChange={set('stage')} style={arsFieldInputStyle}>
+              {STAGE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </ArsField></div>
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}><ArsField label="Owner"><input value={form.owner} onChange={set('owner')} placeholder="e.g. Faris H." style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="ETA"><input value={form.eta} onChange={set('eta')} placeholder="e.g. Q4 2027" style={arsFieldInputStyle}/></ArsField></div>
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}><ArsField label="Approved (RM)"><input type="number" value={form.approved} onChange={set('approved')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="Committed (RM)"><input type="number" value={form.committed} onChange={set('committed')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="Spent (RM)"><input type="number" value={form.spent} onChange={set('spent')} style={arsFieldInputStyle}/></ArsField></div>
+        </div>
+      </ArsModal>
+    );
+  }
 
   const CapexScreen = () => {
-    const [stageFilter, setStageFilter] = React.useState('All');
-    const [showFilterMenu, setShowFilterMenu] = React.useState(false);
+    const [s, setS] = useState(window.Store.getState());
+    useEffect(() => window.Store.subscribe(setS), []);
+
+    const [stageFilter, setStageFilter] = useState('All');
+    const [showFilterMenu, setShowFilterMenu] = useState(false);
+    const [addOpen, setAddOpen] = useState(false);
+    const [editProject, setEditProject] = useState(null);
+    const [deleteProject, setDeleteProject] = useState(null);
     const filterRef = React.useRef(null);
 
-    React.useEffect(() => {
+    useEffect(() => {
       const onDoc = (e) => {
         if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilterMenu(false);
       };
@@ -33,9 +92,11 @@
       return () => document.removeEventListener('mousedown', onDoc);
     }, []);
 
-    const projects = React.useMemo(
+    const CAPEX_PROJECTS = s.capexProjects;
+
+    const projects = useMemo(
       () => stageFilter === 'All' ? CAPEX_PROJECTS : CAPEX_PROJECTS.filter(p => p.stage === stageFilter),
-      [stageFilter]
+      [CAPEX_PROJECTS, stageFilter]
     );
 
     const totals = CAPEX_PROJECTS.reduce((a, p) => ({
@@ -45,13 +106,11 @@
     }), { approved: 0, committed: 0, spent: 0 });
 
     const catTotals = {};
-    CAPEX_PROJECTS.forEach(p => { catTotals[p.cat] = (catTotals[p.cat] || 0) + p.approved; });
-    const catColors = { Buildings: '#1343CB', Machinery: '#00A896', Software: '#5B9EFF' };
-    const catData = Object.entries(catTotals).map(([k, v]) => ({ label: k, value: v, color: catColors[k] }));
+    CAPEX_PROJECTS.forEach(p => { catTotals[p.category] = (catTotals[p.category] || 0) + p.approved; });
+    const catColors = { Buildings: '#1343CB', Machinery: '#00A896', Software: '#5B9EFF', 'IT hardware': '#B4740A' };
+    const catData = Object.entries(catTotals).map(([k, v]) => ({ label: k, value: v, color: catColors[k] || '#5B6B82' }));
 
-    const openProject = (p) => {
-      window.Store.toast(`${p.code} · ${p.p} — ${p.stage}, ${fmtMYR(p.spent, { compact: true })} spent of ${fmtMYR(p.approved, { compact: true })}`, 'info');
-    };
+    const sanctionPending = CAPEX_PROJECTS.filter(p => p.stage === 'Approved' && p.spent === 0);
 
     return (
       <AppFrame
@@ -61,7 +120,7 @@
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
             <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Exporting CAPEX portfolio…', 'info')}>Export</ArsButton>
-            <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => window.Store.toast('New CAPEX project intake — coming soon', 'info')}>New project</ArsButton>
+            <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => setAddOpen(true)}>New project</ArsButton>
           </div>
         }
       >
@@ -76,22 +135,22 @@
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Committed</div>
             <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(totals.committed, { compact: true })}</div>
             <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
-              <ArsProgress value={(totals.committed / totals.approved) * 100} tone="blue" style={{ flex: 1 }}/>
-              <span className="arsela-num" style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>{((totals.committed / totals.approved) * 100).toFixed(0)}%</span>
+              <ArsProgress value={totals.approved ? (totals.committed / totals.approved) * 100 : 0} tone="blue" style={{ flex: 1 }}/>
+              <span className="arsela-num" style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>{totals.approved ? ((totals.committed / totals.approved) * 100).toFixed(0) : 0}%</span>
             </div>
           </ArsCard>
           <ArsCard>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Spent to date</div>
             <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(totals.spent, { compact: true })}</div>
             <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
-              <ArsProgress value={(totals.spent / totals.approved) * 100} tone="teal" style={{ flex: 1 }}/>
-              <span className="arsela-num" style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>{((totals.spent / totals.approved) * 100).toFixed(0)}%</span>
+              <ArsProgress value={totals.approved ? (totals.spent / totals.approved) * 100 : 0} tone="teal" style={{ flex: 1 }}/>
+              <span className="arsela-num" style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>{totals.approved ? ((totals.spent / totals.approved) * 100).toFixed(0) : 0}%</span>
             </div>
           </ArsCard>
           <ArsCard>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Sanction pending</div>
-            <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--warning)', marginTop: 10, letterSpacing: -0.4 }}>RM 320M</div>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 6 }}>LNG Storage — awaiting exec approval</div>
+            <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--warning)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(sanctionPending.reduce((s, p) => s + p.approved, 0), { compact: true })}</div>
+            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 6 }}>{sanctionPending.length ? sanctionPending[0].name + ' — awaiting exec approval' : 'None outstanding'}</div>
           </ArsCard>
         </div>
 
@@ -99,42 +158,46 @@
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
           <ArsCard>
             <ArsSectionHeader title="Envelope by category" subtitle="Share of approved CAPEX · FY26"/>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-              <svg width="180" height="180">
-                {(() => {
-                  const cx = 90, cy = 90, r = 70, sw = 24;
-                  const total = catData.reduce((s, d) => s + d.value, 0);
-                  const circ = 2 * Math.PI * r;
-                  let acc = 0;
-                  return (
-                    <g>
-                      <circle cx={cx} cy={cy} r={r} stroke="#F1F3F7" strokeWidth={sw} fill="none"/>
-                      {catData.map((d, i) => {
-                        const len = (d.value / total) * circ;
-                        const off = -acc;
-                        acc += len;
-                        return (
-                          <circle key={i} cx={cx} cy={cy} r={r} stroke={d.color} strokeWidth={sw} fill="none"
-                            strokeDasharray={`${len} ${circ}`} strokeDashoffset={off}
-                            transform={`rotate(-90 ${cx} ${cy})`}/>
-                        );
-                      })}
-                      <text x={cx} y={cy - 4} textAnchor="middle" fontSize="11" fill="#5B6B82" fontWeight="600">Approved</text>
-                      <text x={cx} y={cy + 16} textAnchor="middle" fontSize="18" fill="#001F3D" fontWeight="700">{fmtMYR(total, { compact: true })}</text>
-                    </g>
-                  );
-                })()}
-              </svg>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {catData.map(d => (
-                  <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 3, background: d.color }}/>
-                    <span style={{ flex: 1, fontSize: 13, color: 'var(--arsela-navy)', fontWeight: 500 }}>{d.label}</span>
-                    <span className="arsela-num" style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(d.value, { compact: true })}</span>
-                  </div>
-                ))}
+            {catData.length === 0 ? (
+              <ArsEmpty icon={<IconBuilding size={22}/>} title="No CAPEX projects yet" body="Add a project to see the category breakdown."/>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+                <svg width="180" height="180">
+                  {(() => {
+                    const cx = 90, cy = 90, r = 70, sw = 24;
+                    const total = catData.reduce((s, d) => s + d.value, 0);
+                    const circ = 2 * Math.PI * r;
+                    let acc = 0;
+                    return (
+                      <g>
+                        <circle cx={cx} cy={cy} r={r} stroke="#F1F3F7" strokeWidth={sw} fill="none"/>
+                        {catData.map((d, i) => {
+                          const len = total ? (d.value / total) * circ : 0;
+                          const off = -acc;
+                          acc += len;
+                          return (
+                            <circle key={i} cx={cx} cy={cy} r={r} stroke={d.color} strokeWidth={sw} fill="none"
+                              strokeDasharray={`${len} ${circ}`} strokeDashoffset={off}
+                              transform={`rotate(-90 ${cx} ${cy})`}/>
+                          );
+                        })}
+                        <text x={cx} y={cy - 4} textAnchor="middle" fontSize="11" fill="#5B6B82" fontWeight="600">Approved</text>
+                        <text x={cx} y={cy + 16} textAnchor="middle" fontSize="18" fill="#001F3D" fontWeight="700">{fmtMYR(total, { compact: true })}</text>
+                      </g>
+                    );
+                  })()}
+                </svg>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {catData.map(d => (
+                    <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 3, background: d.color }}/>
+                      <span style={{ flex: 1, fontSize: 13, color: 'var(--arsela-navy)', fontWeight: 500 }}>{d.label}</span>
+                      <span className="arsela-num" style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(d.value, { compact: true })}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </ArsCard>
 
           <ArsCard>
@@ -163,7 +226,7 @@
 
         {/* Projects table */}
         <ArsCard padded={false}>
-          <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--arsela-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--arsela-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)' }}>Capital projects portfolio</div>
               <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Buildings · Machinery · Software · multi-stage sanctions{stageFilter !== 'All' ? ` · Filtered: ${stageFilter}` : ''}</div>
@@ -188,11 +251,11 @@
               )}
             </div>
           </div>
-          <div style={{ maxHeight: 360, overflow: 'auto' }} className="ars-table-scroll">
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div style={{ maxHeight: 420, overflow: 'auto' }} className="ars-table-scroll coplan-scrollx">
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 920 }}>
               <thead>
                 <tr style={{ background: 'var(--arsela-surface-alt)', borderBottom: '1px solid var(--arsela-border)' }}>
-                  {['Project', 'Category', 'Stage', 'Owner', 'Approved', 'Committed', 'Spent', 'Utilisation', 'ETA'].map(h => (
+                  {['Project', 'Category', 'Stage', 'Owner', 'Approved', 'Committed', 'Spent', 'Utilisation', 'ETA', 'Actions'].map(h => (
                     <th key={h} style={{
                       textAlign: ['Approved','Committed','Spent'].includes(h) ? 'right' : 'left',
                       padding: '11px 16px', fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)',
@@ -203,21 +266,21 @@
               </thead>
               <tbody>
                 {projects.length === 0 ? (
-                  <tr><td colSpan={9}>
-                    <ArsEmpty icon={<IconFilter size={22}/>} title="No projects match this filter" body="Try a different stage filter to see more CAPEX projects."/>
+                  <tr><td colSpan={10}>
+                    <ArsEmpty icon={<IconFilter size={22}/>} title="No projects match this filter" body="Try a different stage filter, or add a new CAPEX project."/>
                   </td></tr>
                 ) : projects.map((p) => {
-                  const util = (p.spent / p.approved) * 100;
+                  const util = p.approved ? (p.spent / p.approved) * 100 : 0;
                   const stageChip = p.stage === 'Completing' ? 'success' : p.stage === 'Executing' ? 'blue' : 'warning';
                   return (
-                    <tr key={p.code} onClick={() => openProject(p)} style={{ cursor: 'pointer' }}
+                    <tr key={p.code}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--arsela-surface-alt)'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                       <td style={{ padding: '13px 16px', maxWidth: 260 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--arsela-navy)' }}>{p.p}</div>
+                        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--arsela-navy)' }}>{p.name}</div>
                         <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2, fontFamily: 'JetBrains Mono, monospace' }}>{p.code}</div>
                       </td>
-                      <td style={{ padding: '13px 16px', fontSize: 13, color: 'var(--arsela-text-muted)' }}>{p.cat}</td>
+                      <td style={{ padding: '13px 16px', fontSize: 13, color: 'var(--arsela-text-muted)' }}>{p.category}</td>
                       <td style={{ padding: '13px 16px' }}><ArsBadge tone={stageChip} dot size="sm">{p.stage}</ArsBadge></td>
                       <td style={{ padding: '13px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -232,6 +295,12 @@
                         <ArsProgress value={util} tone="blue" showValue/>
                       </td>
                       <td style={{ padding: '13px 16px', fontSize: 12, color: 'var(--arsela-text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>{p.eta}</td>
+                      <td style={{ padding: '13px 16px' }}>
+                        <div style={{ display: 'flex', gap: 4, color: 'var(--arsela-text-subtle)' }}>
+                          <button onClick={() => setEditProject(p)} title="Edit" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}><IconEdit size={15}/></button>
+                          <button onClick={() => setDeleteProject(p)} title="Delete" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--arsela-danger)' }}><IconTrash size={15}/></button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -239,6 +308,16 @@
             </table>
           </div>
         </ArsCard>
+
+        {addOpen && <ProjectFormModal onClose={() => setAddOpen(false)}/>}
+        {editProject && <ProjectFormModal project={editProject} onClose={() => setEditProject(null)}/>}
+        <ArsConfirmDialog
+          open={!!deleteProject}
+          onClose={() => setDeleteProject(null)}
+          onConfirm={() => deleteProject && window.Store.deleteCapexProject(deleteProject.code)}
+          title="Delete CAPEX project?"
+          message={deleteProject ? `This will permanently remove "${deleteProject.name}" (${deleteProject.code}). This cannot be undone.` : ''}
+        />
       </AppFrame>
     );
   };

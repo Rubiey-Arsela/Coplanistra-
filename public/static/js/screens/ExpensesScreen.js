@@ -63,12 +63,55 @@
     );
   }
 
+  function EditExpenseModal({ expense, onClose }) {
+    const [form, setForm] = useState(() => ({
+      desc: expense.desc, vendor: expense.vendor, category: expense.category,
+      amount: expense.amount, status: expense.status,
+    }));
+    const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+    const save = () => {
+      if (!form.desc.trim()) { window.Store.toast('Description is required', 'danger'); return; }
+      window.Store.updateExpense(expense.id, {
+        desc: form.desc.trim(), vendor: form.vendor.trim(), category: form.category,
+        amount: Number(form.amount) || 0, status: form.status,
+      });
+      onClose();
+    };
+    return (
+      <ArsModal open onClose={onClose} title={`Edit ${expense.id}`} subtitle={expense.desc}
+        footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={save}>Save changes</ArsButton></>}>
+        <ArsField label="Description"><input value={form.desc} onChange={set('desc')} style={arsFieldInputStyle}/></ArsField>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}><ArsField label="Vendor"><input value={form.vendor} onChange={set('vendor')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="Amount (RM)"><input type="number" value={form.amount} onChange={set('amount')} style={arsFieldInputStyle}/></ArsField></div>
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}><ArsField label="Category">
+            <select value={form.category} onChange={set('category')} style={arsFieldInputStyle}>
+              {CATEGORIES.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="Status">
+            <select value={form.status} onChange={set('status')} style={arsFieldInputStyle}>
+              <option value="pending">pending</option>
+              <option value="approved">approved</option>
+              <option value="rejected">rejected</option>
+            </select>
+          </ArsField></div>
+        </div>
+      </ArsModal>
+    );
+  }
+
   function ExpensesScreen() {
     const [s, setS] = useState(window.Store.getState());
     useEffect(() => window.Store.subscribe(setS), []);
 
     const [tab, setTab] = useState('All');
     const [q, setQ] = useState('');
+    const [editExpense, setEditExpense] = useState(null);
+    const [deleteExpense, setDeleteExpense] = useState(null);
+    const [rowMenuId, setRowMenuId] = useState(null);
 
     // Quick-add form state — drives the LIVE routing preview
     const [desc, setDesc] = useState('');
@@ -174,7 +217,7 @@
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ background: '#FAFBFD', borderBottom: '1px solid var(--arsela-border)' }}>
-                      {['ID', 'Description', 'Vendor', 'Category', 'Amount', 'Status', ''].map((h, i) => (
+                      {['ID', 'Description', 'Vendor', 'Category', 'Amount', 'Status', 'Actions'].map((h, i) => (
                         <th key={i} style={{ textAlign: h === 'Amount' ? 'right' : 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.6, textTransform: 'uppercase' }}>{h}</th>
                       ))}
                     </tr>
@@ -191,7 +234,12 @@
                         <td style={{ padding: '12px 14px' }}><ArsBadge tone="neutral" size="sm">{e.category}</ArsBadge></td>
                         <td className="arsela-num" style={{ padding: '12px 14px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(e.amount)}</td>
                         <td style={{ padding: '12px 14px' }}><ArsBadge tone={statusTone[e.status] || 'neutral'} dot size="sm">{e.status}</ArsBadge></td>
-                        <td style={{ padding: '12px 14px' }}><IconMore size={16} style={{ color: 'var(--arsela-text-subtle)', cursor: 'pointer' }}/></td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <div style={{ display: 'flex', gap: 4, color: 'var(--arsela-text-subtle)' }}>
+                            <button onClick={() => setEditExpense(e)} title="Edit" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}><IconEdit size={15}/></button>
+                            <button onClick={() => setDeleteExpense(e)} title="Delete" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--arsela-danger)' }}><IconTrash size={15}/></button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                     {filtered.length === 0 && (
@@ -298,6 +346,15 @@
             </div>
           </div>
         </div>
+
+        {editExpense && <EditExpenseModal expense={editExpense} onClose={() => setEditExpense(null)}/>}
+        <ArsConfirmDialog
+          open={!!deleteExpense}
+          onClose={() => setDeleteExpense(null)}
+          onConfirm={() => deleteExpense && window.Store.deleteExpense(deleteExpense.id)}
+          title="Delete expense?"
+          message={deleteExpense ? `This will permanently remove "${deleteExpense.desc}" (${deleteExpense.id}). This cannot be undone.` : ''}
+        />
       </AppFrame>
     );
   }
