@@ -25,14 +25,14 @@
     'Settings': '/settings',
   };
 
-  const CoplanistraMark = ({ size = 22, color = '#fff', accent = '#00D6BE' }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="2" y="2" width="20" height="20" rx="5" fill={color} fillOpacity="0.08" stroke={color} strokeWidth="1.4"/>
-      <rect x="6" y="14" width="3" height="4" rx="1" fill={color}/>
-      <rect x="10.5" y="10.5" width="3" height="7.5" rx="1" fill={color}/>
-      <rect x="15" y="6.5" width="3" height="11.5" rx="1" fill={accent}/>
-      <path d="M5 19.5h14" stroke={color} strokeWidth="1.2" strokeLinecap="round" opacity="0.55"/>
-    </svg>
+  const CoplanistraMark = ({ size = 22 }) => (
+    <img
+      src="/static/img/logo-icon-new.png"
+      alt="Coplanistra"
+      width={size}
+      height={size}
+      style={{ width: size, height: size, borderRadius: size * 0.22, display: 'block', flexShrink: 0 }}
+    />
   );
 
   const CoplanistraWordmark = ({ color = '#fff', subColor = 'rgba(255,255,255,0.55)', onClick }) => (
