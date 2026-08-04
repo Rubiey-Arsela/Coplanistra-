@@ -4,10 +4,10 @@
     const attain = actual != null ? (actual / plan) * 100 : null;
     const varPct = actual != null ? ((actual - plan) / plan) * 100 : ((forecast - plan) / plan) * 100;
     return (
-      <ArsCard style={{
+      <ArsCard onClick={() => window.Router.go('/quarterly?q=' + encodeURIComponent(q))} title={`View ${q} detail`} style={{
         borderColor: current ? 'var(--teal-brand)' : 'var(--arsela-border)',
         boxShadow: current ? '0 0 0 3px rgba(0,168,150,0.12), var(--arsela-shadow-card)' : 'var(--arsela-shadow-card)',
-        position: 'relative',
+        position: 'relative', cursor: 'pointer',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
           <div>
@@ -16,7 +16,7 @@
           </div>
           {current && <ArsBadge tone="teal" size="sm">Current</ArsBadge>}
         </div>
-        <ArsFigure value={fmtMYR(actual != null ? actual : forecast, { compact: true }).replace('RM ', '')} unit="RM" size={28}/>
+        <ArsFigure value={fmtMYR(actual != null ? actual : forecast, { compact: true }).replace(window.Store.getCurrencyConfig().symbol + ' ', '')} unit={window.Store.getCurrencyConfig().symbol} size={28}/>
         <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
           <ArsVariance value={varPct}/>
           <span style={{ fontSize: 12, color: 'var(--arsela-text-muted)' }}>vs plan {fmtMYR(plan, { compact: true })}</span>
@@ -31,18 +31,21 @@
   };
 
   const QoQChart = () => {
+    const { useState } = React;
+    const [hover, setHover] = useState(null); // { i, kind }
     const quarters = [
       { q: 'Q1', plan: 60, actual: 62 },
       { q: 'Q2', plan: 62, actual: 64 },
       { q: 'Q3', plan: 63, actual: 43, forecast: 66 },
       { q: 'Q4', plan: 63, forecast: 66 },
     ];
-    const w = 660, h = 240, pad = { l: 44, r: 20, t: 20, b: 30 };
+    const w = 660, h = 260, pad = { l: 44, r: 20, t: 20, b: 30 };
     const max = 80;
     const groupW = (w - pad.l - pad.r) / quarters.length;
     const barW = 22;
     const yFor = (v) => pad.t + (h - pad.t - pad.b) * (1 - v / max);
     const xFor = (i) => pad.l + groupW * i + groupW / 2;
+    const goQuarter = (q) => window.Router.go('/quarterly?q=' + encodeURIComponent(q));
     return (
       <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block' }}>
         <defs>
@@ -58,12 +61,32 @@
         ))}
         {quarters.map((q, i) => {
           const cx = xFor(i);
+          const isHoverPlan = hover && hover.i === i && hover.kind === 'plan';
+          const isHoverActual = hover && hover.i === i && hover.kind === 'actual';
+          const isHoverForecast = hover && hover.i === i && hover.kind === 'forecast';
           return (
             <g key={q.q}>
-              <rect x={cx - barW - 4} y={yFor(q.plan)} width={barW} height={yFor(0) - yFor(q.plan)} fill="url(#qBudget)" rx="3"/>
-              {q.actual != null && <rect x={cx + 4} y={yFor(q.actual)} width={barW} height={yFor(0) - yFor(q.actual)} fill="url(#qActual)" rx="3"/>}
-              {q.forecast != null && <rect x={cx + 4} y={yFor(q.forecast)} width={barW} height={yFor(0) - yFor(q.forecast)} fill="url(#qForecast)" rx="3" stroke="#00A896" strokeWidth="1" strokeDasharray="3 2"/>}
-              <text x={cx} y={h - 10} fontSize="12" fill="#001F3D" fontWeight="700" textAnchor="middle">{q.q}</text>
+              <rect x={cx - barW - 4} y={yFor(q.plan)} width={barW} height={yFor(0) - yFor(q.plan)} fill="url(#qBudget)" rx="3"
+                style={{ cursor: 'pointer' }} onClick={() => goQuarter(q.q)}
+                onMouseEnter={() => setHover({ i, kind: 'plan' })} onMouseLeave={() => setHover(null)}/>
+              <text x={cx - barW / 2 - 4} y={yFor(q.plan) - 6} fontSize="9.5" fill="#5A6B85" fontWeight="700" textAnchor="middle" opacity={isHoverPlan ? 1 : 0.7}>RM{q.plan}M</text>
+              {q.actual != null && (
+                <>
+                  <rect x={cx + 4} y={yFor(q.actual)} width={barW} height={yFor(0) - yFor(q.actual)} fill="url(#qActual)" rx="3"
+                    style={{ cursor: 'pointer' }} onClick={() => goQuarter(q.q)}
+                    onMouseEnter={() => setHover({ i, kind: 'actual' })} onMouseLeave={() => setHover(null)}/>
+                  <text x={cx + 4 + barW / 2} y={yFor(q.actual) - 6} fontSize="9.5" fill="#1343CB" fontWeight="700" textAnchor="middle" opacity={isHoverActual ? 1 : 0.85}>RM{q.actual}M</text>
+                </>
+              )}
+              {q.forecast != null && (
+                <>
+                  <rect x={cx + 4} y={yFor(q.forecast)} width={barW} height={yFor(0) - yFor(q.forecast)} fill="url(#qForecast)" rx="3" stroke="#00A896" strokeWidth="1" strokeDasharray="3 2"
+                    style={{ cursor: 'pointer' }} onClick={() => goQuarter(q.q)}
+                    onMouseEnter={() => setHover({ i, kind: 'forecast' })} onMouseLeave={() => setHover(null)}/>
+                  {q.actual == null && <text x={cx + 4 + barW / 2} y={yFor(q.forecast) - 6} fontSize="9.5" fill="#00A896" fontWeight="700" textAnchor="middle" opacity={isHoverForecast ? 1 : 0.85}>RM{q.forecast}M</text>}
+                </>
+              )}
+              <text x={cx} y={h - 10} fontSize="12" fill="#001F3D" fontWeight="700" textAnchor="middle" style={{ cursor: 'pointer' }} onClick={() => goQuarter(q.q)}>{q.q}</text>
             </g>
           );
         })}
@@ -71,8 +94,39 @@
     );
   };
 
-  function QuarterlyScreen() {
+  function AddScenarioModal({ onClose }) {
     const { useState } = React;
+    const [n, setN] = useState('');
+    const [v, setV] = useState('');
+    const [d, setD] = useState('');
+    const [c, setC] = useState('blue');
+    const save = () => {
+      if (!n.trim() || !v || Number(v) <= 0) { window.Store.toast('Enter a scenario name and value', 'danger'); return; }
+      window.Store.addScenario({ n: n.trim(), v: Number(v), d: d.trim() || '—', c });
+      onClose();
+    };
+    return (
+      <ArsModal open onClose={onClose} title="New scenario" subtitle="Add a full-year projection scenario"
+        footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={save}>Add scenario</ArsButton></>}>
+        <ArsField label="Scenario name"><input value={n} onChange={(e) => setN(e.target.value)} placeholder="e.g. Upside — new terminal" style={arsFieldInputStyle}/></ArsField>
+        <ArsField label="Full-year value (RM)"><input type="number" value={v} onChange={(e) => setV(e.target.value)} placeholder="254800000" style={arsFieldInputStyle}/></ArsField>
+        <ArsField label="Description"><input value={d} onChange={(e) => setD(e.target.value)} placeholder="e.g. +2.6% vs plan" style={arsFieldInputStyle}/></ArsField>
+        <ArsField label="Tone">
+          <select value={c} onChange={(e) => setC(e.target.value)} style={arsFieldInputStyle}>
+            {['success', 'blue', 'warning', 'danger', 'teal'].map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </ArsField>
+      </ArsModal>
+    );
+  }
+
+  function QuarterlyScreen() {
+    const { useState, useEffect } = React;
+    const [s, setS] = useState(window.Store.getState());
+    useEffect(() => window.Store.subscribe(setS), []);
+    const scenarios = s.scenarios || [];
+    const [addScenarioOpen, setAddScenarioOpen] = useState(false);
+
     const [submissions, setSubmissions] = useState([
       { d: 'Ports & Logistics', o: 'Faris Hamzah', s: '18 Jul', pf: 32.0, nf: 32.5, st: 'submitted' },
       { d: 'Operations', o: 'Aisha Rashid', s: '19 Jul', pf: 27.0, nf: 28.2, st: 'submitted' },
@@ -84,14 +138,23 @@
       { d: 'People & Culture', o: 'Priya Nair', s: '17 Jul', pf: 5.8, nf: 6.1, st: 'submitted' },
     ]);
 
-    const scenarios = [
-      { n: 'Base case', v: 'RM 254.8M', d: '+2.6% vs plan', c: 'success', active: true },
-      { n: 'Upside — Port expansion', v: 'RM 262.4M', d: '+5.6% vs plan', c: 'blue' },
-      { n: 'Downside — MYR volatility', v: 'RM 244.1M', d: '−1.7% vs plan', c: 'warning' },
-    ];
-
     const submittedCount = submissions.filter((s) => s.st === 'submitted').length;
     const overdueCount = submissions.length - submittedCount;
+
+    const routeQ = window.Router.current().params.q;
+    useEffect(() => {
+      const unsub = window.Router.subscribe((r) => {
+        if (r.params.q) {
+          const el = document.getElementById('division-submissions');
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+      if (routeQ) {
+        const el = document.getElementById('division-submissions');
+        if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+      }
+      return unsub;
+    }, []);
 
     const escalate = () => {
       window.Store.toast(`Escalation sent to ${overdueCount} overdue division(s)`, 'warning');
@@ -153,26 +216,30 @@
             </ArsCard>
 
             <ArsCard>
-              <ArsSectionHeader title="Scenario comparison" subtitle="Full-year projection" action={<ArsButton variant="ghost" size="sm" icon={<IconPlus size={13}/>} onClick={() => window.Store.toast('New scenario (demo)', 'info')}>New</ArsButton>}/>
+              <ArsSectionHeader title="Scenario comparison" subtitle="Full-year projection" action={<ArsButton variant="ghost" size="sm" icon={<IconPlus size={13}/>} onClick={() => setAddScenarioOpen(true)}>New</ArsButton>}/>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {scenarios.map((s, i) => (
-                  <div key={i} onClick={() => window.Store.toast(`Switched to scenario: ${s.n}`, 'info')} style={{
+                {scenarios.length === 0 && <ArsEmpty icon={<IconChart size={20}/>} title="No scenarios yet" body="Click New to add one."/>}
+                {scenarios.map((sc) => (
+                  <div key={sc.id} onClick={() => window.Store.setActiveScenario(sc.id)} title="Click to switch to this scenario" style={{
                     padding: 12, borderRadius: 8, cursor: 'pointer',
-                    border: s.active ? '1px solid var(--teal-brand)' : '1px solid var(--arsela-border)',
-                    background: s.active ? 'rgba(0,168,150,0.05)' : 'transparent',
+                    border: sc.active ? '1px solid var(--teal-brand)' : '1px solid var(--arsela-border)',
+                    background: sc.active ? 'rgba(0,168,150,0.05)' : 'transparent',
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>{s.n}</span>
-                      <ArsBadge tone={s.c} size="sm">{s.d}</ArsBadge>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>{sc.n}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <ArsBadge tone={sc.c} size="sm">{sc.d}</ArsBadge>
+                        <button onClick={(e) => { e.stopPropagation(); window.Store.deleteScenario(sc.id); }} title="Delete scenario" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-text-subtle)', display: 'flex' }}><IconClose size={12}/></button>
+                      </div>
                     </div>
-                    <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--arsela-navy)', letterSpacing: -0.3 }}>{s.v}</div>
+                    <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--arsela-navy)', letterSpacing: -0.3 }}>{fmtMYR(sc.v, { compact: true })}</div>
                   </div>
                 ))}
               </div>
             </ArsCard>
           </div>
 
-          <ArsCard padded={false}>
+          <ArsCard padded={false} id="division-submissions">
             <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--arsela-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)' }}>Division submissions · Q3 reforecast</div>
@@ -220,6 +287,7 @@
             </table>
           </ArsCard>
         </div>
+        {addScenarioOpen && <AddScenarioModal onClose={() => setAddScenarioOpen(false)}/>}
       </AppFrame>
     );
   }

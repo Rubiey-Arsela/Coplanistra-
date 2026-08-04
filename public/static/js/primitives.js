@@ -1,7 +1,7 @@
 /* Reusable primitives — cards, buttons, badges, inputs, tables — Arsela design system */
 
-const arsCard = ({ children, style, className = '', padded = true }) => (
-  <div className={className} style={{
+const arsCard = ({ children, style, className = '', padded = true, onClick, id, title }) => (
+  <div className={className} id={id} title={title} onClick={onClick} style={{
     background: 'var(--arsela-card)',
     border: '1px solid var(--arsela-border)',
     borderRadius: 'var(--r-lg)',
@@ -146,12 +146,22 @@ const ArsSectionHeader = ({ title, subtitle, action }) => (
   </div>
 );
 
-/* Format MYR currency */
+/* Format currency — all amounts in the app are stored in MYR (base currency).
+   fmtMYR converts to the user's selected display currency (Store.state.currency:
+   MYR / USD / AUD / CNY) via window.Store.convert() and formats with that
+   currency's symbol + locale. Falls back to plain MYR if Store isn't ready yet
+   (e.g. during initial script parse). Name kept as "fmtMYR" for the ~13 existing
+   call sites — it now means "format a MYR-denominated amount for display". */
 const fmtMYR = (n, opts = {}) => {
-  const { compact = false, decimals = 0 } = opts;
-  if (compact && Math.abs(n) >= 1_000_000) return `RM ${(n/1_000_000).toFixed(2)}M`;
-  if (compact && Math.abs(n) >= 1_000) return `RM ${(n/1_000).toFixed(1)}K`;
-  return `RM ${n.toLocaleString('en-MY', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+  const { compact = false, decimals } = opts;
+  const store = window.Store;
+  const cfg = store ? store.getCurrencyConfig() : { symbol: 'RM', rate: 1, decimals: 0 };
+  const amount = store ? store.convert(n, store.getState().currency) : n;
+  const dec = decimals != null ? decimals : cfg.decimals;
+  const sym = cfg.symbol;
+  if (compact && Math.abs(amount) >= 1_000_000) return `${sym} ${(amount / 1_000_000).toFixed(2)}M`;
+  if (compact && Math.abs(amount) >= 1_000) return `${sym} ${(amount / 1_000).toFixed(1)}K`;
+  return `${sym} ${amount.toLocaleString('en-MY', { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
 };
 const fmtPct = (n, opts = {}) => {
   const { showSign = true, decimals = 1 } = opts;

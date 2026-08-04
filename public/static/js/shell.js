@@ -309,6 +309,21 @@
     );
   }
 
+  function CurrencySwitcher() {
+    const [cur, setCur] = useState(window.Store.getState().currency);
+    useEffect(() => window.Store.subscribe((s) => setCur(s.currency)), []);
+    const currencies = window.Store.listCurrencies();
+    return (
+      <select value={cur} onChange={(e) => window.Store.setCurrency(e.target.value)} title="Display currency"
+        className="coplan-currency-switcher" style={{
+          height: 34, borderRadius: 8, border: '1px solid var(--arsela-border)', background: '#fff',
+          fontSize: 12.5, fontWeight: 700, color: 'var(--arsela-navy)', padding: '0 8px', cursor: 'pointer', flexShrink: 0,
+        }}>
+        {currencies.map((c) => <option key={c.code} value={c.code}>{c.symbol} {c.code}</option>)}
+      </select>
+    );
+  }
+
   function Topbar({ title, breadcrumb, actions, role, notifOpen, notifCount, notifications, onOpenMenu }) {
     const roleDef = window.ROLES[role];
     const identity = window.ArsCurrentIdentity(role);
@@ -369,6 +384,10 @@
         </button>
 
         <div className="coplan-topbar-actions">{actions}</div>
+
+        <div className="coplan-currency-switcher-wrap">
+          <CurrencySwitcher/>
+        </div>
 
         <div className="coplan-role-switcher-wrap">
           <RoleSwitcher role={role}/>
@@ -465,6 +484,6 @@
   }
 
   Object.assign(window, {
-    CoplanistraMark, CoplanistraWordmark, ArselaCredit, Sidebar, Topbar, AppFrame, NotifBell, ArsLiveDot, ToastStack, NAV_ROUTES,
+    CoplanistraMark, CoplanistraWordmark, ArselaCredit, Sidebar, Topbar, AppFrame, NotifBell, ArsLiveDot, ToastStack, NAV_ROUTES, CurrencySwitcher,
   });
 })();

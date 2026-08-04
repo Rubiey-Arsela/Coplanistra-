@@ -2,7 +2,9 @@
 (function () {
   const { useState, useEffect, useMemo } = React;
 
-  const CATEGORIES = ['Maintenance', 'IT & Software', 'HR', 'Machinery', 'Professional Fees', 'Travel', 'Other'];
+  // Fallback list only used if Store hasn't hydrated categories yet — the live
+  // list is always read from window.Store.getState().categories.
+  const CATEGORIES_FALLBACK = ['Maintenance', 'IT & Software', 'HR', 'Machinery', 'Professional Fees', 'Travel', 'Other'];
   // 3-tier approval routing per design spec:
   //  < RM25K            -> Dept Manager only
   //  RM25K - RM250K      -> Dept Manager -> Finance Manager
@@ -87,7 +89,7 @@
           <div style={{ flex: 1 }}><ArsField label="Vendor"><input value={form.vendor} onChange={set('vendor')} style={arsFieldInputStyle}/></ArsField></div>
           <div style={{ flex: 1 }}><ArsField label="Category">
             <select value={form.category} onChange={set('category')} style={arsFieldInputStyle}>
-              {CATEGORIES.map((o) => <option key={o} value={o}>{o}</option>)}
+              {(window.Store.getState().categories || CATEGORIES_FALLBACK).map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           </ArsField></div>
         </div>
@@ -113,12 +115,20 @@
     const [deleteExpense, setDeleteExpense] = useState(null);
 
     // Quick-add form state — drives the LIVE routing preview
+    const categories = s.categories && s.categories.length ? s.categories : CATEGORIES_FALLBACK;
     const [desc, setDesc] = useState('');
     const [amount, setAmount] = useState('');
-    const [dept, setDept] = useState(s.budgets[0]?.dept || 'Ports & Logistics');
+    const todayISO = () => new Date().toISOString().slice(0, 10);
+    const [expDate, setExpDate] = useState(todayISO());
+    const [dept, setDept] = useState(s.budgets[0]?.dept || (s.departments && s.departments[0]) || 'Ports & Logistics');
+    const [deptTouched, setDeptTouched] = useState(false);
     const [budgetId, setBudgetId] = useState(s.budgets[0]?.id || '');
-    const [category, setCategory] = useState(CATEGORIES[0]);
+    const [category, setCategory] = useState(categories[0]);
+    const [newCategoryOpen, setNewCategoryOpen] = useState(false);
+    const [newCategoryDraft, setNewCategoryDraft] = useState('');
     const [vendor, setVendor] = useState('');
+    const [receiptFile, setReceiptFile] = useState(null);
+    const fileInputRef = React.useRef(null);
 
     const expenses = s.expenses;
     const counts = useMemo(() => ({
@@ -141,7 +151,9 @@
     const selectedBudget = s.budgets.find((b) => b.id === budgetId);
 
     const resetForm = () => {
-      setDesc(''); setAmount(''); setVendor('');
+      setDesc(''); setAmount(''); setVendor(''); setExpDate(todayISO());
+      setReceiptFile(null); setDeptTouched(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const submitExpense = (draft) => {
@@ -155,9 +167,24 @@
         dept,
         vendor: vendor.trim() || 'Unspecified',
         category,
+        when: new Date(expDate).toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' }),
+        receiptName: receiptFile ? receiptFile.name : null,
         draft,
       });
       resetForm();
+    };
+
+    const handleReceiptChange = (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      const maxBytes = 20 * 1024 * 1024;
+      if (f.size > maxBytes) {
+        window.Store.toast('Receipt is too large — max 20MB', 'danger');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+      setReceiptFile(f);
+      window.Store.toast(`Receipt attached: ${f.name}`, 'success');
     };
 
     const statusTone = { pending: 'warning', approved: 'success', rejected: 'danger' };
@@ -266,14 +293,19 @@
                         width: '100%', height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 14, fontFamily: 'inherit', color: 'var(--arsela-navy)', boxSizing: 'border-box',
                       }}/>
                     </label>
-                    <ArsInput label="Date" value={new Date().toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' })} icon={<IconCalendar size={14}/>}/>
+                    <label style={{ display: 'block' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Date</div>
+                      <input type="date" value={expDate} onChange={(e) => setExpDate(e.target.value)} style={{
+                        width: '100%', height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 14, fontFamily: 'inherit', color: 'var(--arsela-navy)', boxSizing: 'border-box',
+                      }}/>
+                    </label>
                   </div>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Budget</div>
                     <select value={budgetId} onChange={(e) => {
                       const b = s.budgets.find((bb) => bb.id === e.target.value);
                       setBudgetId(e.target.value);
-                      if (b) setDept(b.dept);
+                      if (b && !deptTouched) setDept(b.dept);
                     }} style={{
                       width: '100%', height: 42, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 13, fontFamily: 'inherit', color: 'var(--arsela-navy)', background: '#fff',
                     }}>
@@ -281,11 +313,44 @@
                     </select>
                     {selectedBudget && <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{fmtMYR(Math.max(0, selectedBudget.allocated - selectedBudget.spent), { compact: true })} remaining</div>}
                   </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Department</div>
+                    <select value={dept} onChange={(e) => { setDept(e.target.value); setDeptTouched(true); }} style={{
+                      width: '100%', height: 42, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 13, fontFamily: 'inherit', color: 'var(--arsela-navy)', background: '#fff',
+                    }}>
+                      {(s.departments || []).map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Category</div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>Category</div>
+                        <button onClick={() => setNewCategoryOpen((o) => !o)} title="Add new category" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-blue)', display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, fontWeight: 700, fontFamily: 'inherit' }}>
+                          <IconPlus size={11}/> New
+                        </button>
+                      </div>
+                      {newCategoryOpen && (
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                          <input value={newCategoryDraft} onChange={(e) => setNewCategoryDraft(e.target.value)} placeholder="New category name" style={{
+                            flex: 1, height: 32, borderRadius: 6, border: '1px solid var(--arsela-border-strong)', padding: '0 8px', fontSize: 12, fontFamily: 'inherit',
+                          }} onKeyDown={(e) => {
+                            if (e.key === 'Enter' && newCategoryDraft.trim()) {
+                              window.Store.addCategory(newCategoryDraft.trim());
+                              setCategory(newCategoryDraft.trim());
+                              setNewCategoryDraft(''); setNewCategoryOpen(false);
+                            }
+                          }}/>
+                          <ArsButton size="sm" onClick={() => {
+                            if (newCategoryDraft.trim()) {
+                              window.Store.addCategory(newCategoryDraft.trim());
+                              setCategory(newCategoryDraft.trim());
+                              setNewCategoryDraft(''); setNewCategoryOpen(false);
+                            }
+                          }}>Add</ArsButton>
+                        </div>
+                      )}
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {CATEGORIES.slice(0, 5).map((c) => (
+                        {categories.map((c) => (
                           <button key={c} onClick={() => setCategory(c)} style={{
                             padding: '5px 10px', fontSize: 12, fontWeight: 600, borderRadius: 999,
                             background: category === c ? 'var(--arsela-blue-50)' : '#fff', color: category === c ? 'var(--arsela-blue)' : 'var(--arsela-navy)',
@@ -303,15 +368,27 @@
                     </label>
                   </div>
 
+                  <input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={handleReceiptChange} style={{ display: 'none' }}/>
                   <div style={{
-                    border: '1.5px dashed var(--arsela-border-strong)', borderRadius: 8,
-                    padding: 16, textAlign: 'center', background: '#FAFBFD', cursor: 'pointer',
-                  }} onClick={() => window.Store.toast('Receipt upload (demo)', 'info')}>
-                    <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--arsela-blue-50)', color: 'var(--arsela-blue)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-                      <IconFile size={18}/>
+                    border: '1.5px dashed ' + (receiptFile ? 'var(--success)' : 'var(--arsela-border-strong)'), borderRadius: 8,
+                    padding: 16, textAlign: 'center', background: receiptFile ? '#F0FBF6' : '#FAFBFD', cursor: 'pointer',
+                  }} onClick={() => fileInputRef.current && fileInputRef.current.click()}>
+                    <div style={{ width: 36, height: 36, borderRadius: 8, background: receiptFile ? 'var(--success)' : 'var(--arsela-blue-50)', color: receiptFile ? '#fff' : 'var(--arsela-blue)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                      {receiptFile ? <IconCheck size={18}/> : <IconFile size={18}/>}
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>Drop receipt or invoice</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 3 }}>PDF, PNG, JPG · up to 20MB</div>
+                    {receiptFile ? (
+                      <>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{receiptFile.name}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 3 }}>
+                          {(receiptFile.size / 1024).toFixed(0)} KB · <span onClick={(e) => { e.stopPropagation(); setReceiptFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} style={{ color: 'var(--arsela-danger)', fontWeight: 600, cursor: 'pointer' }}>Remove</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>Click to attach receipt or invoice</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 3 }}>PDF, PNG, JPG · up to 20MB</div>
+                      </>
+                    )}
                   </div>
 
                   <RoutingPreview amount={amount} dept={dept}/>

@@ -11,7 +11,6 @@
     return {
       orgName: 'Arsela Resources',
       fiscalYearStart: 'January',
-      currency: 'MYR',
       emailDigest: true,
       approvalAlerts: true,
       budgetBreachAlerts: true,
@@ -49,6 +48,9 @@
     const [settings, setSettings] = React.useState(loadSettings());
     const [orgNameDraft, setOrgNameDraft] = React.useState(settings.orgName);
     const [dirty, setDirty] = React.useState(false);
+    const [storeState, setStoreState] = React.useState(window.Store.getState());
+    React.useEffect(() => window.Store.subscribe(setStoreState), []);
+    const currencies = window.Store.listCurrencies();
 
     const patch = (p) => {
       setSettings(s => {
@@ -117,12 +119,15 @@
                   <label style={{ display: 'block' }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Reporting currency</div>
                     <select
-                      value={settings.currency}
-                      onChange={(e) => patch({ currency: e.target.value })}
+                      value={storeState.currency}
+                      onChange={(e) => window.Store.setCurrency(e.target.value)}
                       style={{ width: '100%', height: 40, border: '1px solid var(--arsela-border-strong)', borderRadius: 8, padding: '0 12px', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#fff' }}
                     >
-                      {['MYR','USD','SGD'].map(m => <option key={m} value={m}>{m}</option>)}
+                      {currencies.map(c => <option key={c.code} value={c.code}>{c.code} — {c.name} ({c.symbol})</option>)}
                     </select>
+                    <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>
+                      All figures across Coplanistra are stored in MYR and displayed live-converted to this currency (RM is the base — 1 RM = {(currencies.find(c => c.code === 'USD') || {}).rate} USD).
+                    </div>
                   </label>
                 </div>
               </div>
