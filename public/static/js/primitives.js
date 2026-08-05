@@ -407,9 +407,50 @@ function exportRowsToCSV(filename, headers, rows) {
   if (window.Store) window.Store.toast(`Exported ${filename}.csv`, 'success');
 }
 
+/* ---- CSV import parser — the inverse of exportRowsToCSV. Used by the
+   Xero CSV-import feature (Expenses screen) and any future "upload a
+   CSV" workflow. Handles quoted fields (with embedded commas/newlines/
+   escaped quotes) the same way exportRowsToCSV writes them, plus plain
+   unquoted CSV/Excel exports. Returns an array of row-arrays (first row
+   is normally the header row — callers decide how to treat it). Purely
+   client-side (FileReader + string parsing) — no backend needed, fits
+   Cloudflare Pages' static-hosting constraints. ---- */
+function parseCSVText(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  const src = String(text || '').replace(/^\uFEFF/, ''); // strip BOM (common in Excel/Xero exports)
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      row.push(field); field = '';
+    } else if (c === '\r') {
+      // skip — \n (or end) will terminate the row
+    } else if (c === '\n') {
+      row.push(field); field = '';
+      rows.push(row); row = [];
+    } else {
+      field += c;
+    }
+  }
+  // flush trailing field/row (files not ending in a newline)
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  // drop fully-empty trailing rows (common with trailing blank lines)
+  return rows.filter((r) => r.some((v) => String(v || '').trim() !== ''));
+}
+
 Object.assign(window, {
   ArsCard, ArsButton, ArsBadge, ArsInput, ArsProgress, ArsAvatar, ArsSectionHeader,
   ArsVariance, ArsFigure, ArsTabs, ArsSkeleton, ArsEmpty, ArsRAG, ArsLifecycle,
   fmtMYR, fmtPct, curLabel, ArsModal, ArsConfirmDialog, ArsField, arsFieldInputStyle,
-  exportRowsToCSV,
+  exportRowsToCSV, parseCSVText,
 });

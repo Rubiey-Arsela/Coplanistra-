@@ -109,6 +109,245 @@
     );
   }
 
+  /* ---- Xero CSV import ---------------------------------------------
+     Client-side CSV parsing (parseCSVText from primitives.js) — no
+     OAuth, no backend, no credentials. Workflow:
+       1. User exports a transactions/expenses/bills report from Xero
+          as CSV and attaches it here.
+       2. We auto-detect Xero's common column headers (Date,
+          Description/Reference/Contact, Amount/Gross/Total) and map
+          them onto Coplanistra's expense shape.
+       3. A preview table lets the user review/deselect rows, pick a
+          department, and assign a category — mirroring how receipt
+          OCR pre-fills fields for review rather than auto-submitting.
+       4. On confirm, loops window.Store.addExpense(...) once per
+          selected row and reports how many were imported. ---------- */
+  const XERO_HEADER_MAP = {
+    date: ['date', 'transaction date', 'invoice date'],
+    desc: ['description', 'reference', 'details', 'narrative', 'particulars'],
+    vendor: ['contact', 'payee', 'supplier', 'contact name', 'vendor'],
+    amount: ['gross', 'amount', 'total', 'amount (myr)', 'debit', 'gross amount'],
+  };
+  function detectXeroColumns(headerRow) {
+    const norm = headerRow.map((h) => String(h || '').trim().toLowerCase());
+    const findCol = (aliases) => {
+      for (const alias of aliases) {
+        const idx = norm.findIndex((h) => h === alias);
+        if (idx !== -1) return idx;
+      }
+      for (const alias of aliases) {
+        const idx = norm.findIndex((h) => h.includes(alias));
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    };
+    return {
+      date: findCol(XERO_HEADER_MAP.date),
+      desc: findCol(XERO_HEADER_MAP.desc),
+      vendor: findCol(XERO_HEADER_MAP.vendor),
+      amount: findCol(XERO_HEADER_MAP.amount),
+    };
+  }
+  function parseAmountCell(raw) {
+    if (raw == null) return 0;
+    // Xero amounts are sometimes "1,234.50", "(1,234.50)" for credits, or "RM 1,234.50"
+    let s = String(raw).trim();
+    const negative = /^\(.*\)$/.test(s);
+    s = s.replace(/[(),]/g, '').replace(/[A-Za-z$]/g, '').trim();
+    const n = parseFloat(s);
+    if (isNaN(n)) return 0;
+    return negative ? -n : n;
+  }
+  function parseDateCell(raw) {
+    if (!raw) return new Date().toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' });
+    const s = String(raw).trim();
+    // dd/mm/yyyy or dd-mm-yyyy (Xero MY default) — try that first, then fall back to native Date parsing
+    const dm = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+    let d = null;
+    if (dm) {
+      let [, day, month, year] = dm;
+      if (year.length === 2) year = '20' + year;
+      d = new Date(Number(year), Number(month) - 1, Number(day));
+    } else {
+      const parsed = new Date(s);
+      if (!isNaN(parsed.getTime())) d = parsed;
+    }
+    if (!d || isNaN(d.getTime())) return s;
+    return d.toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+
+  function ImportExpensesModal({ onClose }) {
+    const [s2, setS2] = useState(window.Store.getState());
+    useEffect(() => window.Store.subscribe(setS2), []);
+    const cats = s2.categories && s2.categories.length ? s2.categories : CATEGORIES_FALLBACK;
+    const depts = s2.departments && s2.departments.length ? s2.departments : ['Corporate'];
+    const [fileName, setFileName] = useState('');
+    const [rows, setRows] = useState(null); // parsed preview rows: {include, desc, vendor, amount, when, dept, category}
+    const [error, setError] = useState('');
+    const [importing, setImporting] = useState(false);
+    const importFileRef = React.useRef(null);
+
+    const handleFile = (file) => {
+      setError(''); setFileName(file.name);
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = parseCSVText(String(reader.result || ''));
+          if (parsed.length < 2) { setError('No data rows found in this CSV.'); setRows(null); return; }
+          const header = parsed[0];
+          const cols = detectXeroColumns(header);
+          if (cols.amount === -1) {
+            setError('Could not find an amount column in this CSV. Expected a Xero export with columns like Date, Description/Reference, Contact, and Gross/Amount/Total.');
+            setRows(null);
+            return;
+          }
+          const dataRows = parsed.slice(1);
+          const built = dataRows.map((r) => {
+            const amount = Math.abs(parseAmountCell(cols.amount !== -1 ? r[cols.amount] : ''));
+            const desc = cols.desc !== -1 ? String(r[cols.desc] || '').trim() : '';
+            const vendor = cols.vendor !== -1 ? String(r[cols.vendor] || '').trim() : '';
+            const when = parseDateCell(cols.date !== -1 ? r[cols.date] : '');
+            return {
+              include: amount > 0,
+              desc: desc || vendor || 'Imported expense',
+              vendor: vendor || 'Unspecified',
+              amount,
+              when,
+              dept: depts[0],
+              category: cats[0],
+            };
+          }).filter((r) => r.amount > 0 || r.desc !== 'Imported expense');
+          if (built.length === 0) { setError('No usable rows found — check the CSV has an amount column with values.'); setRows(null); return; }
+          setRows(built);
+        } catch (e) {
+          setError('Could not read this file as CSV. Please export a CSV (not XLSX) from Xero and try again.');
+          setRows(null);
+        }
+      };
+      reader.onerror = () => setError('Could not read this file.');
+      reader.readAsText(file);
+    };
+
+    const onFileChange = (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      if (!/\.csv$/i.test(f.name)) { setError('Please choose a .csv file (export it from Xero as CSV, not Excel/PDF).'); return; }
+      handleFile(f);
+    };
+
+    const updateRow = (i, patch) => setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+    const toggleAll = (include) => setRows((rs) => rs.map((r) => ({ ...r, include })));
+    const includedCount = rows ? rows.filter((r) => r.include).length : 0;
+    const includedTotal = rows ? rows.filter((r) => r.include).reduce((sum, r) => sum + r.amount, 0) : 0;
+
+    const doImport = () => {
+      if (!rows) return;
+      const toImport = rows.filter((r) => r.include);
+      if (toImport.length === 0) { window.Store.toast('Select at least one row to import', 'danger'); return; }
+      setImporting(true);
+      toImport.forEach((r) => {
+        window.Store.addExpense({
+          desc: r.desc, amount: Number(r.amount) || 0, dept: r.dept, vendor: r.vendor,
+          category: r.category, when: r.when, receiptName: null, draft: false, source: 'Xero CSV import',
+        });
+      });
+      window.Store.toast(`Imported ${toImport.length} expense${toImport.length === 1 ? '' : 's'} from Xero CSV (${fmtMYR(includedTotal, { compact: true })})`, 'success');
+      setImporting(false);
+      onClose();
+    };
+
+    const reset = () => { setRows(null); setFileName(''); setError(''); if (importFileRef.current) importFileRef.current.value = ''; };
+
+    return (
+      <ArsModal open onClose={onClose} title="Import expenses from Xero" subtitle="No Xero login needed — export a CSV from Xero and upload it here" width={rows ? 760 : 480}
+        footer={rows ? (
+          <>
+            <ArsButton variant="secondary" onClick={reset}>Choose a different file</ArsButton>
+            <ArsButton onClick={doImport} disabled={importing || includedCount === 0}>
+              {importing ? 'Importing…' : `Import ${includedCount} expense${includedCount === 1 ? '' : 's'}`}
+            </ArsButton>
+          </>
+        ) : (
+          <ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton>
+        )}>
+        {!rows ? (
+          <>
+            <div style={{ background: '#EEF3FF', border: '1px solid #D6E1FF', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12.5, color: 'var(--arsela-navy)', lineHeight: 1.5 }}>
+              <b>How to export from Xero:</b> Business → Expense claims (or Reports → Transaction list), set your date range, then <b>Export → CSV</b>. Upload that file below — Coplanistra reads the Date, Description/Reference, Contact and Amount columns automatically.
+            </div>
+            <input ref={importFileRef} type="file" accept=".csv" onChange={onFileChange} style={{ display: 'none' }}/>
+            <div style={{
+              border: '1.5px dashed var(--arsela-border-strong)', borderRadius: 8, padding: 28, textAlign: 'center', background: '#FAFBFD', cursor: 'pointer',
+            }} onClick={() => importFileRef.current && importFileRef.current.click()}>
+              <div style={{ width: 40, height: 40, borderRadius: 8, background: 'var(--arsela-blue-50)', color: 'var(--arsela-blue)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
+                <IconFile size={20}/>
+              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--arsela-navy)' }}>Click to attach Xero CSV export</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 3 }}>.csv only · transactions, expense claims, or bills export</div>
+            </div>
+            {error && <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--arsela-danger)', fontWeight: 600 }}>{error}</div>}
+          </>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ fontSize: 12.5, color: 'var(--arsela-text-muted)' }}>
+                <b style={{ color: 'var(--arsela-navy)' }}>{fileName}</b> — {rows.length} row{rows.length === 1 ? '' : 's'} found, review below before importing
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button onClick={() => toggleAll(true)} style={{ border: 'none', background: 'transparent', color: 'var(--arsela-blue)', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Select all</button>
+                <button onClick={() => toggleAll(false)} style={{ border: 'none', background: 'transparent', color: 'var(--arsela-text-muted)', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Clear all</button>
+              </div>
+            </div>
+            <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid var(--arsela-border)', borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#FAFBFD', borderBottom: '1px solid var(--arsela-border)', position: 'sticky', top: 0 }}>
+                    {['', 'Date', 'Description', 'Vendor', 'Amount (RM)', 'Department', 'Category'].map((h, i) => (
+                      <th key={i} style={{ textAlign: 'left', padding: '8px 10px', fontSize: 10.5, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.5, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={i} style={{ borderBottom: i < rows.length - 1 ? '1px solid var(--arsela-border)' : 'none', opacity: r.include ? 1 : 0.45 }}>
+                      <td style={{ padding: '6px 10px' }}>
+                        <input type="checkbox" checked={r.include} onChange={(e) => updateRow(i, { include: e.target.checked })}/>
+                      </td>
+                      <td style={{ padding: '6px 10px', fontSize: 12, color: 'var(--arsela-text-muted)', whiteSpace: 'nowrap' }}>{r.when}</td>
+                      <td style={{ padding: '6px 10px' }}>
+                        <input value={r.desc} onChange={(e) => updateRow(i, { desc: e.target.value })} style={{ width: 150, border: '1px solid var(--arsela-border)', borderRadius: 6, padding: '4px 6px', fontSize: 12, fontFamily: 'inherit' }}/>
+                      </td>
+                      <td style={{ padding: '6px 10px' }}>
+                        <input value={r.vendor} onChange={(e) => updateRow(i, { vendor: e.target.value })} style={{ width: 110, border: '1px solid var(--arsela-border)', borderRadius: 6, padding: '4px 6px', fontSize: 12, fontFamily: 'inherit' }}/>
+                      </td>
+                      <td className="arsela-num" style={{ padding: '6px 10px', fontSize: 12.5, fontWeight: 700, color: 'var(--arsela-navy)', whiteSpace: 'nowrap' }}>
+                        <input type="number" value={r.amount} onChange={(e) => updateRow(i, { amount: Number(e.target.value) || 0 })} style={{ width: 80, border: '1px solid var(--arsela-border)', borderRadius: 6, padding: '4px 6px', fontSize: 12, fontFamily: 'inherit' }}/>
+                      </td>
+                      <td style={{ padding: '6px 10px' }}>
+                        <select value={r.dept} onChange={(e) => updateRow(i, { dept: e.target.value })} style={{ border: '1px solid var(--arsela-border)', borderRadius: 6, padding: '4px 6px', fontSize: 12, fontFamily: 'inherit', background: '#fff' }}>
+                          {depts.map((d) => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ padding: '6px 10px' }}>
+                        <select value={r.category} onChange={(e) => updateRow(i, { category: e.target.value })} style={{ border: '1px solid var(--arsela-border)', borderRadius: 6, padding: '4px 6px', fontSize: 12, fontFamily: 'inherit', background: '#fff' }}>
+                          {cats.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12.5, color: 'var(--arsela-text-muted)' }}>
+              <span>{includedCount} of {rows.length} selected</span>
+              <span>Total: <b style={{ color: 'var(--arsela-navy)' }}>{fmtMYR(includedTotal)}</b></span>
+            </div>
+          </>
+        )}
+      </ArsModal>
+    );
+  }
+
   function EditExpenseModal({ expense, onClose }) {
     const [form, setForm] = useState(() => ({
       desc: expense.desc, vendor: expense.vendor, category: expense.category,
@@ -156,6 +395,7 @@
     const [editExpense, setEditExpense] = useState(null);
     const [deleteExpense, setDeleteExpense] = useState(null);
     const [manageCatsOpen, setManageCatsOpen] = useState(false);
+    const [importOpen, setImportOpen] = useState(false);
     const [scanning, setScanning] = useState(false);
 
     // Quick-add form state — drives the LIVE routing preview
@@ -283,6 +523,7 @@
         breadcrumb={['Arsela Resources', 'Plan', 'Expenses']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
+            <ArsButton variant="secondary" size="md" icon={<IconFile size={15}/>} onClick={() => setImportOpen(true)}>Import from Xero</ArsButton>
             <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => exportRowsToCSV(
               'expenses',
               ['ID', 'Description', 'Vendor', 'Category', 'Department', 'Amount (RM)', 'Status', 'Date'],
@@ -533,6 +774,7 @@
           message={deleteExpense ? `This will permanently remove "${deleteExpense.desc}" (${deleteExpense.id}). This cannot be undone.` : ''}
         />
         {manageCatsOpen && <ManageCategoriesModal onClose={() => setManageCatsOpen(false)}/>}
+        {importOpen && <ImportExpensesModal onClose={() => setImportOpen(false)}/>}
       </AppFrame>
     );
   }
