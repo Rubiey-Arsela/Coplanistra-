@@ -8,7 +8,7 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: https://9fa3ae92.coplanistra.pages.dev)
+- **Production**: https://coplanistra.pages.dev (latest deploy: https://eaf6559c.coplanistra.pages.dev)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - (Sandbox preview URLs are temporary; the pages.dev link above is the permanent, short URL for the client.)
 
