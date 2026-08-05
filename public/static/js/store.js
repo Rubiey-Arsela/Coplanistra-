@@ -213,8 +213,19 @@
   }
 
   function emit() {
+    // IMPORTANT: pass a NEW object reference to subscribers, not the
+    // mutated `state` object itself. React's useState bails out of
+    // re-rendering when setS() is called with a value that is
+    // reference-equal to current state — since setState() below mutates
+    // `state` in place (Object.assign), handing subscribers that same
+    // object would make every change invisible to any screen whose only
+    // update path is useState(subscribe) (e.g. clicking a Cash Flow
+    // scenario updates the data but the panel never repaints). Spreading
+    // into a fresh object on every emit guarantees each screen sees a
+    // new reference and re-renders.
+    const snapshot = { ...state };
     listeners.forEach((fn) => {
-      try { fn(state); } catch (e) { console.error(e); }
+      try { fn(snapshot); } catch (e) { console.error(e); }
     });
   }
 
