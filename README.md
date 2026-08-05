@@ -8,11 +8,18 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: https://b780066d.coplanistra.pages.dev)
+- **Production**: https://coplanistra.pages.dev (latest deploy: https://9fa3ae92.coplanistra.pages.dev)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - (Sandbox preview URLs are temporary; the pages.dev link above is the permanent, short URL for the client.)
 
-## Latest session update (2026-08-04) — full bug-report resolution pass
+## Latest session update (2026-08-05) — Cash Flow scenario planning, Dashboard Spent-vs-Budget-to-date, Director's Report
+Client feedback addressed this session:
+- **Cash Flow scenario planning** ("what if budget/expense/revenue changed, what's the impact on cashflow?"): new **Scenario Planning** card on the Cash Flow screen. `Store.cashFlowScenarios` holds 4 seeded scenarios (Base case, CAPEX deferred, Opex savings drive, Revenue downside), each with independent Budget/Expense/Revenue % deltas + a note. Click any scenario card to make it active — the whole screen (hero stats, Operating/Investing/Financing chart, running cash balance, runway, CSV export) recomputes live from that scenario via a shared `computeCashFlow()` function. Add new scenarios via a modal form; delete any non-active scenario (the active one is protected). Fully Store-backed, so it persists and stays in sync with the rest of the app.
+- **Dashboard — Spent to Date vs Budget to Date**: new panel alongside the existing "burn vs total budget" figure. Prorates the FY26 annual budget by how much of the fiscal year has elapsed (vs the app's fixed reference date) and compares it to live cumulative spend from `Store.budgets` — shows Budget-to-date / Spent-to-date / Variance with a progress bar. Clickable through to Reports. Gated to non-employee roles (org-wide total, not shown on the individual-contributor Dashboard view).
+- **Monthly Director's Report**: brand-new tab on the Reports screen (now the default tab) — a real, data-driven executive report, not a static mock-up. Pulls live figures from Store (budgets, approvals, CAPEX, the active Cash Flow scenario) into: an executive summary, department budget performance table, CAPEX programme summary, cash flow position, and approvals needing director attention. **Export CSV** and **Export PDF** (via jsPDF + autoTable, loaded from CDN) both produce real downloadable files built from live data. All cards click through to the matching detail screen (Budgets / Cash Flow / CAPEX / Approvals).
+- **Xero integration — not yet built.** The client asked twice to link Coplanistra to Xero to auto-import expenses. This needs a decision before implementation: (a) a real OAuth 2.0 connection requires a Xero Developer app (client ID/secret) that only the client/Al Bukhary Group can register in their own Xero account — Coplanistra can't self-register one; or (b) a lighter-weight alternative such as importing a Xero-exported CSV of expenses/transactions into the existing Expenses screen (no OAuth or credentials needed, works today with a small import feature). **Awaiting the user's choice of path before building.**
+
+## Previous session update (2026-08-04) — full bug-report resolution pass
 All items from the client's live-testing feedback were addressed and redeployed:
 - **Dashboard**: real quarter/month period picker, working Export (CSV), all 4 top stat cards + all chart labels clickable/currency-aware, bell notification "view all" link fixed.
 - **Create Budget**: Start/End are now real `<input type="date">` calendar pickers, wired into the saved record.
