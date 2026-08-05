@@ -120,6 +120,42 @@
     );
   }
 
+  /* Pure computation shared with ReportsScreen's Director's Report, so the
+     cash flow figures quoted there always match what Cash Flow Planning
+     shows for the same period/scenario — single source of truth. */
+  function computeCashFlow(period, activeScenario) {
+    activeScenario = activeScenario || {};
+    const revenueMult = 1 + (activeScenario.revenueDeltaPct || 0) / 100;
+    const expenseMult = 1 - (activeScenario.expenseDeltaPct || 0) / 100;
+    const budgetMult = 1 + (activeScenario.budgetDeltaPct || 0) / 100;
+    const financingMult = 1 + (activeScenario.budgetDeltaPct || 0) / 200;
+
+    const scale = period === 'FY 2024' ? 0.72 : period === 'FY 2025' ? 0.86 : period === 'FY 2027 (fcst)' ? 1.12 : 1;
+    const baseOperating = [42, 48, 51, 46, 52, 58, 61, 55, 62, 67, 71, 74].map(v => Math.round(v * scale));
+    const baseInvesting = [-28, -32, -35, -30, -38, -42, -48, -44, -52, -55, -58, -62].map(v => Math.round(v * scale));
+    const baseFinancing = [8, -4, -6, 12, -8, -6, -4, 14, -6, -8, -4, -12].map(v => Math.round(v * scale));
+
+    const operating = baseOperating.map(v => Math.round(v * revenueMult * expenseMult));
+    const investing = baseInvesting.map(v => Math.round(v * budgetMult));
+    const financing = baseFinancing.map(v => Math.round(v * financingMult));
+    const opening = Math.round(98 * scale);
+    const cash = [];
+    let running = opening;
+    for (let i = 0; i < CF_MONTHS.length; i++) {
+      running += operating[i] + investing[i] + financing[i];
+      cash.push(Math.max(0, running));
+    }
+
+    const opTotal = operating.reduce((a, b) => a + b, 0);
+    const invTotal = investing.reduce((a, b) => a + b, 0);
+    const finTotal = financing.reduce((a, b) => a + b, 0);
+    const closingCash = cash[cash.length - 1];
+    const monthlyBurn = Math.abs(Math.round(investing.reduce((a, b) => a + Math.min(0, b), 0) / 12));
+    const runwayMonths = monthlyBurn > 0 ? (closingCash / monthlyBurn).toFixed(1) : null;
+
+    return { operating, investing, financing, cash, opTotal, invTotal, finTotal, closingCash, monthlyBurn, runwayMonths };
+  }
+
   const ScenarioDeltaPill = ({ label, pct }) => {
     if (!pct) return null;
     const up = pct > 0;
@@ -150,42 +186,15 @@
 
     const cashFlowScenarios = s.cashFlowScenarios || [];
     const activeScenario = cashFlowScenarios.find((sc) => sc.active) || {};
-    // Multipliers derived from the active scenario's % deltas — revenue lifts
-    // operating inflow, expense reduces operating inflow (opex is netted
-    // against revenue in the "operating" line), budget/CAPEX scales the
-    // investing outflow, and financing follows the budget delta at half
-    // weight (deferring CAPEX typically eases financing draw-down too).
-    const revenueMult = 1 + (activeScenario.revenueDeltaPct || 0) / 100;
-    const expenseMult = 1 - (activeScenario.expenseDeltaPct || 0) / 100;
-    const budgetMult = 1 + (activeScenario.budgetDeltaPct || 0) / 100;
-    const financingMult = 1 + (activeScenario.budgetDeltaPct || 0) / 200;
-
-    // Base FY26 series; scale slightly per selected period so switching feels live.
-    const scale = period === 'FY 2024' ? 0.72 : period === 'FY 2025' ? 0.86 : period === 'FY 2027 (fcst)' ? 1.12 : 1;
-    const baseOperating = [42, 48, 51, 46, 52, 58, 61, 55, 62, 67, 71, 74].map(v => Math.round(v * scale));
-    const baseInvesting = [-28, -32, -35, -30, -38, -42, -48, -44, -52, -55, -58, -62].map(v => Math.round(v * scale));
-    const baseFinancing = [8, -4, -6, 12, -8, -6, -4, 14, -6, -8, -4, -12].map(v => Math.round(v * scale));
-
-    // Apply scenario deltas to the flow lines, then rebuild a running cash
-    // balance from a fixed opening position so the whole runway chart
-    // reacts live to the active scenario.
-    const operating = baseOperating.map(v => Math.round(v * revenueMult * expenseMult));
-    const investing = baseInvesting.map(v => Math.round(v * budgetMult));
-    const financing = baseFinancing.map(v => Math.round(v * financingMult));
-    const opening = Math.round(98 * scale);
-    const cash = [];
-    let running = opening;
-    for (let i = 0; i < CF_MONTHS.length; i++) {
-      running += operating[i] + investing[i] + financing[i];
-      cash.push(Math.max(0, running));
-    }
-
-    const opTotal = operating.reduce((a, b) => a + b, 0);
-    const invTotal = investing.reduce((a, b) => a + b, 0);
-    const finTotal = financing.reduce((a, b) => a + b, 0);
-    const closingCash = cash[cash.length - 1];
-    const monthlyBurn = Math.abs(Math.round(investing.reduce((a, b) => a + Math.min(0, b), 0) / 12));
-    const runwayMonths = monthlyBurn > 0 ? (closingCash / monthlyBurn).toFixed(1) : '—';
+    // Delta application: revenue lifts operating inflow, expense reduces
+    // operating inflow (opex is netted against revenue in the "operating"
+    // line), budget/CAPEX scales the investing outflow, and financing
+    // follows the budget delta at half weight (deferring CAPEX typically
+    // eases financing draw-down too). See computeCashFlow() above — shared
+    // with the Director's Report so figures never drift between screens.
+    const { operating, investing, financing, cash, opTotal, invTotal, finTotal, closingCash, monthlyBurn, runwayMonths: runwayMonthsRaw } =
+      computeCashFlow(period, activeScenario);
+    const runwayMonths = runwayMonthsRaw || '—';
 
     const onBarClick = (month) => {
       const idx = CF_MONTHS.indexOf(month);
@@ -355,5 +364,5 @@
     );
   };
 
-  Object.assign(window, { CashFlowScreen, CashFlowChart, RunwayChart });
+  Object.assign(window, { CashFlowScreen, CashFlowChart, RunwayChart, computeCashFlow, CF_MONTHS });
 })();

@@ -542,5 +542,5 @@
     );
   }
 
-  Object.assign(window, { DashboardScreen });
+  Object.assign(window, { DashboardScreen, FY_REFERENCE_DATE, fyProgressPct });
 })();

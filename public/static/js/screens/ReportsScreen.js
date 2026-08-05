@@ -71,11 +71,294 @@
     );
   };
 
-  const REPORT_TABS = ['Variance analysis','Forecast','Cash-flow','Vendor spend','Custom'];
+  /* ---- Monthly Director's Report — pulls live figures straight out of
+     window.Store (budgets, approvals, expenses, CAPEX, cash flow) into a
+     single-page executive summary. "Export PDF" renders it with jsPDF +
+     autoTable client-side (no backend — Cloudflare Pages is static),
+     "Export CSV" uses the same exportRowsToCSV pattern as every other
+     screen. This is a real, data-driven report, not a static template. ---- */
+  const DirectorsReportScreen = ({ s }) => {
+    const budgets = s.budgets || [];
+    const approvals = s.approvals || [];
+    const expenses = s.expenses || [];
+    const capexProjects = s.capexProjects || [];
+    const cashFlowScenarios = s.cashFlowScenarios || [];
+    const activeScenario = cashFlowScenarios.find((sc) => sc.active) || {};
+
+    const totalAllocated = budgets.reduce((a, b) => a + (b.allocated || 0), 0);
+    const totalSpent = budgets.reduce((a, b) => a + (b.spent || 0), 0);
+    const burnPct = totalAllocated > 0 ? (totalSpent / totalAllocated) * 100 : 0;
+    const fyPct = window.fyProgressPct ? window.fyProgressPct() : 0.55;
+    const budgetToDate = totalAllocated * fyPct;
+    const varianceToDate = totalSpent - budgetToDate;
+
+    const overBudget = budgets.filter((b) => b.status === 'over');
+    const pendingApprovals = approvals.filter((a) => a.status === 'pending');
+    const urgentApprovals = pendingApprovals.filter((a) => a.urgent);
+    const pendingApprovalValue = pendingApprovals.reduce((a, b) => a + b.amount, 0);
+    const pendingExpenses = expenses.filter((e) => e.status === 'pending');
+
+    const capexApproved = capexProjects.reduce((a, c) => a + c.approved, 0);
+    const capexCommitted = capexProjects.reduce((a, c) => a + c.committed, 0);
+    const capexSpent = capexProjects.reduce((a, c) => a + c.spent, 0);
+
+    const cf = window.computeCashFlow ? window.computeCashFlow('FY 2026', activeScenario) : null;
+
+    const deptRollup = {};
+    budgets.forEach((b) => {
+      if (!deptRollup[b.dept]) deptRollup[b.dept] = { allocated: 0, spent: 0 };
+      deptRollup[b.dept].allocated += b.allocated;
+      deptRollup[b.dept].spent += b.spent;
+    });
+    const deptRows = Object.entries(deptRollup)
+      .map(([dept, v]) => ({ dept, ...v, variance: v.spent - v.allocated }))
+      .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
+
+    const REPORT_DATE = window.FY_REFERENCE_DATE || new Date(2026, 6, 22);
+    const monthLabel = REPORT_DATE.toLocaleDateString('en-MY', { month: 'long', year: 'numeric' });
+    const dateLabel = REPORT_DATE.toLocaleDateString('en-MY', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    const exportCSV = () => {
+      exportRowsToCSV(
+        `directors-report-${monthLabel.replace(/\s+/g, '-').toLowerCase()}`,
+        ['Section', 'Metric', 'Value'],
+        [
+          ['Summary', 'Total allocated (RM)', totalAllocated],
+          ['Summary', 'Total spent (RM)', totalSpent],
+          ['Summary', 'Burn vs total budget (%)', burnPct.toFixed(1)],
+          ['Summary', 'Budget to date (RM)', Math.round(budgetToDate)],
+          ['Summary', 'Spent to date (RM)', totalSpent],
+          ['Summary', 'Variance to date (RM)', Math.round(varianceToDate)],
+          ['Approvals', 'Pending approvals (count)', pendingApprovals.length],
+          ['Approvals', 'Pending approvals (RM)', pendingApprovalValue],
+          ['Approvals', 'Urgent approvals (count)', urgentApprovals.length],
+          ['CAPEX', 'Approved (RM)', capexApproved],
+          ['CAPEX', 'Committed (RM)', capexCommitted],
+          ['CAPEX', 'Spent (RM)', capexSpent],
+          ...(cf ? [
+            ['Cash Flow', `Active scenario`, activeScenario.n || 'Base case'],
+            ['Cash Flow', 'Closing cash FY26 (RM M)', cf.closingCash],
+            ['Cash Flow', 'Runway (months)', cf.runwayMonths || 'n/a'],
+            ['Cash Flow', 'Monthly burn (RM M)', cf.monthlyBurn],
+          ] : []),
+          ...deptRows.map((d) => [`Department — ${d.dept}`, 'Allocated / Spent (RM)', `${d.allocated} / ${d.spent}`]),
+        ]
+      );
+    };
+
+    const exportPDF = () => {
+      if (!window.jspdf) { window.Store.toast('PDF library still loading — try again in a moment', 'warning'); return; }
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pageW = doc.internal.pageSize.getWidth();
+      let y = 50;
+
+      doc.setFontSize(18); doc.setFont(undefined, 'bold');
+      doc.text('Coplanistra — Monthly Director\'s Report', 40, y);
+      y += 20;
+      doc.setFontSize(11); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
+      doc.text(`${monthLabel} · Prepared ${dateLabel} · Arsela Resources (Group)`, 40, y);
+      doc.setTextColor(0);
+      y += 28;
+
+      doc.setFontSize(13); doc.setFont(undefined, 'bold');
+      doc.text('1. Executive summary', 40, y); y += 8;
+      doc.autoTable({
+        startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
+        head: [['Metric', 'Value']],
+        body: [
+          ['Total FY2026 budget allocated', fmtMYR(totalAllocated, { compact: true })],
+          ['Total spent to date', fmtMYR(totalSpent, { compact: true })],
+          ['Burn vs total annual budget', `${burnPct.toFixed(1)}%`],
+          [`Budget to date (${Math.round(fyPct * 100)}% of FY elapsed)`, fmtMYR(budgetToDate, { compact: true })],
+          ['Spent to date vs budget to date', `${varianceToDate >= 0 ? '+' : '−'}${fmtMYR(Math.abs(varianceToDate), { compact: true })} ${varianceToDate >= 0 ? 'over' : 'under'}`],
+          ['Budgets currently over plan', `${overBudget.length} of ${budgets.length}`],
+          ['Pending approvals', `${pendingApprovals.length} (${fmtMYR(pendingApprovalValue, { compact: true })}), ${urgentApprovals.length} urgent`],
+        ],
+        styles: { fontSize: 9.5 }, headStyles: { fillColor: [19, 67, 203] },
+      });
+      y = doc.lastAutoTable.finalY + 24;
+
+      doc.setFontSize(13); doc.setFont(undefined, 'bold');
+      doc.text('2. Department budget performance', 40, y); y += 8;
+      doc.autoTable({
+        startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
+        head: [['Department', 'Allocated', 'Spent', 'Variance']],
+        body: deptRows.map((d) => [
+          d.dept, fmtMYR(d.allocated, { compact: true }), fmtMYR(d.spent, { compact: true }),
+          `${d.variance >= 0 ? '+' : '−'}${fmtMYR(Math.abs(d.variance), { compact: true })}`,
+        ]),
+        styles: { fontSize: 9.5 }, headStyles: { fillColor: [19, 67, 203] },
+      });
+      y = doc.lastAutoTable.finalY + 24;
+
+      if (y > 620) { doc.addPage(); y = 50; }
+      doc.setFontSize(13); doc.setFont(undefined, 'bold');
+      doc.text('3. CAPEX programme', 40, y); y += 8;
+      doc.autoTable({
+        startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
+        head: [['Project', 'Approved', 'Committed', 'Spent', 'Stage']],
+        body: capexProjects.map((c) => [c.name, fmtMYR(c.approved, { compact: true }), fmtMYR(c.committed, { compact: true }), fmtMYR(c.spent, { compact: true }), c.stage]),
+        styles: { fontSize: 8.5 }, headStyles: { fillColor: [19, 67, 203] },
+      });
+      y = doc.lastAutoTable.finalY + 24;
+
+      if (y > 620) { doc.addPage(); y = 50; }
+      doc.setFontSize(13); doc.setFont(undefined, 'bold');
+      doc.text('4. Cash flow position', 40, y); y += 8;
+      doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
+      if (cf) {
+        doc.text(`Active scenario: ${activeScenario.n || 'Base case'} — ${activeScenario.note || 'Current approved FY26 plan.'}`, 40, y); y += 14;
+        doc.text(`Closing cash (FY2026): ${curLabel(cf.closingCash)} · Runway: ${cf.runwayMonths ? cf.runwayMonths + ' months' : 'n/a'} · Monthly burn: ${curLabel(cf.monthlyBurn)}`, 40, y); y += 20;
+      }
+
+      if (y > 640) { doc.addPage(); y = 50; }
+      doc.setFontSize(13); doc.setFont(undefined, 'bold');
+      doc.text('5. Approvals requiring director attention', 40, y); y += 8;
+      doc.autoTable({
+        startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
+        head: [['Item', 'Type', 'Amount', 'Requester', 'Urgent']],
+        body: pendingApprovals.slice(0, 10).map((a) => [a.title, a.type, fmtMYR(a.amount, { compact: true }), a.requester, a.urgent ? 'Yes' : '']),
+        styles: { fontSize: 8.5 }, headStyles: { fillColor: [19, 67, 203] },
+      });
+
+      doc.save(`Coplanistra-Directors-Report-${monthLabel.replace(/\s+/g, '-')}.pdf`);
+      window.Store.toast('Director\'s report exported as PDF', 'success');
+    };
+
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div>
+            <div className="arsela-h1" style={{ fontSize: 20, letterSpacing: -0.3 }}>Monthly Director's Report — {monthLabel}</div>
+            <div style={{ fontSize: 13, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Auto-compiled from live budget, approvals, CAPEX and cash flow data · prepared {dateLabel}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={exportCSV}>Export CSV</ArsButton>
+            <ArsButton size="md" icon={<IconExport size={15}/>} onClick={exportPDF}>Export PDF</ArsButton>
+          </div>
+        </div>
+
+        <ArsCard style={{ marginBottom: 20 }}>
+          <ArsSectionHeader title="Executive summary"/>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Burn vs total budget</div>
+              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: burnPct > 100 ? 'var(--danger)' : 'var(--arsela-navy)', marginTop: 6 }}>{burnPct.toFixed(1)}%</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Spent vs budget to date</div>
+              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: varianceToDate > 0 ? 'var(--danger)' : 'var(--success)', marginTop: 6 }}>{varianceToDate >= 0 ? '+' : '−'}{fmtMYR(Math.abs(varianceToDate), { compact: true })}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Pending approvals</div>
+              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{pendingApprovals.length}<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--arsela-text-muted)' }}> ({fmtMYR(pendingApprovalValue, { compact: true })})</span></div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Cash flow scenario</div>
+              <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{activeScenario.n || 'Base case'}</div>
+            </div>
+          </div>
+        </ArsCard>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 16, marginBottom: 20 }}>
+          <ArsCard padded={false}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--arsela-border)' }}>
+              <ArsSectionHeader title="Department budget performance" subtitle="Click a row to open that department's budget"/>
+            </div>
+            <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', color: 'var(--arsela-text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                    <th style={{ padding: '8px 20px' }}>Department</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>Allocated</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>Spent</th>
+                    <th style={{ padding: '8px 20px', textAlign: 'right' }}>Variance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deptRows.map((d) => (
+                    <tr key={d.dept} onClick={() => window.Router.go('/budgets')} style={{ cursor: 'pointer', borderTop: '1px solid var(--arsela-border)' }}>
+                      <td style={{ padding: '10px 20px', fontWeight: 600, color: 'var(--arsela-navy)' }}>{d.dept}</td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right' }} className="arsela-num">{fmtMYR(d.allocated, { compact: true })}</td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right' }} className="arsela-num">{fmtMYR(d.spent, { compact: true })}</td>
+                      <td style={{ padding: '10px 20px', textAlign: 'right', fontWeight: 700, color: d.variance > 0 ? 'var(--danger)' : 'var(--success)' }} className="arsela-num">{d.variance >= 0 ? '+' : '−'}{fmtMYR(Math.abs(d.variance), { compact: true })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ArsCard>
+
+          <ArsCard onClick={() => window.Router.go('/cashflow')} style={{ cursor: 'pointer' }} title="Click to open Cash Flow Planning">
+            <ArsSectionHeader title="Cash flow position" subtitle={`FY2026 · ${activeScenario.n || 'Base case'}`}/>
+            {cf ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Closing cash</div>
+                  <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 4 }}>{curLabel(cf.closingCash)}</div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>Runway</div>
+                    <div className="arsela-num" style={{ fontSize: 16, fontWeight: 700, color: 'var(--success)' }}>{cf.runwayMonths || '—'} mo</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>Monthly burn</div>
+                    <div className="arsela-num" style={{ fontSize: 16, fontWeight: 700, color: 'var(--arsela-navy)' }}>{curLabel(cf.monthlyBurn)}</div>
+                  </div>
+                </div>
+                {activeScenario.n && (
+                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', lineHeight: 1.45, paddingTop: 10, borderTop: '1px solid var(--arsela-border)' }}>{activeScenario.note}</div>
+                )}
+              </div>
+            ) : <ArsEmpty icon={<IconChart size={20}/>} title="Cash flow module loading…" body=""/>}
+          </ArsCard>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <ArsCard onClick={() => window.Router.go('/capex')} style={{ cursor: 'pointer' }} title="Click to open CAPEX">
+            <ArsSectionHeader title="CAPEX programme" subtitle={`${capexProjects.length} active projects`}/>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>Approved</div>
+                <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(capexApproved, { compact: true })}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>Committed</div>
+                <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(capexCommitted, { compact: true })}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>Spent</div>
+                <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(capexSpent, { compact: true })}</div>
+              </div>
+            </div>
+          </ArsCard>
+
+          <ArsCard onClick={() => window.Router.go('/approvals')} style={{ cursor: 'pointer' }} title="Click to open Approvals">
+            <ArsSectionHeader title="Approvals requiring attention" subtitle={`${urgentApprovals.length} urgent of ${pendingApprovals.length} pending`}/>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {pendingApprovals.slice(0, 4).map((a) => (
+                <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5 }}>
+                  <span style={{ color: 'var(--arsela-navy)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 10 }}>{a.urgent ? '⚠ ' : ''}{a.title}</span>
+                  <span className="arsela-num" style={{ fontWeight: 700, flexShrink: 0 }}>{fmtMYR(a.amount, { compact: true })}</span>
+                </div>
+              ))}
+              {pendingApprovals.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--arsela-text-muted)' }}>No approvals pending.</div>}
+            </div>
+          </ArsCard>
+        </div>
+      </div>
+    );
+  };
+
+  const REPORT_TABS = ['Director\'s report','Variance analysis','Forecast','Cash-flow','Vendor spend','Custom'];
   const PERIODS = ['Jan – Jul 2026', 'Apr – Jun 2026', 'FY2025 (full year)', 'FY2026 (fcst)'];
 
   const ReportsScreen = () => {
-    const [activeTab, setActiveTab] = React.useState('Variance analysis');
+    const [s, setS] = React.useState(window.Store.getState());
+    React.useEffect(() => window.Store.subscribe(setS), []);
+    const [activeTab, setActiveTab] = React.useState('Director\'s report');
     const [period, setPeriod] = React.useState('Jan – Jul 2026');
     const [showPeriodMenu, setShowPeriodMenu] = React.useState(false);
     const periodRef = React.useRef(null);
@@ -124,27 +407,29 @@
         title="Reports & Analytics"
         breadcrumb={['Arsela Resources','Analyse','Reports']}
         topActions={
-          <div style={{ display: 'flex', gap: 8, position: 'relative' }} ref={periodRef}>
-            <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => setShowPeriodMenu(v => !v)}>{period}</ArsButton>
-            {showPeriodMenu && (
-              <div style={{
-                position: 'absolute', top: 42, left: 0, background: '#fff',
-                border: '1px solid var(--arsela-border)', borderRadius: 10, boxShadow: 'var(--arsela-shadow-card)',
-                zIndex: 20, minWidth: 190, padding: 6,
-              }}>
-                {PERIODS.map(p => (
-                  <div key={p} onClick={() => { setPeriod(p); setShowPeriodMenu(false); }} style={{
-                    padding: '8px 10px', fontSize: 13, borderRadius: 6, cursor: 'pointer',
-                    color: p === period ? 'var(--arsela-blue)' : 'var(--arsela-navy)',
-                    fontWeight: p === period ? 700 : 500,
-                    background: p === period ? 'var(--arsela-blue-50)' : 'transparent',
-                  }}>{p}</div>
-                ))}
-              </div>
-            )}
-            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Exporting report as PDF…', 'info')}>Export PDF</ArsButton>
-            <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => window.Store.toast('New custom report builder — coming soon', 'info')}>New report</ArsButton>
-          </div>
+          activeTab === 'Director\'s report' ? null : (
+            <div style={{ display: 'flex', gap: 8, position: 'relative' }} ref={periodRef}>
+              <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => setShowPeriodMenu(v => !v)}>{period}</ArsButton>
+              {showPeriodMenu && (
+                <div style={{
+                  position: 'absolute', top: 42, left: 0, background: '#fff',
+                  border: '1px solid var(--arsela-border)', borderRadius: 10, boxShadow: 'var(--arsela-shadow-card)',
+                  zIndex: 20, minWidth: 190, padding: 6,
+                }}>
+                  {PERIODS.map(p => (
+                    <div key={p} onClick={() => { setPeriod(p); setShowPeriodMenu(false); }} style={{
+                      padding: '8px 10px', fontSize: 13, borderRadius: 6, cursor: 'pointer',
+                      color: p === period ? 'var(--arsela-blue)' : 'var(--arsela-navy)',
+                      fontWeight: p === period ? 700 : 500,
+                      background: p === period ? 'var(--arsela-blue-50)' : 'transparent',
+                    }}>{p}</div>
+                  ))}
+                </div>
+              )}
+              <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast('Exporting report as PDF…', 'info')}>Export PDF</ArsButton>
+              <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => window.Store.toast('New custom report builder — coming soon', 'info')}>New report</ArsButton>
+            </div>
+          )
         }
       >
         {/* Tab strip */}
@@ -159,7 +444,9 @@
           ))}
         </div>
 
-        {activeTab !== 'Variance analysis' ? (
+        {activeTab === 'Director\'s report' ? (
+          <DirectorsReportScreen s={s}/>
+        ) : activeTab !== 'Variance analysis' ? (
           <ArsCard>
             <ArsEmpty
               icon={<IconChart size={22}/>}
