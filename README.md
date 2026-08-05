@@ -8,7 +8,7 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: https://117e2702.coplanistra.pages.dev)
+- **Production**: https://coplanistra.pages.dev (latest deploy: https://b780066d.coplanistra.pages.dev)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - (Sandbox preview URLs are temporary; the pages.dev link above is the permanent, short URL for the client.)
 
@@ -23,6 +23,7 @@ All items from the client's live-testing feedback were addressed and redeployed:
 - **FY Closeout**: all 4 top stat cards filter the carry-over/reserve/archive decision table; Export produces a real CSV.
 - **Currency propagation**: switching currency (RM/USD/AUD/CNY) now reformats every figure across Dashboard, Quarterly, Monthly, Expenses, Closeout, Cash Flow, Reports, Performance, Login, and the AI Copilot's canned figures — no more screens with hardcoded "RM" text.
 - **Branding**: replaced the old placeholder icon with a new modern, corporate bar-chart/target mark (favicon + app icon) and a matching horizontal wordmark, generated to fit a budgeting/fintech product. This also replaced the old inline SVG `CoplanistraMark` used in the sidebar logo and the login-page wordmark, so the new icon now appears consistently everywhere (browser tab, sidebar, login screen).
+- **Self-service password change** (new feature): users can now change their own account password from **Settings → Change password** — requires the current password, a new password (min. 8 characters, must differ from current), and a matching confirmation. Backed by a new `Store.changePassword()` method that validates against the signed-in user's record and updates it in place (persisted to `localStorage` like the rest of the app state).
 - All changes are committed to GitHub (`main`) and deployed to Cloudflare Pages production.
 
 ## Features (all fully functional — click-through, not static mockups)
@@ -61,7 +62,8 @@ All items from the client's live-testing feedback were addressed and redeployed:
 - **Team & Access** — member directory (search, invite modal, active/inactive toggle) and expandable role-permission templates.
 
 ### Settings (net-new addition, not in the original design source)
-- Workspace org settings, notification toggles, data export, demo-data reset, profile card. Added because the shared shell already routes a `/settings` nav item for Finance/Admin roles — without this screen that link would 404.
+- Workspace org settings, notification toggles, data export, demo-data reset, profile card, **change password**. Added because the shared shell already routes a `/settings` nav item for Finance/Admin roles — without this screen that link would 404.
+- **Change password**: any signed-in user can update their own password from Settings — enter current password + new password + confirmation; validated client-side and against the Store's user record.
 
 ## Architecture
 - **Client-side React 18 SPA**, transpiled in-browser via **Babel Standalone (pinned to v7 classic runtime)** — no webpack/vite bundling of the app JS itself, just plain `<script type="text/babel">` tags loaded in dependency order.
