@@ -129,6 +129,20 @@
     { id: 'SC-3', n: 'Downside — MYR volatility', v: 244_100_000, d: '−1.7% vs plan', c: 'warning', active: false },
   ];
 
+  /* Cash Flow scenario planning — "what if budget / expense / revenue
+     changed, what's the impact on cash flow?" Each scenario is a set of
+     % deltas applied to the base budget (CAPEX/investing), opex
+     (expense) and revenue lines; CashFlowScreen recomputes the whole
+     chart + runway live from whichever scenario is active. Lifted into
+     Store (not local screen state) so it persists and follows the same
+     add/switch/delete pattern as Quarterly's scenario comparison. */
+  const seedCashFlowScenarios = [
+    { id: 'CFS-1', n: 'Base case', budgetDeltaPct: 0, expenseDeltaPct: 0, revenueDeltaPct: 0, note: 'Current approved FY26 plan — no changes applied.', active: true },
+    { id: 'CFS-2', n: 'CAPEX deferred — LNG Phase I', budgetDeltaPct: -15, expenseDeltaPct: 0, revenueDeltaPct: 0, note: 'Push LNG Storage sanction back two quarters to preserve near-term cash.', active: false },
+    { id: 'CFS-3', n: 'Opex savings drive', budgetDeltaPct: 0, expenseDeltaPct: -8, revenueDeltaPct: 0, note: 'Group-wide 8% discretionary opex reduction from Q4.', active: false },
+    { id: 'CFS-4', n: 'Revenue downside — trade slowdown', budgetDeltaPct: 0, expenseDeltaPct: 0, revenueDeltaPct: -10, note: 'Port throughput and MRO volumes soften on regional demand.', active: false },
+  ];
+
   /* ----------------------------------------------------------
      Multi-currency support. RM (MYR) is the base/default unit
      that every seeded figure is stored in. Rates below convert
@@ -157,6 +171,7 @@
     opexCategories: seedOpexCategories,
     budgetCodes: seedBudgetCodes,
     scenarios: seedScenarios,
+    cashFlowScenarios: seedCashFlowScenarios,
     currency: 'MYR',
     period: 'Q3 · FY 2026',
     toasts: [],
@@ -185,6 +200,7 @@
   if (!state.opexCategories) state.opexCategories = seedOpexCategories;
   if (!state.budgetCodes) state.budgetCodes = seedBudgetCodes;
   if (!state.scenarios) state.scenarios = seedScenarios;
+  if (!state.cashFlowScenarios) state.cashFlowScenarios = seedCashFlowScenarios;
   if (!state.currency) state.currency = 'MYR';
 
   const listeners = new Set();
@@ -434,6 +450,36 @@
     },
     deleteScenario(id) {
       setState({ scenarios: state.scenarios.filter((s) => s.id !== id) });
+      toast('Scenario removed', 'warning');
+    },
+
+    // ---- cash flow scenario planning ----
+    addCashFlowScenario(s) {
+      const id = 'CFS-' + Math.floor(100 + Math.random() * 900);
+      const record = {
+        id, active: false, budgetDeltaPct: 0, expenseDeltaPct: 0, revenueDeltaPct: 0, note: '',
+        ...s,
+      };
+      setState({ cashFlowScenarios: [...state.cashFlowScenarios, record] });
+      toast(`Scenario added: ${record.n}`, 'success');
+      return record;
+    },
+    updateCashFlowScenario(id, patch) {
+      setState({ cashFlowScenarios: state.cashFlowScenarios.map((s) => (s.id === id ? { ...s, ...patch } : s)) });
+      toast('Scenario updated', 'success');
+    },
+    setActiveCashFlowScenario(id) {
+      const sc = state.cashFlowScenarios.find((s) => s.id === id);
+      setState({ cashFlowScenarios: state.cashFlowScenarios.map((s) => ({ ...s, active: s.id === id })) });
+      if (sc) toast(`Cash flow scenario switched: ${sc.n}`, 'info');
+    },
+    deleteCashFlowScenario(id) {
+      const sc = state.cashFlowScenarios.find((s) => s.id === id);
+      if (sc && sc.active) {
+        toast("Can't delete the active scenario — switch to another first", 'danger');
+        return;
+      }
+      setState({ cashFlowScenarios: state.cashFlowScenarios.filter((s) => s.id !== id) });
       toast('Scenario removed', 'warning');
     },
 

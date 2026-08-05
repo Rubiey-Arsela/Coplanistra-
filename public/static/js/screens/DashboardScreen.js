@@ -1,5 +1,85 @@
 /* Dashboard — role-aware, wired to Store (role switch re-renders live) */
 (function () {
+  /* FY progress — fraction of the fiscal year elapsed as of the app's
+     reference "today" (22 July 2026), used to prorate "budget to date"
+     against the full annual allocation for the Spent-vs-Budget-to-date
+     panel below. */
+  const FY_REFERENCE_DATE = new Date(2026, 6, 22); // 22 July 2026
+  function fyProgressPct() {
+    const start = new Date(FY_REFERENCE_DATE.getFullYear(), 0, 1);
+    const end = new Date(FY_REFERENCE_DATE.getFullYear(), 11, 31);
+    const elapsed = (FY_REFERENCE_DATE - start) / (end - start);
+    return Math.min(1, Math.max(0, elapsed));
+  }
+
+  /* Spent-to-date vs Budget-to-date panel — reads LIVE budgets from the
+     Store (not a hardcoded snapshot), so it stays in sync the moment any
+     budget is created/edited/approved elsewhere in the app. "Budget to
+     date" is the annual allocation prorated by how far through FY26 we
+     are; "Spent to date" is the real cumulative spend. Clicking routes
+     to the Reports variance view; the delta figure itself explains
+     whether spend is running ahead of or behind the time-prorated plan. */
+  const SpentVsBudgetToDate = ({ budgets }) => {
+    const totalAllocated = budgets.reduce((a, b) => a + (b.allocated || 0), 0);
+    const totalSpent = budgets.reduce((a, b) => a + (b.spent || 0), 0);
+    const pct = fyProgressPct();
+    const budgetToDate = totalAllocated * pct;
+    const variance = totalSpent - budgetToDate;
+    const variancePct = budgetToDate > 0 ? (variance / budgetToDate) * 100 : 0;
+    const ahead = variance > 0;
+    const barPct = budgetToDate > 0 ? Math.min(140, Math.round((totalSpent / budgetToDate) * 100)) : 0;
+
+    return (
+      <ArsCard
+        onClick={() => window.Router.go('/reports')}
+        title="Click to view full variance analysis"
+        style={{ cursor: 'pointer' }}
+      >
+        <ArsSectionHeader
+          title="Spent to Date vs Budget to Date"
+          subtitle={`Time-prorated FY26 plan (${Math.round(pct * 100)}% of year elapsed) vs actual cumulative spend`}
+        />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, marginTop: 4 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.5, textTransform: 'uppercase' }}>Budget to date</div>
+            <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(budgetToDate, { compact: true })}</div>
+            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 3 }}>of {fmtMYR(totalAllocated, { compact: true })} annual plan</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.5, textTransform: 'uppercase' }}>Spent to date</div>
+            <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(totalSpent, { compact: true })}</div>
+            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 3 }}>actual cumulative spend</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.5, textTransform: 'uppercase' }}>Variance</div>
+            <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: ahead ? 'var(--arsela-danger)' : 'var(--arsela-success)', marginTop: 6 }}>
+              {ahead ? '+' : ''}{fmtMYR(variance, { compact: true })}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 3 }}>
+              {ahead ? `${variancePct.toFixed(1)}% ahead of time-prorated plan` : `${Math.abs(variancePct).toFixed(1)}% behind time-prorated plan`}
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <div style={{ position: 'relative', height: 10, borderRadius: 999, background: '#EEF1F6', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '100%', background: '#DDE6FF' }}/>
+            <div style={{
+              position: 'absolute', left: 0, top: 0, bottom: 0,
+              width: `${Math.min(100, barPct)}%`,
+              background: ahead ? 'linear-gradient(90deg, #F59E0B, #D64045)' : 'linear-gradient(90deg, #1E52DA, #00A896)',
+              borderRadius: 999,
+            }}/>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: 'var(--arsela-text-muted)' }}>
+            <span>0%</span>
+            <span style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{barPct}% of budget-to-date spent</span>
+            <span>140%</span>
+          </div>
+        </div>
+      </ArsCard>
+    );
+  };
+
   const StatCard = ({ label, value, delta, deltaTone, sub, icon, tone = 'blue', onClick, title }) => {
     const iconBg = {
       blue: { bg: 'var(--arsela-blue-50)', fg: 'var(--arsela-blue)' },
@@ -340,6 +420,12 @@
               </>
             )}
           </div>
+
+          {role !== 'employee' && (
+            <div style={{ marginBottom: 20 }}>
+              <SpentVsBudgetToDate budgets={s.budgets}/>
+            </div>
+          )}
 
           <div style={{ marginBottom: 20 }}>
             <BudgetHealthWidget categories={budgetHealthData}/>

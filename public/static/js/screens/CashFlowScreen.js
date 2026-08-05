@@ -83,9 +83,61 @@
     );
   };
 
+  /* ---- Scenario Planning — "what if budget / expense / revenue changed,
+     what's the impact on cash flow?" Reads/writes window.Store's
+     cashFlowScenarios so it persists, and the whole Cash Flow screen
+     (chart + hero stats + runway + export) recomputes live from whichever
+     scenario is active. ---- */
+  function AddCashFlowScenarioModal({ onClose }) {
+    const { useState } = React;
+    const [n, setN] = useState('');
+    const [budgetDeltaPct, setBudgetDeltaPct] = useState('0');
+    const [expenseDeltaPct, setExpenseDeltaPct] = useState('0');
+    const [revenueDeltaPct, setRevenueDeltaPct] = useState('0');
+    const [note, setNote] = useState('');
+    const save = () => {
+      if (!n.trim()) { window.Store.toast('Enter a scenario name', 'danger'); return; }
+      window.Store.addCashFlowScenario({
+        n: n.trim(),
+        budgetDeltaPct: Number(budgetDeltaPct) || 0,
+        expenseDeltaPct: Number(expenseDeltaPct) || 0,
+        revenueDeltaPct: Number(revenueDeltaPct) || 0,
+        note: note.trim() || '—',
+      });
+      onClose();
+    };
+    return (
+      <ArsModal open onClose={onClose} title="New cash flow scenario" subtitle="Model a what-if change and see the impact on cash flow"
+        footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={save}>Add scenario</ArsButton></>}>
+        <ArsField label="Scenario name"><input value={n} onChange={(e) => setN(e.target.value)} placeholder="e.g. CAPEX deferred — LNG Phase I" style={arsFieldInputStyle}/></ArsField>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <ArsField label="Budget/CAPEX Δ %" hint="Investing outflows"><input type="number" value={budgetDeltaPct} onChange={(e) => setBudgetDeltaPct(e.target.value)} style={arsFieldInputStyle}/></ArsField>
+          <ArsField label="Expense Δ %" hint="Opex outflows"><input type="number" value={expenseDeltaPct} onChange={(e) => setExpenseDeltaPct(e.target.value)} style={arsFieldInputStyle}/></ArsField>
+          <ArsField label="Revenue Δ %" hint="Operating inflows"><input type="number" value={revenueDeltaPct} onChange={(e) => setRevenueDeltaPct(e.target.value)} style={arsFieldInputStyle}/></ArsField>
+        </div>
+        <ArsField label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Group-wide 8% discretionary opex reduction from Q4" style={arsFieldInputStyle}/></ArsField>
+      </ArsModal>
+    );
+  }
+
+  const ScenarioDeltaPill = ({ label, pct }) => {
+    if (!pct) return null;
+    const up = pct > 0;
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 700,
+        padding: '2px 7px', borderRadius: 20, color: up ? 'var(--success)' : 'var(--danger)',
+        background: up ? 'rgba(26,135,84,0.1)' : 'rgba(214,64,69,0.1)',
+      }}>{label} {up ? '+' : ''}{pct}%</span>
+    );
+  };
+
   const CashFlowScreen = () => {
+    const [s, setS] = React.useState(window.Store.getState());
+    React.useEffect(() => window.Store.subscribe(setS), []);
     const [period, setPeriod] = React.useState('FY 2026');
     const [showPeriodMenu, setShowPeriodMenu] = React.useState(false);
+    const [addScenarioOpen, setAddScenarioOpen] = React.useState(false);
     const periodRef = React.useRef(null);
 
     React.useEffect(() => {
@@ -96,12 +148,37 @@
       return () => document.removeEventListener('mousedown', onDoc);
     }, []);
 
+    const cashFlowScenarios = s.cashFlowScenarios || [];
+    const activeScenario = cashFlowScenarios.find((sc) => sc.active) || {};
+    // Multipliers derived from the active scenario's % deltas — revenue lifts
+    // operating inflow, expense reduces operating inflow (opex is netted
+    // against revenue in the "operating" line), budget/CAPEX scales the
+    // investing outflow, and financing follows the budget delta at half
+    // weight (deferring CAPEX typically eases financing draw-down too).
+    const revenueMult = 1 + (activeScenario.revenueDeltaPct || 0) / 100;
+    const expenseMult = 1 - (activeScenario.expenseDeltaPct || 0) / 100;
+    const budgetMult = 1 + (activeScenario.budgetDeltaPct || 0) / 100;
+    const financingMult = 1 + (activeScenario.budgetDeltaPct || 0) / 200;
+
     // Base FY26 series; scale slightly per selected period so switching feels live.
     const scale = period === 'FY 2024' ? 0.72 : period === 'FY 2025' ? 0.86 : period === 'FY 2027 (fcst)' ? 1.12 : 1;
-    const operating = [42, 48, 51, 46, 52, 58, 61, 55, 62, 67, 71, 74].map(v => Math.round(v * scale));
-    const investing = [-28, -32, -35, -30, -38, -42, -48, -44, -52, -55, -58, -62].map(v => Math.round(v * scale));
-    const financing = [8, -4, -6, 12, -8, -6, -4, 14, -6, -8, -4, -12].map(v => Math.round(v * scale));
-    const cash = [98, 110, 120, 148, 154, 164, 173, 198, 202, 206, 215, 215].map(v => Math.round(v * scale));
+    const baseOperating = [42, 48, 51, 46, 52, 58, 61, 55, 62, 67, 71, 74].map(v => Math.round(v * scale));
+    const baseInvesting = [-28, -32, -35, -30, -38, -42, -48, -44, -52, -55, -58, -62].map(v => Math.round(v * scale));
+    const baseFinancing = [8, -4, -6, 12, -8, -6, -4, 14, -6, -8, -4, -12].map(v => Math.round(v * scale));
+
+    // Apply scenario deltas to the flow lines, then rebuild a running cash
+    // balance from a fixed opening position so the whole runway chart
+    // reacts live to the active scenario.
+    const operating = baseOperating.map(v => Math.round(v * revenueMult * expenseMult));
+    const investing = baseInvesting.map(v => Math.round(v * budgetMult));
+    const financing = baseFinancing.map(v => Math.round(v * financingMult));
+    const opening = Math.round(98 * scale);
+    const cash = [];
+    let running = opening;
+    for (let i = 0; i < CF_MONTHS.length; i++) {
+      running += operating[i] + investing[i] + financing[i];
+      cash.push(Math.max(0, running));
+    }
 
     const opTotal = operating.reduce((a, b) => a + b, 0);
     const invTotal = investing.reduce((a, b) => a + b, 0);
@@ -117,7 +194,7 @@
 
     const exportCashFlow = () => {
       exportRowsToCSV(
-        `cash-flow-${period.replace(/[^A-Za-z0-9]+/g, '-')}`,
+        `cash-flow-${period.replace(/[^A-Za-z0-9]+/g, '-')}-${(activeScenario.n || 'base').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
         ['Month', 'Operating (RM M)', 'Investing (RM M)', 'Financing (RM M)', 'Closing Cash (RM M)'],
         CF_MONTHS.map((m, i) => [m, operating[i], investing[i], financing[i], cash[i]])
       );
@@ -151,6 +228,18 @@
           </div>
         }
       >
+        {activeScenario.n && activeScenario.n !== 'Base case' && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '10px 16px',
+            borderRadius: 10, background: 'rgba(19,67,203,0.06)', border: '1px solid rgba(19,67,203,0.18)',
+          }}>
+            <IconChart size={15}/>
+            <span style={{ fontSize: 13, color: 'var(--arsela-navy)' }}>
+              Scenario active: <b>{activeScenario.n}</b> — the figures below reflect this what-if, not the base plan.
+            </span>
+          </div>
+        )}
+
         {/* Runway hero */}
         <ArsCard style={{ padding: 0, marginBottom: 20, overflow: 'hidden' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', background: 'linear-gradient(180deg, #FAFBFD, #fff)' }}>
@@ -212,6 +301,46 @@
               </div>
             ))}
           </div>
+        </ArsCard>
+
+        {/* Scenario planning — click a scenario to switch; the hero, chart,
+            runway and export above all recompute from whichever is active. */}
+        <ArsCard style={{ marginBottom: 20 }}>
+          <ArsSectionHeader
+            title="Scenario planning"
+            subtitle="What if budget, expense or revenue changed? Click a scenario to see the cash flow impact"
+            action={<ArsButton variant="ghost" size="sm" icon={<IconPlus size={13}/>} onClick={() => setAddScenarioOpen(true)}>New scenario</ArsButton>}
+          />
+          {cashFlowScenarios.length === 0 && <ArsEmpty icon={<IconChart size={20}/>} title="No scenarios yet" body="Click New scenario to model a what-if."/>}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
+            {cashFlowScenarios.map((sc) => (
+              <div key={sc.id} onClick={() => window.Store.setActiveCashFlowScenario(sc.id)} title="Click to switch to this scenario" style={{
+                padding: 14, borderRadius: 10, cursor: 'pointer',
+                border: sc.active ? '1px solid var(--teal-brand)' : '1px solid var(--arsela-border)',
+                background: sc.active ? 'rgba(0,168,150,0.05)' : 'transparent',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--arsela-navy)' }}>{sc.n}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {sc.active && <ArsBadge tone="teal" size="sm">Active</ArsBadge>}
+                    {!sc.active && (
+                      <button onClick={(e) => { e.stopPropagation(); window.Store.deleteCashFlowScenario(sc.id); }} title="Delete scenario" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-text-subtle)', display: 'flex' }}><IconClose size={12}/></button>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+                  <ScenarioDeltaPill label="Budget" pct={sc.budgetDeltaPct}/>
+                  <ScenarioDeltaPill label="Expense" pct={sc.expenseDeltaPct}/>
+                  <ScenarioDeltaPill label="Revenue" pct={sc.revenueDeltaPct}/>
+                  {!sc.budgetDeltaPct && !sc.expenseDeltaPct && !sc.revenueDeltaPct && (
+                    <span style={{ fontSize: 11, color: 'var(--arsela-text-subtle)', fontWeight: 600 }}>No changes — approved plan</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', lineHeight: 1.4 }}>{sc.note}</div>
+              </div>
+            ))}
+          </div>
+          {addScenarioOpen && <AddCashFlowScenarioModal onClose={() => setAddScenarioOpen(false)}/>}
         </ArsCard>
 
         {/* Cash position over time */}
