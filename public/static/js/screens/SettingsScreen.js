@@ -44,6 +44,102 @@
     </div>
   );
 
+  const ChangePasswordCard = () => {
+    const [currentPw, setCurrentPw] = React.useState('');
+    const [newPw, setNewPw] = React.useState('');
+    const [confirmPw, setConfirmPw] = React.useState('');
+    const [showCurrent, setShowCurrent] = React.useState(false);
+    const [showNew, setShowNew] = React.useState(false);
+    const [error, setError] = React.useState('');
+
+    const fieldStyle = {
+      width: '100%', height: 40, border: '1px solid var(--arsela-border-strong)',
+      borderRadius: 8, padding: '0 38px 0 12px', fontSize: 14, fontFamily: 'inherit',
+      outline: 'none', boxSizing: 'border-box',
+    };
+
+    const submit = (e) => {
+      e.preventDefault();
+      setError('');
+      if (!currentPw || !newPw || !confirmPw) {
+        setError('Please fill in all three fields.');
+        return;
+      }
+      if (newPw !== confirmPw) {
+        setError('New password and confirmation do not match.');
+        return;
+      }
+      const res = window.Store.changePassword(currentPw, newPw);
+      if (res && res.ok) {
+        setCurrentPw(''); setNewPw(''); setConfirmPw('');
+        setShowCurrent(false); setShowNew(false);
+      } else if (res) {
+        setError(res.error || 'Could not change password.');
+      }
+    };
+
+    return (
+      <ArsCard>
+        <ArsSectionHeader title="Change password" subtitle="Update the password for your account"/>
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <label style={{ display: 'block' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Current password</div>
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showCurrent ? 'text' : 'password'}
+                value={currentPw}
+                autoComplete="current-password"
+                onChange={(e) => setCurrentPw(e.target.value)}
+                style={fieldStyle}
+              />
+              <button type="button" onClick={() => setShowCurrent(v => !v)} style={{
+                position: 'absolute', right: 8, top: 0, bottom: 0, border: 'none', background: 'none',
+                cursor: 'pointer', color: 'var(--arsela-text-muted)', display: 'flex', alignItems: 'center',
+              }}>
+                <IconEye size={16}/>
+              </button>
+            </div>
+          </label>
+          <label style={{ display: 'block' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>New password</div>
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showNew ? 'text' : 'password'}
+                value={newPw}
+                autoComplete="new-password"
+                onChange={(e) => setNewPw(e.target.value)}
+                style={fieldStyle}
+              />
+              <button type="button" onClick={() => setShowNew(v => !v)} style={{
+                position: 'absolute', right: 8, top: 0, bottom: 0, border: 'none', background: 'none',
+                cursor: 'pointer', color: 'var(--arsela-text-muted)', display: 'flex', alignItems: 'center',
+              }}>
+                <IconEye size={16}/>
+              </button>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>At least 8 characters, different from your current password.</div>
+          </label>
+          <label style={{ display: 'block' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Confirm new password</div>
+            <input
+              type={showNew ? 'text' : 'password'}
+              value={confirmPw}
+              autoComplete="new-password"
+              onChange={(e) => setConfirmPw(e.target.value)}
+              style={{ ...fieldStyle, padding: '0 12px' }}
+            />
+          </label>
+          {error && (
+            <div style={{ fontSize: 12.5, color: 'var(--arsela-danger)', background: 'var(--arsela-danger-50)', borderRadius: 8, padding: '8px 12px' }}>
+              {error}
+            </div>
+          )}
+          <ArsButton type="submit" size="sm" icon={<IconLock size={13}/>}>Update password</ArsButton>
+        </form>
+      </ArsCard>
+    );
+  };
+
   const SettingsScreen = () => {
     const [settings, setSettings] = React.useState(loadSettings());
     const [orgNameDraft, setOrgNameDraft] = React.useState(settings.orgName);
@@ -190,6 +286,8 @@
                 );
               })()}
             </ArsCard>
+
+            <ChangePasswordCard/>
 
             <ArsCard>
               <ArsSectionHeader title="Data & export"/>

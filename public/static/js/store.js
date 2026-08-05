@@ -490,6 +490,29 @@
       setState({ users: state.users.map((u) => (u.email === email ? { ...u, ...patch } : u)) });
       toast(`User updated: ${email}`, 'success');
     },
+    /** Self-service password change for the currently signed-in user. */
+    changePassword(currentPassword, newPassword) {
+      const user = findUser(state.currentUserEmail);
+      if (!user) {
+        toast('You must be signed in to change your password', 'danger');
+        return { ok: false, error: 'Not signed in.' };
+      }
+      if ((currentPassword || '') !== user.password) {
+        toast('Current password is incorrect', 'danger');
+        return { ok: false, error: 'Current password is incorrect.' };
+      }
+      if (!newPassword || newPassword.length < 8) {
+        toast('New password must be at least 8 characters', 'danger');
+        return { ok: false, error: 'New password must be at least 8 characters.' };
+      }
+      if (newPassword === currentPassword) {
+        toast('New password must be different from your current password', 'danger');
+        return { ok: false, error: 'New password must be different from your current password.' };
+      }
+      setState({ users: state.users.map((u) => (u.email === user.email ? { ...u, password: newPassword } : u)) });
+      toast('Password changed successfully', 'success');
+      return { ok: true };
+    },
     deleteUser(email) {
       if (email === state.currentUserEmail) {
         toast("You can't delete the account you're currently signed in with", 'danger');
