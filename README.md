@@ -8,9 +8,14 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: https://eaf6559c.coplanistra.pages.dev)
+- **Production**: https://coplanistra.pages.dev (latest deploy: https://12997337.coplanistra.pages.dev)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - (Sandbox preview URLs are temporary; the pages.dev link above is the permanent, short URL for the client.)
+
+## Bug fix (2026-08-05) — Cash Flow scenario cards not clickable / not syncing
+**Reported**: clicking a scenario card on the Cash Flow screen did nothing — the rest of the panel (hero stats, chart, runway, active badge) never updated.
+**Root cause**: `Store.setState()` mutates the single shared state object in place, and the store's `emit()` was passing that same mutated object reference to every subscriber. React's `useState` bails out of re-rendering when given a value that's reference-identical to the current one — so the click *did* correctly flip the active scenario in the store, but the screen never repainted to reflect it.
+**Fix**: `emit()` now spreads state into a fresh object on every notification, so every screen that subscribes via `useState(window.Store.getState())` + `Store.subscribe(setS)` always receives a new reference and re-renders. This is a central-store fix (`store.js`), so it covers every screen using that pattern, not just Cash Flow. Verified end-to-end with Playwright: closing cash RM237M → RM292M, runway 5.4mo → 6.6mo, "Active" badge moved to the clicked card, switch toast fired, zero console errors.
 
 ## Latest session update (2026-08-05) — Cash Flow scenario planning, Dashboard Spent-vs-Budget-to-date, Director's Report
 Client feedback addressed this session:
