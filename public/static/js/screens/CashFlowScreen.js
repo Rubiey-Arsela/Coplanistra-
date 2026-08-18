@@ -1,10 +1,18 @@
 /* Cash Flow — inflow/outflow chart, runway indicator */
 (function () {
 
-  const CF_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const PERIODS = ['FY 2024', 'FY 2025', 'FY 2026', 'FY 2027 (fcst)'];
+  // Month order follows Arsela's fiscal year (starts 1 July), so it lines
+  // up with the FY-labeled period picker below instead of a calendar-year
+  // Jan-Dec order that would silently mismatch the selected FY.
+  const CF_MONTHS = ['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'];
+  const PERIODS = ['FY2025', 'FY2026', 'FY2027', 'FY2028 (fcst)'];
+  const CURRENT_FY_PERIOD = 'FY2027'; // matches window.Store.fyLabel(window.Store.today())
 
-  const CashFlowChart = ({ operating, investing, financing, onBarClick }) => {
+  // actualMonths = how many of the 12 months in the currently-selected
+  // period are RECONCILED ACTUALS (solid bars); the rest are FORECAST
+  // (lighter/dashed-outline bars). 12 = fully actual (a closed prior FY),
+  // 0 = fully forecast (a future FY not yet started).
+  const CashFlowChart = ({ operating, investing, financing, onBarClick, actualMonths = 12 }) => {
     const months = CF_MONTHS;
     const w = 700, h = 300, pad = { l: 44, r: 20, t: 20, b: 34 };
     const max = 80, min = -80;
@@ -25,21 +33,27 @@
             <text x={pad.l-8} y={yFor(v)+4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">{curLabel(v)}</text>
           </g>
         ))}
+        {actualMonths > 0 && actualMonths < months.length && (
+          <line x1={pad.l + groupW * actualMonths} x2={pad.l + groupW * actualMonths} y1={pad.t} y2={h - pad.b} stroke="#8492A6" strokeDasharray="2 3" strokeWidth="1"/>
+        )}
         {months.map((m, i) => {
           const cx = xFor(i);
+          const isForecast = i >= actualMonths;
+          const op = isForecast ? 0.4 : 1;
+          const dash = isForecast ? { strokeDasharray: '2 2', stroke: '#5B6B82', strokeWidth: 1 } : {};
           return (
             <g key={m} style={{ cursor: 'pointer' }}
                onClick={() => onBarClick && onBarClick(m, i)}>
               <rect x={pad.l + groupW * i} y={pad.t} width={groupW} height={chartH} fill="transparent"/>
               <rect x={cx - barW * 1.5 - 2} y={operating[i] >= 0 ? yFor(operating[i]) : zeroY}
                     width={barW} height={Math.abs(yFor(operating[i]) - zeroY)}
-                    fill="#1A8754" rx="1.5"/>
+                    fill="#1A8754" opacity={op} rx="1.5" {...dash}/>
               <rect x={cx - barW/2} y={investing[i] >= 0 ? yFor(investing[i]) : zeroY}
                     width={barW} height={Math.abs(yFor(investing[i]) - zeroY)}
-                    fill="#D64045" rx="1.5"/>
+                    fill="#D64045" opacity={op} rx="1.5" {...dash}/>
               <rect x={cx + barW/2 + 2} y={financing[i] >= 0 ? yFor(financing[i]) : zeroY}
                     width={barW} height={Math.abs(yFor(financing[i]) - zeroY)}
-                    fill="#1343CB" rx="1.5"/>
+                    fill="#1343CB" opacity={op} rx="1.5" {...dash}/>
               <text x={cx} y={h - 14} fontSize="10.5" fill="#5B6B82" textAnchor="middle" fontWeight="600">{m}</text>
             </g>
           );
@@ -48,7 +62,7 @@
     );
   };
 
-  const RunwayChart = ({ cash }) => {
+  const RunwayChart = ({ cash, actualMonths = 12 }) => {
     const months = CF_MONTHS;
     const w = 700, h = 200, pad = { l: 44, r: 20, t: 20, b: 30 };
     const max = 250, min = 0;
@@ -56,7 +70,16 @@
     const xFor = i => pad.l + (w - pad.l - pad.r) * (i / (months.length - 1));
     const yFor = v => pad.t + chartH * (1 - (v - min) / (max - min));
 
-    const line = cash.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i)} ${yFor(v)}`).join(' ');
+    // Split the line into a solid "actual" segment (reconciled Xero/bank
+    // data) and a dashed/lighter "forecast" segment (projected), meeting
+    // at the actualMonths boundary so the two bases are never visually
+    // conflated as a single continuous "live" line.
+    const boundary = Math.max(0, Math.min(cash.length - 1, actualMonths));
+    const actualPts = cash.slice(0, boundary + 1);
+    const forecastPts = cash.slice(boundary);
+    const lineFor = (pts, offset) => pts.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i + offset)} ${yFor(v)}`).join(' ');
+    const actualLine = actualPts.length > 1 ? lineFor(actualPts, 0) : '';
+    const forecastLine = forecastPts.length > 1 ? lineFor(forecastPts, boundary) : '';
     const area = `M ${xFor(0)} ${yFor(0)} ${cash.map((v, i) => `L ${xFor(i)} ${yFor(v)}`).join(' ')} L ${xFor(cash.length-1)} ${yFor(0)} Z`;
 
     return (
@@ -76,9 +99,13 @@
         <line x1={pad.l} x2={w-pad.r} y1={yFor(60)} y2={yFor(60)} stroke="#D64045" strokeDasharray="4 3" strokeWidth="1"/>
         <text x={w-pad.r} y={yFor(60)-4} fontSize="10" fill="#D64045" textAnchor="end" fontWeight="700">Min. runway threshold</text>
         <path d={area} fill="url(#cashArea)"/>
-        <path d={line} stroke="#007A6E" strokeWidth="2.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-        {cash.map((v, i) => <circle key={i} cx={xFor(i)} cy={yFor(v)} r="3.5" fill="#fff" stroke="#007A6E" strokeWidth="2"/>)}
+        {actualLine && <path d={actualLine} stroke="#007A6E" strokeWidth="2.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/>}
+        {forecastLine && <path d={forecastLine} stroke="#007A6E" strokeWidth="2.4" strokeDasharray="5 4" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={0.65}/>}
+        {cash.map((v, i) => <circle key={i} cx={xFor(i)} cy={yFor(v)} r="3.5" fill={i < actualMonths ? '#fff' : '#EAFBF7'} stroke="#007A6E" strokeWidth="2"/>)}
         {months.map((m, i) => <text key={m} x={xFor(i)} y={h-10} fontSize="10.5" fill="#5B6B82" textAnchor="middle" fontWeight="600">{m}</text>)}
+        {actualMonths > 0 && actualMonths < months.length && (
+          <text x={xFor(actualMonths)} y={pad.t + 10} fontSize="9.5" fill="#5B6B82" textAnchor="middle" fontWeight="700">◀ Actual · Forecast ▶</text>
+        )}
       </svg>
     );
   };
@@ -130,7 +157,7 @@
     const budgetMult = 1 + (activeScenario.budgetDeltaPct || 0) / 100;
     const financingMult = 1 + (activeScenario.budgetDeltaPct || 0) / 200;
 
-    const scale = period === 'FY 2024' ? 0.72 : period === 'FY 2025' ? 0.86 : period === 'FY 2027 (fcst)' ? 1.12 : 1;
+    const scale = period === 'FY2025' ? 0.72 : period === 'FY2026' ? 0.86 : period === 'FY2028 (fcst)' ? 1.12 : 1; // FY2027 (current) = 1
     const baseOperating = [42, 48, 51, 46, 52, 58, 61, 55, 62, 67, 71, 74].map(v => Math.round(v * scale));
     const baseInvesting = [-28, -32, -35, -30, -38, -42, -48, -44, -52, -55, -58, -62].map(v => Math.round(v * scale));
     const baseFinancing = [8, -4, -6, 12, -8, -6, -4, 14, -6, -8, -4, -12].map(v => Math.round(v * scale));
@@ -150,10 +177,18 @@
     const invTotal = investing.reduce((a, b) => a + b, 0);
     const finTotal = financing.reduce((a, b) => a + b, 0);
     const closingCash = cash[cash.length - 1];
+    const netChange = closingCash - opening;
+    const netChangePct = opening > 0 ? (netChange / opening) * 100 : 0;
     const monthlyBurn = Math.abs(Math.round(investing.reduce((a, b) => a + Math.min(0, b), 0) / 12));
     const runwayMonths = monthlyBurn > 0 ? (closingCash / monthlyBurn).toFixed(1) : null;
+    const minCash = Math.min(...cash);
+    const minCashMonthIdx = cash.indexOf(minCash);
 
-    return { operating, investing, financing, cash, opTotal, invTotal, finTotal, closingCash, monthlyBurn, runwayMonths };
+    // opening is now returned so the render layer can compute a REAL
+    // closing-vs-opening variance instead of a hardcoded badge value —
+    // this was the exact source of the Operating/Investing/Financing vs
+    // "Net change" vs "+9.4% vs Jan opening" inconsistency reported.
+    return { operating, investing, financing, cash, opening, opTotal, invTotal, finTotal, closingCash, netChange, netChangePct, monthlyBurn, runwayMonths, minCash, minCashMonthIdx };
   }
 
   const ScenarioDeltaPill = ({ label, pct }) => {
@@ -171,7 +206,7 @@
   const CashFlowScreen = () => {
     const [s, setS] = React.useState(window.Store.getState());
     React.useEffect(() => window.Store.subscribe(setS), []);
-    const [period, setPeriod] = React.useState('FY 2026');
+    const [period, setPeriod] = React.useState(CURRENT_FY_PERIOD);
     const [showPeriodMenu, setShowPeriodMenu] = React.useState(false);
     const [addScenarioOpen, setAddScenarioOpen] = React.useState(false);
     const periodRef = React.useRef(null);
@@ -192,9 +227,28 @@
     // follows the budget delta at half weight (deferring CAPEX typically
     // eases financing draw-down too). See computeCashFlow() above — shared
     // with the Director's Report so figures never drift between screens.
-    const { operating, investing, financing, cash, opTotal, invTotal, finTotal, closingCash, monthlyBurn, runwayMonths: runwayMonthsRaw } =
+    const { operating, investing, financing, cash, opening, opTotal, invTotal, finTotal, closingCash, netChange, netChangePct, monthlyBurn, runwayMonths: runwayMonthsRaw, minCash, minCashMonthIdx } =
       computeCashFlow(period, activeScenario);
     const runwayMonths = runwayMonthsRaw || '—';
+
+    // How many months of the selected period are RECONCILED ACTUALS vs
+    // FORECAST. Only the current FY (Q1 in progress, "today" = 22 Jul
+    // 2026) is partially actual; a past FY is fully actual, a future FY
+    // is fully forecast — this drives the solid-vs-dashed rendering so
+    // Actual and Forecast cash flow are never visually conflated.
+    const actualMonths = period === CURRENT_FY_PERIOD ? 1 : (PERIODS.indexOf(period) < PERIODS.indexOf(CURRENT_FY_PERIOD) ? 12 : 0);
+    const isFullyActual = actualMonths >= 12;
+    const isFullyForecast = actualMonths <= 0;
+
+    // Indicative demo balances for the fields the user asked to see
+    // alongside the projection — "book balance" (Xero ledger) can lag
+    // "cash at bank" (live bank feed) briefly around timing differences,
+    // which is itself a reconciliation signal.
+    const cashAtBank = Math.round(cash[Math.min(actualMonths, cash.length - 1)] * 1.006);
+    const bookBalance = cash[Math.min(actualMonths, cash.length - 1)];
+    const undrawnFacilities = 45; // RM/AUD M — revolving facility headroom, demo figure
+    const fundingGapExists = minCash < 60; // below the runway threshold line
+    const fundingGapAmount = fundingGapExists ? Math.round(60 - minCash) : 0;
 
     const onBarClick = (month) => {
       const idx = CF_MONTHS.indexOf(month);
@@ -204,7 +258,7 @@
     const exportCashFlow = () => {
       exportRowsToCSV(
         `cash-flow-${period.replace(/[^A-Za-z0-9]+/g, '-')}-${(activeScenario.n || 'base').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-        ['Month', 'Operating (RM M)', 'Investing (RM M)', 'Financing (RM M)', 'Closing Cash (RM M)'],
+        ['Month', 'Operating (AUD M)', 'Investing (AUD M)', 'Financing (AUD M)', 'Closing Cash (AUD M)'],
         CF_MONTHS.map((m, i) => [m, operating[i], investing[i], financing[i], cash[i]])
       );
     };
@@ -249,6 +303,24 @@
           </div>
         )}
 
+        {/* Reconciliation / basis banner — makes explicit whether this
+            period's figures are reconciled actuals, a blend, or pure
+            forecast, so "Live" is never implied for unreconciled data. */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '10px 16px',
+          borderRadius: 10, background: isFullyForecast ? 'var(--arsela-blue-50)' : isFullyActual ? 'var(--arsela-teal-50)' : 'var(--arsela-warning-50)',
+          border: '1px solid ' + (isFullyForecast ? 'rgba(19,67,203,0.18)' : isFullyActual ? 'rgba(0,168,150,0.2)' : 'rgba(180,116,10,0.25)'),
+        }}>
+          <IconInfo size={15}/>
+          <span style={{ fontSize: 13, color: 'var(--arsela-navy)' }}>
+            {isFullyForecast
+              ? <>All figures for <b>{period}</b> are <b>forecast</b> — this fiscal year has not started.</>
+              : isFullyActual
+                ? <>All figures for <b>{period}</b> are <b>reconciled actuals</b> (fiscal year closed).</>
+                : <><b>{actualMonths}</b> of 12 months shown are reconciled Xero/bank actuals (solid); the remaining months are <b>forecast</b> (dashed/lighter) — see the chart legend below.</>}
+          </span>
+        </div>
+
         {/* Runway hero */}
         <ArsCard style={{ padding: 0, marginBottom: 20, overflow: 'hidden' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', background: 'linear-gradient(180deg, #FAFBFD, #fff)' }}>
@@ -256,8 +328,8 @@
               <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Closing cash · {period}</div>
               <div className="arsela-num" style={{ fontSize: 32, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.5 }}>{curLabel(closingCash)}</div>
               <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <ArsVariance value={9.4} />
-                <span style={{ fontSize: 12, color: 'var(--arsela-text-muted)' }}>vs Jan opening</span>
+                <ArsVariance value={Number(netChangePct.toFixed(1))} />
+                <span style={{ fontSize: 12, color: 'var(--arsela-text-muted)' }}>vs {CF_MONTHS[0]} opening ({curLabel(opening)})</span>
               </div>
             </div>
             <div style={{ padding: '24px 24px', borderRight: '1px solid var(--arsela-border)' }}>
@@ -274,27 +346,57 @@
               </div>
             </div>
             <div style={{ padding: '24px 24px' }}>
-              <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Net change · YTD</div>
-              <div className="arsela-num" style={{ fontSize: 32, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.5 }}>{(opTotal+invTotal+finTotal) >= 0 ? '+' : '−'}{curLabel(Math.abs(opTotal+invTotal+finTotal))}</div>
-              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--arsela-text-muted)' }}>Operating + Investing + Financing</div>
+              <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Net change · {period}</div>
+              <div className="arsela-num" style={{ fontSize: 32, fontWeight: 700, color: netChange >= 0 ? 'var(--success)' : 'var(--danger)', marginTop: 10, letterSpacing: -0.5 }}>{netChange >= 0 ? '+' : '−'}{curLabel(Math.abs(netChange))}</div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--arsela-text-muted)' }}>Operating + Investing + Financing = closing − opening</div>
             </div>
           </div>
         </ArsCard>
+
+        {/* Liquidity position — cash at bank, book balance, funding gap,
+            undrawn facilities. Cash at bank and Book balance are shown
+            separately because a difference between them is itself a
+            reconciliation signal (outstanding/uncleared items). */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+          <ArsCard>
+            <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Current cash at bank</div>
+            <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8 }}>{curLabel(cashAtBank)}</div>
+            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 3 }}>Live bank feed balance</div>
+          </ArsCard>
+          <ArsCard>
+            <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Book balance</div>
+            <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8 }}>{curLabel(bookBalance)}</div>
+            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 3 }}>{cashAtBank !== bookBalance ? `${curLabel(Math.abs(cashAtBank - bookBalance))} unreconciled — see Reconciliations` : 'Matches Xero ledger'}</div>
+          </ArsCard>
+          <ArsCard>
+            <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Min. projected balance</div>
+            <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: fundingGapExists ? 'var(--danger)' : 'var(--arsela-navy)', marginTop: 8 }}>{curLabel(minCash)}</div>
+            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 3 }}>{CF_MONTHS[minCashMonthIdx]} {period.replace(/[^0-9]/g, '')}</div>
+          </ArsCard>
+          <ArsCard>
+            <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Funding gap / Undrawn facilities</div>
+            <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: fundingGapExists ? 'var(--danger)' : 'var(--success)', marginTop: 8 }}>
+              {fundingGapExists ? `Gap ${curLabel(fundingGapAmount)}` : 'No gap'}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 3 }}>{curLabel(undrawnFacilities)} undrawn facility headroom</div>
+          </ArsCard>
+        </div>
 
         {/* Flows chart */}
         <ArsCard style={{ marginBottom: 20 }}>
           <ArsSectionHeader
             title={`Cash flow model — ${period}`}
-            subtitle="Monthly Operating · Investing · Financing · click a month for detail"
+            subtitle="Monthly Operating · Investing · Financing · solid = actual, faded/dashed = forecast · click a month for detail"
             action={
-              <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--arsela-text-muted)' }}>
+              <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--arsela-text-muted)', flexWrap: 'wrap' }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, background: '#1A8754', borderRadius: 2 }}/>Operating</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, background: '#D64045', borderRadius: 2 }}/>Investing</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, background: '#1343CB', borderRadius: 2 }}/>Financing</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, background: '#B9CBFF', borderRadius: 2, opacity: 0.4, border: '1px dashed #5B6B82' }}/>Forecast</span>
               </div>
             }
           />
-          <CashFlowChart operating={operating} investing={investing} financing={financing} onBarClick={onBarClick}/>
+          <CashFlowChart operating={operating} investing={investing} financing={financing} onBarClick={onBarClick} actualMonths={actualMonths}/>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--arsela-border)' }}>
             {[
               { l: `Operating cash · ${period}`, v: opTotal, tone: 'success', d: 'Strong operating performance' },
@@ -356,9 +458,9 @@
         <ArsCard>
           <ArsSectionHeader
             title="Closing cash position · projection"
-            subtitle="Cumulative · red line = minimum runway threshold"
+            subtitle="Cumulative · red line = minimum runway threshold · solid = actual, dashed = forecast"
           />
-          <RunwayChart cash={cash}/>
+          <RunwayChart cash={cash} actualMonths={actualMonths}/>
         </ArsCard>
       </AppFrame>
     );

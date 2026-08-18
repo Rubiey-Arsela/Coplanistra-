@@ -137,7 +137,7 @@
 
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 600, letterSpacing: 1.4, textTransform: 'uppercase', color: 'rgba(255,255,255,0.65)' }}>
             <span style={{ width: 6, height: 6, borderRadius: 999, background: '#00D6BE' }}/>
-            FY 2026 · Malaysia Ringgit
+            {window.Store.fyLabel(window.Store.today())} · Australian Dollar (AUD)
           </div>
 
           <div style={{ position: 'relative', maxWidth: 500 }}>
@@ -147,7 +147,7 @@
               <span style={{ color: '#00D6BE' }}>decisions.</span>
             </div>
             <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.72)', marginTop: 22, lineHeight: 1.55, maxWidth: 440 }}>
-              Coplanistra brings your organisation's budgets, expenses and approvals into one clear view — so every ringgit is planned, tracked and accountable.
+              Coplanistra brings your organisation's budgets, expenses and approvals into one clear view — so every dollar is planned, tracked and accountable.
             </div>
 
             <div style={{
@@ -155,8 +155,8 @@
               background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
               borderRadius: 14, padding: 20, backdropFilter: 'blur(6px)',
             }}>
-              {[[fmtMYR(248_000_000, { compact: true }), 'Planned FY26'], ['96%', 'On-track budgets'], ['1,240', 'Approvals routed']].map(([v, l]) => (
-                <div key={l} style={{ borderLeft: l === 'Planned FY26' ? 'none' : '1px solid rgba(255,255,255,0.1)', paddingLeft: l === 'Planned FY26' ? 0 : 20 }}>
+              {[[fmtMYR(248_000_000, { compact: true }), `Planned ${window.Store.fyLabel(window.Store.today())}`], ['96%', 'On-track budgets'], ['1,240', 'Approvals routed']].map(([v, l]) => (
+                <div key={l} style={{ borderLeft: l.indexOf('Planned') === 0 ? 'none' : '1px solid rgba(255,255,255,0.1)', paddingLeft: l.indexOf('Planned') === 0 ? 0 : 20 }}>
                   <div style={{ fontSize: 22, fontWeight: 700, color: '#fff', letterSpacing: -0.2 }}>{v}</div>
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 4, fontWeight: 500 }}>{l}</div>
                 </div>

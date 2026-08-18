@@ -161,7 +161,7 @@
               fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.7)',
               background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: 4,
               letterSpacing: 0.4,
-            }}>FY26</span>
+            }}>{window.Store.fyLabel(window.Store.today())}</span>
             <IconChevronDown size={13} style={{ color: 'rgba(255,255,255,0.5)' }} />
           </button>
         </div>

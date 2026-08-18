@@ -86,62 +86,114 @@
     const activeScenario = cashFlowScenarios.find((sc) => sc.active) || {};
 
     const totalAllocated = budgets.reduce((a, b) => a + (b.allocated || 0), 0);
-    const totalSpent = budgets.reduce((a, b) => a + (b.spent || 0), 0);
+    // "Spent" here is deliberately RECONCILED Xero actuals only, per the
+    // build rule: "Only reconciled Xero amounts are classified as
+    // actuals." Committed (approved-but-unposted) is tracked separately
+    // so the two bases are never silently combined.
+    const totalSpent = budgets.reduce((a, b) => a + (b.reconciled ? (b.spent || 0) : 0), 0);
+    const totalCommitted = budgets.reduce((a, b) => a + (b.committed || 0), 0);
+    const totalForecastFinal = budgets.reduce((a, b) => a + (b.forecastFinal || b.spent || 0), 0);
     const burnPct = totalAllocated > 0 ? (totalSpent / totalAllocated) * 100 : 0;
-    const fyPct = window.fyProgressPct ? window.fyProgressPct() : 0.55;
+    const fyPct = window.Store.fyProgressPct();
     const budgetToDate = totalAllocated * fyPct;
     const varianceToDate = totalSpent - budgetToDate;
+    const unreconciledBudgets = budgets.filter((b) => !b.reconciled);
+    const latestActualsThrough = budgets.reduce((latest, b) => (b.actualsThrough && (!latest || b.actualsThrough > latest)) ? b.actualsThrough : latest, null);
 
     const overBudget = budgets.filter((b) => b.status === 'over');
     const pendingApprovals = approvals.filter((a) => a.status === 'pending');
     const urgentApprovals = pendingApprovals.filter((a) => a.urgent);
     const pendingApprovalValue = pendingApprovals.reduce((a, b) => a + b.amount, 0);
     const pendingExpenses = expenses.filter((e) => e.status === 'pending');
+    // Unposted expenses: approved by a manager but not yet posted in Xero
+    // (so not in "Spent" above) — a data-limitation the report must flag.
+    const unpostedExpenses = expenses.filter((e) => e.approvalStatus === 'approved' && e.xeroStatus !== 'posted');
 
+    // CAPEX exposure — `committed` is the total contracted value and
+    // ALREADY INCLUDES `spent` (see store.js seedCapex comment), so total
+    // exposure against approval is `committed`, never committed + spent.
     const capexApproved = capexProjects.reduce((a, c) => a + c.approved, 0);
     const capexCommitted = capexProjects.reduce((a, c) => a + c.committed, 0);
-    const capexSpent = capexProjects.reduce((a, c) => a + c.spent, 0);
+    const capexSpent = capexProjects.reduce((a, c) => a + (c.paidActuals != null ? c.paidActuals : c.spent), 0);
 
-    const cf = window.computeCashFlow ? window.computeCashFlow('FY 2026', activeScenario) : null;
+    const FY_PERIOD_LABEL = window.Store.fyLabel(window.Store.today());
+    const cf = window.computeCashFlow ? window.computeCashFlow(FY_PERIOD_LABEL, activeScenario) : null;
+    // 13-week (~3 month) look-ahead cash view, built from the same
+    // computeCashFlow series so it never drifts from the Cash Flow screen.
+    const next13WeekOutflow = cf ? Math.abs(cf.investing.slice(1, 4).reduce((a, v) => a + Math.min(0, v), 0)) : 0;
+    const next13WeekInflow = cf ? cf.operating.slice(1, 4).reduce((a, v) => a + Math.max(0, v), 0) : 0;
+    const solvent = cf ? cf.minCash > 0 : true;
+    const withinRunwayThreshold = cf ? cf.minCash >= 60 : true;
 
+    // Department rollup — carries ALL bases (actual/committed/forecast)
+    // so a near-zero-spend department against a large allocation is never
+    // shown as a flat "green" underspend without the fuller picture.
     const deptRollup = {};
     budgets.forEach((b) => {
-      if (!deptRollup[b.dept]) deptRollup[b.dept] = { allocated: 0, spent: 0 };
+      if (!deptRollup[b.dept]) deptRollup[b.dept] = { allocated: 0, spent: 0, committed: 0, forecastFinal: 0 };
       deptRollup[b.dept].allocated += b.allocated;
-      deptRollup[b.dept].spent += b.spent;
+      deptRollup[b.dept].spent += (b.reconciled ? (b.spent || 0) : 0);
+      deptRollup[b.dept].committed += (b.committed || 0);
+      deptRollup[b.dept].forecastFinal += (b.forecastFinal || b.spent || 0);
     });
     const deptRows = Object.entries(deptRollup)
-      .map(([dept, v]) => ({ dept, ...v, variance: v.spent - v.allocated }))
-      .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
+      .map(([dept, v]) => {
+        const budgetToDateDept = v.allocated * fyPct;
+        const actualVsBudgetToDate = v.spent - budgetToDateDept;
+        const actualPlusCommitted = v.spent + v.committed;
+        const forecastVariance = v.forecastFinal - v.allocated;
+        // A department showing near-zero spend against a large allocation
+        // this early in the year is a TIMING gap, not a genuine saving —
+        // flag it explicitly instead of coloring it green.
+        const isTimingGap = v.spent < v.allocated * 0.05 && fyPct > 0.05;
+        return {
+          dept, ...v, budgetToDateDept, actualVsBudgetToDate, actualPlusCommitted, forecastVariance, isTimingGap,
+          action: forecastVariance > v.allocated * 0.03 ? 'Reforecast / seek top-up' : isTimingGap ? 'Confirm spend timing with dept owner' : forecastVariance < -v.allocated * 0.1 ? 'Review for reallocation' : 'Monitor',
+        };
+      })
+      .sort((a, b) => Math.abs(b.forecastVariance) - Math.abs(a.forecastVariance));
 
-    const REPORT_DATE = window.FY_REFERENCE_DATE || new Date(2026, 6, 22);
-    const monthLabel = REPORT_DATE.toLocaleDateString('en-MY', { month: 'long', year: 'numeric' });
-    const dateLabel = REPORT_DATE.toLocaleDateString('en-MY', { day: 'numeric', month: 'long', year: 'numeric' });
+    const REPORT_DATE = window.Store.today();
+    const monthLabel = REPORT_DATE.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+    const dateLabel = REPORT_DATE.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+    // An incomplete month/period must be labeled a preliminary snapshot,
+    // not presented as a complete closed-period report.
+    const isPreliminary = unreconciledBudgets.length > 0 || fyPct < 1;
 
     const exportCSV = () => {
       exportRowsToCSV(
         `directors-report-${monthLabel.replace(/\s+/g, '-').toLowerCase()}`,
         ['Section', 'Metric', 'Value'],
         [
-          ['Summary', 'Total allocated (RM)', totalAllocated],
-          ['Summary', 'Total spent (RM)', totalSpent],
+          ['Basis', `Reporting status`, isPreliminary ? `Preliminary snapshot as at ${dateLabel}` : `Reconciled — ${FY_PERIOD_LABEL}`],
+          ['Basis', 'Reconciled Xero actuals through', latestActualsThrough || 'n/a'],
+          ['Basis', 'Budgets pending reconciliation (count)', unreconciledBudgets.length],
+          ['Basis', 'Approved expenses not yet posted in Xero (count)', unpostedExpenses.length],
+          ['Summary', 'Total allocated (AUD)', totalAllocated],
+          ['Summary', 'Xero actuals — reconciled only (AUD)', totalSpent],
+          ['Summary', 'Open commitments (AUD)', totalCommitted],
+          ['Summary', 'Actual + commitments (AUD)', totalSpent + totalCommitted],
+          ['Summary', 'Forecast final cost (AUD)', totalForecastFinal],
           ['Summary', 'Burn vs total budget (%)', burnPct.toFixed(1)],
-          ['Summary', 'Budget to date (RM)', Math.round(budgetToDate)],
-          ['Summary', 'Spent to date (RM)', totalSpent],
-          ['Summary', 'Variance to date (RM)', Math.round(varianceToDate)],
+          ['Summary', `Budget to date (${Math.round(fyPct * 100)}% of ${FY_PERIOD_LABEL} elapsed) (AUD)`, Math.round(budgetToDate)],
+          ['Summary', 'Actual vs budget-to-date variance (AUD)', Math.round(varianceToDate)],
           ['Approvals', 'Pending approvals (count)', pendingApprovals.length],
-          ['Approvals', 'Pending approvals (RM)', pendingApprovalValue],
+          ['Approvals', 'Pending approvals (AUD)', pendingApprovalValue],
           ['Approvals', 'Urgent approvals (count)', urgentApprovals.length],
-          ['CAPEX', 'Approved (RM)', capexApproved],
-          ['CAPEX', 'Committed (RM)', capexCommitted],
-          ['CAPEX', 'Spent (RM)', capexSpent],
+          ['CAPEX', 'Approved (AUD)', capexApproved],
+          ['CAPEX', 'Committed / total exposure (AUD)', capexCommitted],
+          ['CAPEX', 'Paid actuals (AUD)', capexSpent],
           ...(cf ? [
             ['Cash Flow', `Active scenario`, activeScenario.n || 'Base case'],
-            ['Cash Flow', 'Closing cash FY26 (RM M)', cf.closingCash],
+            [`Cash Flow`, `Closing cash ${FY_PERIOD_LABEL} (AUD M)`, cf.closingCash],
             ['Cash Flow', 'Runway (months)', cf.runwayMonths || 'n/a'],
-            ['Cash Flow', 'Monthly burn (RM M)', cf.monthlyBurn],
+            ['Cash Flow', 'Monthly burn (AUD M)', cf.monthlyBurn],
+            ['Cash Flow', 'Minimum projected cash balance (AUD M)', cf.minCash],
+            ['Cash Flow', 'Next 13-week forecast inflow (AUD M)', next13WeekInflow.toFixed(1)],
+            ['Cash Flow', 'Next 13-week forecast outflow (AUD M)', next13WeekOutflow.toFixed(1)],
+            ['Cash Flow', 'Solvency status', solvent ? (withinRunwayThreshold ? 'Solvent — within threshold' : 'Solvent — below comfort threshold') : 'At risk — projected negative balance'],
           ] : []),
-          ...deptRows.map((d) => [`Department — ${d.dept}`, 'Allocated / Spent (RM)', `${d.allocated} / ${d.spent}`]),
+          ...deptRows.map((d) => [`Department — ${d.dept}`, 'Allocated / Actual (reconciled) / Committed / Forecast final (AUD)', `${d.allocated} / ${d.spent} / ${d.committed} / ${d.forecastFinal}`]),
         ]
       );
     };
@@ -167,13 +219,19 @@
         startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
         head: [['Metric', 'Value']],
         body: [
-          ['Total FY2026 budget allocated', fmtMYR(totalAllocated, { compact: true })],
-          ['Total spent to date', fmtMYR(totalSpent, { compact: true })],
+          [`Total ${FY_PERIOD_LABEL} budget allocated`, fmtMYR(totalAllocated, { compact: true })],
+          ['Xero actuals — reconciled only', fmtMYR(totalSpent, { compact: true })],
+          ['Open commitments (approved, not yet posted)', fmtMYR(totalCommitted, { compact: true })],
+          ['Actual + commitments', fmtMYR(totalSpent + totalCommitted, { compact: true })],
+          ['Forecast final cost (full year)', fmtMYR(totalForecastFinal, { compact: true })],
           ['Burn vs total annual budget', `${burnPct.toFixed(1)}%`],
-          [`Budget to date (${Math.round(fyPct * 100)}% of FY elapsed)`, fmtMYR(budgetToDate, { compact: true })],
-          ['Spent to date vs budget to date', `${varianceToDate >= 0 ? '+' : '−'}${fmtMYR(Math.abs(varianceToDate), { compact: true })} ${varianceToDate >= 0 ? 'over' : 'under'}`],
+          [`Budget to date (${Math.round(fyPct * 100)}% of ${FY_PERIOD_LABEL} elapsed)`, fmtMYR(budgetToDate, { compact: true })],
+          ['Actual vs budget-to-date variance', `${varianceToDate >= 0 ? '+' : '−'}${fmtMYR(Math.abs(varianceToDate), { compact: true })} ${varianceToDate >= 0 ? 'over' : 'under'}`],
           ['Budgets currently over plan', `${overBudget.length} of ${budgets.length}`],
+          ['Budgets pending reconciliation to Xero', `${unreconciledBudgets.length} of ${budgets.length}`],
+          ['Approved expenses not yet posted in Xero', `${unpostedExpenses.length}`],
           ['Pending approvals', `${pendingApprovals.length} (${fmtMYR(pendingApprovalValue, { compact: true })}), ${urgentApprovals.length} urgent`],
+          ['Reporting status', isPreliminary ? `Preliminary snapshot as at ${dateLabel}` : 'Reconciled'],
         ],
         styles: { fontSize: 9.5 }, headStyles: { fillColor: [19, 67, 203] },
       });
@@ -183,12 +241,13 @@
       doc.text('2. Department budget performance', 40, y); y += 8;
       doc.autoTable({
         startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
-        head: [['Department', 'Allocated', 'Spent', 'Variance']],
+        head: [['Department', 'Allocated', 'Actual (reconciled)', 'Committed', 'Forecast variance', 'Action']],
         body: deptRows.map((d) => [
-          d.dept, fmtMYR(d.allocated, { compact: true }), fmtMYR(d.spent, { compact: true }),
-          `${d.variance >= 0 ? '+' : '−'}${fmtMYR(Math.abs(d.variance), { compact: true })}`,
+          d.dept, fmtMYR(d.allocated, { compact: true }), fmtMYR(d.spent, { compact: true }), fmtMYR(d.committed, { compact: true }),
+          `${d.forecastVariance >= 0 ? '+' : '−'}${fmtMYR(Math.abs(d.forecastVariance), { compact: true })}`,
+          d.action,
         ]),
-        styles: { fontSize: 9.5 }, headStyles: { fillColor: [19, 67, 203] },
+        styles: { fontSize: 8.5 }, headStyles: { fillColor: [19, 67, 203] },
       });
       y = doc.lastAutoTable.finalY + 24;
 
@@ -197,8 +256,8 @@
       doc.text('3. CAPEX programme', 40, y); y += 8;
       doc.autoTable({
         startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
-        head: [['Project', 'Approved', 'Committed', 'Spent', 'Stage']],
-        body: capexProjects.map((c) => [c.name, fmtMYR(c.approved, { compact: true }), fmtMYR(c.committed, { compact: true }), fmtMYR(c.spent, { compact: true }), c.stage]),
+        head: [['Project', 'Approved', 'Committed (total exposure)', 'Paid actuals', 'Stage']],
+        body: capexProjects.map((c) => [c.name, fmtMYR(c.approved, { compact: true }), fmtMYR(c.committed, { compact: true }), fmtMYR(c.paidActuals != null ? c.paidActuals : c.spent, { compact: true }), c.stage]),
         styles: { fontSize: 8.5 }, headStyles: { fillColor: [19, 67, 203] },
       });
       y = doc.lastAutoTable.finalY + 24;
@@ -208,8 +267,10 @@
       doc.text('4. Cash flow position', 40, y); y += 8;
       doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
       if (cf) {
-        doc.text(`Active scenario: ${activeScenario.n || 'Base case'} — ${activeScenario.note || 'Current approved FY26 plan.'}`, 40, y); y += 14;
-        doc.text(`Closing cash (FY2026): ${curLabel(cf.closingCash)} · Runway: ${cf.runwayMonths ? cf.runwayMonths + ' months' : 'n/a'} · Monthly burn: ${curLabel(cf.monthlyBurn)}`, 40, y); y += 20;
+        doc.text(`Active scenario: ${activeScenario.n || 'Base case'} — ${activeScenario.note || `Current approved ${FY_PERIOD_LABEL} plan.`}`, 40, y); y += 14;
+        doc.text(`Closing cash (${FY_PERIOD_LABEL}): ${curLabel(cf.closingCash)} · Runway: ${cf.runwayMonths ? cf.runwayMonths + ' months' : 'n/a'} · Monthly burn: ${curLabel(cf.monthlyBurn)}`, 40, y); y += 14;
+        doc.text(`Minimum projected cash balance: ${curLabel(cf.minCash)} · Next 13-week inflow: ${curLabel(next13WeekInflow)} · outflow: ${curLabel(next13WeekOutflow)}`, 40, y); y += 14;
+        doc.text(`Solvency status: ${solvent ? (withinRunwayThreshold ? 'Solvent — within comfort threshold' : 'Solvent — below comfort threshold, monitor closely') : 'At risk — projected balance may go negative'}`, 40, y); y += 20;
       }
 
       if (y > 640) { doc.addPage(); y = 50; }
@@ -222,16 +283,22 @@
         styles: { fontSize: 8.5 }, headStyles: { fillColor: [19, 67, 203] },
       });
 
+      if (y > 640) { doc.addPage(); y = 50; }
+      doc.setFontSize(13); doc.setFont(undefined, 'bold');
+      doc.text('6. Data limitations', 40, y); y += 8;
+      doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
+      doc.text(`This report is ${isPreliminary ? 'a PRELIMINARY SNAPSHOT — ' : ''}based on Xero actuals reconciled through ${latestActualsThrough || 'n/a'}. ${unreconciledBudgets.length} of ${budgets.length} budget lines are pending reconciliation, and ${unpostedExpenses.length} approved expense(s) are not yet posted in Xero. Figures beyond the reconciled-through date are forecasts, not actuals.`, 40, y, { maxWidth: pageW - 80 });
+
       doc.save(`Coplanistra-Directors-Report-${monthLabel.replace(/\s+/g, '-')}.pdf`);
       window.Store.toast('Director\'s report exported as PDF', 'success');
     };
 
     return (
       <div>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
           <div>
             <div className="arsela-h1" style={{ fontSize: 20, letterSpacing: -0.3 }}>Monthly Director's Report — {monthLabel}</div>
-            <div style={{ fontSize: 13, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Auto-compiled from live budget, approvals, CAPEX and cash flow data · prepared {dateLabel}</div>
+            <div style={{ fontSize: 13, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Auto-compiled from live budget, approvals, CAPEX and cash flow data · prepared {dateLabel} · {FY_PERIOD_LABEL}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={exportCSV}>Export CSV</ArsButton>
@@ -239,24 +306,62 @@
           </div>
         </div>
 
+        <div onClick={() => window.Router.go('/reconciliations')} title="Click to open the Reconciliations module" style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 10, cursor: 'pointer', marginBottom: 20,
+          background: isPreliminary ? 'var(--arsela-warning-50)' : 'var(--arsela-success-50)',
+          border: '1px solid ' + (isPreliminary ? 'var(--arsela-warning)' : 'var(--arsela-success)'),
+        }}>
+          <ArsBadge tone={isPreliminary ? 'warning' : 'success'} dot size="sm">{isPreliminary ? 'Preliminary' : 'Reconciled'}</ArsBadge>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>
+              {isPreliminary ? `Preliminary snapshot as at ${dateLabel} — not a closed-period report` : `Reconciled report for ${FY_PERIOD_LABEL}`}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>
+              Xero actuals reconciled through {latestActualsThrough || 'n/a'} · {unreconciledBudgets.length} of {budgets.length} budget line(s) pending reconciliation · {unpostedExpenses.length} approved expense(s) not yet posted in Xero.
+            </div>
+          </div>
+        </div>
+
         <ArsCard style={{ marginBottom: 20 }}>
-          <ArsSectionHeader title="Executive summary"/>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+          <ArsSectionHeader title="Executive summary" subtitle={`All figures below are labelled by basis — Actual = reconciled Xero data only`}/>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
             <div>
-              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Burn vs total budget</div>
-              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: burnPct > 100 ? 'var(--danger)' : 'var(--arsela-navy)', marginTop: 6 }}>{burnPct.toFixed(1)}%</div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Xero actuals (reconciled)</div>
+              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(totalSpent, { compact: true })}</div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{burnPct.toFixed(1)}% of total plan</div>
             </div>
             <div>
-              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Spent vs budget to date</div>
-              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: varianceToDate > 0 ? 'var(--danger)' : 'var(--success)', marginTop: 6 }}>{varianceToDate >= 0 ? '+' : '−'}{fmtMYR(Math.abs(varianceToDate), { compact: true })}</div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Open commitments</div>
+              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(totalCommitted, { compact: true })}</div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Approved, not yet posted</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Actual + commitments</div>
+              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(totalSpent + totalCommitted, { compact: true })}</div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>vs {fmtMYR(totalAllocated, { compact: true })} allocated</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Forecast final cost</div>
+              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: totalForecastFinal > totalAllocated ? 'var(--danger)' : 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(totalForecastFinal, { compact: true })}</div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Full-year projection</div>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, paddingTop: 14, borderTop: '1px solid var(--arsela-border)' }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Actual vs budget-to-date</div>
+              <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: varianceToDate > 0 ? 'var(--danger)' : 'var(--success)', marginTop: 6 }}>{varianceToDate >= 0 ? '+' : '−'}{fmtMYR(Math.abs(varianceToDate), { compact: true })}</div>
             </div>
             <div>
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Pending approvals</div>
-              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{pendingApprovals.length}<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--arsela-text-muted)' }}> ({fmtMYR(pendingApprovalValue, { compact: true })})</span></div>
+              <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{pendingApprovals.length}<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--arsela-text-muted)' }}> ({fmtMYR(pendingApprovalValue, { compact: true })})</span></div>
             </div>
             <div>
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Cash flow scenario</div>
-              <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{activeScenario.n || 'Base case'}</div>
+              <div className="arsela-num" style={{ fontSize: 16, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{activeScenario.n || 'Base case'}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Reconciliation status</div>
+              <div className="arsela-num" style={{ fontSize: 16, fontWeight: 700, color: unreconciledBudgets.length === 0 ? 'var(--success)' : 'var(--warning)', marginTop: 6 }}>{unreconciledBudgets.length === 0 ? 'All reconciled' : `${unreconciledBudgets.length} pending`}</div>
             </div>
           </div>
         </ArsCard>
@@ -271,18 +376,23 @@
                 <thead>
                   <tr style={{ textAlign: 'left', color: 'var(--arsela-text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>
                     <th style={{ padding: '8px 20px' }}>Department</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>Allocated</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>Spent</th>
-                    <th style={{ padding: '8px 20px', textAlign: 'right' }}>Variance</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>Actual (recon.)</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>+ Committed</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>Fcst variance</th>
+                    <th style={{ padding: '8px 20px' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {deptRows.map((d) => (
                     <tr key={d.dept} onClick={() => window.Router.go('/budgets')} style={{ cursor: 'pointer', borderTop: '1px solid var(--arsela-border)' }}>
-                      <td style={{ padding: '10px 20px', fontWeight: 600, color: 'var(--arsela-navy)' }}>{d.dept}</td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right' }} className="arsela-num">{fmtMYR(d.allocated, { compact: true })}</td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right' }} className="arsela-num">{fmtMYR(d.spent, { compact: true })}</td>
-                      <td style={{ padding: '10px 20px', textAlign: 'right', fontWeight: 700, color: d.variance > 0 ? 'var(--danger)' : 'var(--success)' }} className="arsela-num">{d.variance >= 0 ? '+' : '−'}{fmtMYR(Math.abs(d.variance), { compact: true })}</td>
+                      <td style={{ padding: '10px 20px', fontWeight: 600, color: 'var(--arsela-navy)' }}>
+                        {d.dept}
+                        {d.isTimingGap && <div style={{ fontSize: 10.5, color: 'var(--warning)', fontWeight: 600 }}>Timing gap, not underspend</div>}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right' }} className="arsela-num">{fmtMYR(d.spent, { compact: true })}<div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', fontWeight: 500 }}>of {fmtMYR(d.budgetToDateDept, { compact: true })} to date</div></td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right' }} className="arsela-num">{fmtMYR(d.actualPlusCommitted, { compact: true })}</td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: d.forecastVariance > 0 ? 'var(--danger)' : 'var(--success)' }} className="arsela-num">{d.forecastVariance >= 0 ? '+' : '−'}{fmtMYR(Math.abs(d.forecastVariance), { compact: true })}</td>
+                      <td style={{ padding: '10px 20px', fontSize: 11.5, color: 'var(--arsela-text-muted)' }}>{d.action}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -291,7 +401,7 @@
           </ArsCard>
 
           <ArsCard onClick={() => window.Router.go('/cashflow')} style={{ cursor: 'pointer' }} title="Click to open Cash Flow Planning">
-            <ArsSectionHeader title="Cash flow position" subtitle={`FY2026 · ${activeScenario.n || 'Base case'}`}/>
+            <ArsSectionHeader title="Cash flow position" subtitle={`${FY_PERIOD_LABEL} · ${activeScenario.n || 'Base case'}`}/>
             {cf ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div>
@@ -308,11 +418,50 @@
                     <div className="arsela-num" style={{ fontSize: 16, fontWeight: 700, color: 'var(--arsela-navy)' }}>{curLabel(cf.monthlyBurn)}</div>
                   </div>
                 </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, paddingTop: 10, borderTop: '1px solid var(--arsela-border)' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>Min. projected balance</div>
+                    <div className="arsela-num" style={{ fontSize: 14, fontWeight: 700, color: cf.minCash < 60 ? 'var(--danger)' : 'var(--arsela-navy)' }}>{curLabel(cf.minCash)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>Solvency status</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: !solvent ? 'var(--danger)' : !withinRunwayThreshold ? 'var(--warning)' : 'var(--success)' }}>{!solvent ? 'At risk' : !withinRunwayThreshold ? 'Below threshold' : 'Solvent'}</div>
+                  </div>
+                </div>
                 {activeScenario.n && (
                   <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', lineHeight: 1.45, paddingTop: 10, borderTop: '1px solid var(--arsela-border)' }}>{activeScenario.note}</div>
                 )}
               </div>
             ) : <ArsEmpty icon={<IconChart size={20}/>} title="Cash flow module loading…" body=""/>}
+          </ArsCard>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 20 }}>
+          <ArsCard onClick={() => window.Router.go('/cashflow')} style={{ cursor: 'pointer' }} title="Next 13 weeks, from the Cash Flow module's forecast series">
+            <ArsSectionHeader title="Next 13-week cash view" subtitle="Payments/receivables due, from current forecast"/>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>Forecast inflow</div>
+                <div className="arsela-num" style={{ fontSize: 16, fontWeight: 700, color: 'var(--success)' }}>{curLabel(next13WeekInflow)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>Forecast outflow</div>
+                <div className="arsela-num" style={{ fontSize: 16, fontWeight: 700, color: 'var(--danger)' }}>{curLabel(next13WeekOutflow)}</div>
+              </div>
+            </div>
+          </ArsCard>
+          <ArsCard>
+            <ArsSectionHeader title="Solvency & funding" subtitle="Basis: minimum projected cash balance across the forecast"/>
+            <div style={{ fontSize: 13, fontWeight: 700, color: !solvent ? 'var(--danger)' : !withinRunwayThreshold ? 'var(--warning)' : 'var(--success)' }}>
+              {!solvent ? 'At risk — projected balance may go negative' : !withinRunwayThreshold ? 'Solvent, below comfort threshold' : 'Solvent — within comfort threshold'}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 6 }}>Lowest forecast balance {cf ? curLabel(cf.minCash) : '—'}{cf && CF_MONTHS && cf.minCashMonthIdx != null ? ` in ${CF_MONTHS[cf.minCashMonthIdx]}` : ''}.</div>
+          </ArsCard>
+          <ArsCard>
+            <ArsSectionHeader title="Data limitations" subtitle="What this report does not yet cover"/>
+            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', lineHeight: 1.5 }}>
+              {unreconciledBudgets.length} budget line(s) pending reconciliation to Xero. {unpostedExpenses.length} approved expense(s) not yet posted in Xero. Figures beyond {latestActualsThrough || 'the reconciled-through date'} are forecasts, not actuals.
+            </div>
           </ArsCard>
         </div>
 
@@ -353,13 +502,13 @@
   };
 
   const REPORT_TABS = ['Director\'s report','Variance analysis','Forecast','Cash-flow','Vendor spend','Custom'];
-  const PERIODS = ['Jan – Jul 2026', 'Apr – Jun 2026', 'FY2025 (full year)', 'FY2026 (fcst)'];
+  const PERIODS = ['Q1 to date (Jul–' + (window.Store && window.Store.today ? window.Store.today().toLocaleDateString('en-AU', { month: 'short', year: 'numeric' }) : 'Sep 2026') + ')', 'Prior quarter', 'FY2026 (full year)', 'FY2027 (fcst)'];
 
   const ReportsScreen = () => {
     const [s, setS] = React.useState(window.Store.getState());
     React.useEffect(() => window.Store.subscribe(setS), []);
     const [activeTab, setActiveTab] = React.useState('Director\'s report');
-    const [period, setPeriod] = React.useState('Jan – Jul 2026');
+    const [period, setPeriod] = React.useState(PERIODS[0]);
     const [showPeriodMenu, setShowPeriodMenu] = React.useState(false);
     const periodRef = React.useRef(null);
 

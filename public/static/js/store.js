@@ -5,7 +5,67 @@
    ============================================================ */
 
 (function () {
-  const LS_KEY = 'coplanistra_state_v1';
+  // Bumped to v2: this version introduces the reconciliation-aware
+  // financial data model (basis-labeled Budgets/Expenses/CAPEX fields,
+  // FY2027-based periods, AUD default currency). Any state persisted
+  // under the old v1 schema is deliberately NOT migrated in place —
+  // it's discarded so every session starts from the corrected seed
+  // data rather than mixing old and new field shapes.
+  const LS_KEY = 'coplanistra_state_v2';
+
+  /* ----------------------------------------------------------
+     Fiscal year configuration — Arsela Resources' financial year
+     starts 1 July (not 1 January). So 1 Jul 2026 begins FY2027,
+     and the app's "today" reference date of 22 Jul 2026 falls in
+     FY2027 Q1 (22 days into the year), NOT "Q3 FY2026" as earlier
+     hardcoded labels assumed. All FY/quarter/period labels across
+     the app must be derived from these helpers — never hardcoded —
+     so a future change to the reference date or FY start month
+     only needs to change it here.
+     ---------------------------------------------------------- */
+  const FY_START_MONTH = 6; // 0-indexed: June -> FY starts 1 July
+  const APP_TODAY = new Date(2026, 6, 22); // 22 July 2026 — demo "today"
+
+  /** Given any JS Date, return the fiscal year NUMBER it falls in.
+   *  Arsela convention: FYnnnn covers 1 Jul (nnnn-1) -> 30 Jun nnnn.
+   *  So 1 Jul 2026 -> FY2027; 30 Jun 2026 -> FY2026. */
+  function fyYearOf(date) {
+    const y = date.getFullYear();
+    const m = date.getMonth(); // 0-11
+    return m >= FY_START_MONTH ? y + 1 : y;
+  }
+  /** Fiscal quarter (1-4) for a given date, Q1 = Jul-Sep, Q2 = Oct-Dec,
+   *  Q3 = Jan-Mar, Q4 = Apr-Jun. */
+  function fyQuarterOf(date) {
+    const m = date.getMonth(); // 0-11
+    const shifted = (m - FY_START_MONTH + 12) % 12; // 0 = Jul
+    return Math.floor(shifted / 3) + 1;
+  }
+  /** First calendar date of the fiscal year containing `date`. */
+  function fyStartDate(date) {
+    const fy = fyYearOf(date);
+    return new Date(fy - 1, FY_START_MONTH, 1);
+  }
+  /** Last calendar date of the fiscal year containing `date`. */
+  function fyEndDate(date) {
+    const fy = fyYearOf(date);
+    return new Date(fy, FY_START_MONTH, 0); // day 0 of next FY's start month = last day of prior month
+  }
+  /** Fraction (0-1) of the current fiscal year elapsed as of `date`. */
+  function fyProgressPctOf(date) {
+    const start = fyStartDate(date);
+    const end = fyEndDate(date);
+    const elapsed = (date - start) / (end - start);
+    return Math.min(1, Math.max(0, elapsed));
+  }
+  /** Human label, e.g. "Q1 FY2027". */
+  function fyQuarterLabel(date) {
+    return `Q${fyQuarterOf(date)} FY${fyYearOf(date)}`;
+  }
+  /** Human label, e.g. "FY2027". */
+  function fyLabel(date) {
+    return `FY${fyYearOf(date)}`;
+  }
 
   function loadPersisted() {
     try {
@@ -36,17 +96,27 @@
     { email: 'sham@arselaresources.com', name: 'Shamsir', title: 'Manager', dept: 'Strategy', status: 'Active', permissionRole: 'finance', avatar: 'teal', password: DEFAULT_PASSWORD },
   ];
 
+  /* Budget records — IMPORTANT reconciliation semantics (per Arsela's
+     stated build rule): "spent" holds ONLY reconciled Xero-sourced
+     accounting actuals. `committed` is separate — approved requests /
+     POs not yet posted in Xero. `forecastFinal` is the projected
+     full-year outturn (actual + committed + expected future spend).
+     `reconciled: true` means the actuals-to-date figure has been
+     matched against Xero/bank in the Reconciliations module; `false`
+     means the figure is provisional/unreconciled and screens should
+     flag it as such. `actualsThrough` is the date actuals were last
+     imported/reconciled from Xero. */
   const seedBudgets = [
-    { id: 'BUD-2601', name: 'Port Klang Terminal Ops', owner: 'Faris Hamzah', dept: 'Ports & Logistics', period: 'FY2026', allocated: 42_000_000, spent: 31_640_000, status: 'active', capex: false },
-    { id: 'BUD-2602', name: 'Fleet Maintenance & Renewal', owner: 'Faris Hamzah', dept: 'Ports & Logistics', period: 'FY2026', allocated: 18_500_000, spent: 19_820_000, status: 'over', capex: false },
-    { id: 'BUD-2603', name: 'Digital Core Platform', owner: 'Marcus Lim', dept: 'Digital & Data', period: 'FY2026', allocated: 12_600_000, spent: 11_420_000, status: 'active', capex: false },
-    { id: 'BUD-2604', name: 'Cyberjaya Data Centre Node', owner: 'Marcus Lim', dept: 'Digital & Data', period: 'FY2026', allocated: 28_400_000, spent: 14_620_000, status: 'active', capex: true },
-    { id: 'BUD-2605', name: 'Talent & Culture Programme', owner: 'Priya Nair', dept: 'People & Culture', period: 'FY2026', allocated: 18_900_000, spent: 19_280_000, status: 'amendment', capex: false },
-    { id: 'BUD-2606', name: 'Solar Farm — Northern Phase II', owner: 'Zara Mahmood', dept: 'Energy & Assets', period: 'FY2026', allocated: 88_500_000, spent: 18_400_000, status: 'active', capex: true },
-    { id: 'BUD-2607', name: 'Cold Chain Facility — Central', owner: 'Nurul Ain', dept: 'Property', period: 'FY2026', allocated: 38_600_000, spent: 0, status: 'draft', capex: true },
-    { id: 'BUD-2608', name: 'MRO Line Checks — Fleet', owner: 'Iman Salleh', dept: 'Aviation', period: 'FY2026', allocated: 22_400_000, spent: 23_760_000, status: 'over', capex: false },
-    { id: 'BUD-2609', name: 'CSR & Sustainability Fund', owner: 'Nadia Yeoh', dept: 'Sustainability', period: 'FY2026', allocated: 6_000_000, spent: 6_420_000, status: 'active', capex: false },
-    { id: 'BUD-2610', name: 'Corporate IT & ERP', owner: 'Admin Arsela', dept: 'Corporate', period: 'FY2026', allocated: 28_400_000, spent: 22_140_000, status: 'active', capex: false },
+    { id: 'BUD-2601', name: 'Port Klang Terminal Ops', owner: 'Faris Hamzah', dept: 'Ports & Logistics', period: 'FY2027', allocated: 42_000_000, spent: 31_640_000, committed: 3_800_000, forecastFinal: 41_100_000, status: 'active', capex: false, actualSource: 'Xero — Arsela Resources Sdn Bhd', actualsThrough: '2026-07-18', reconciled: true },
+    { id: 'BUD-2602', name: 'Fleet Maintenance & Renewal', owner: 'Faris Hamzah', dept: 'Ports & Logistics', period: 'FY2027', allocated: 18_500_000, spent: 19_820_000, committed: 620_000, forecastFinal: 20_900_000, status: 'over', capex: false, actualSource: 'Xero — Arsela Resources Sdn Bhd', actualsThrough: '2026-07-18', reconciled: true },
+    { id: 'BUD-2603', name: 'Digital Core Platform', owner: 'Marcus Lim', dept: 'Digital & Data', period: 'FY2027', allocated: 12_600_000, spent: 11_420_000, committed: 540_000, forecastFinal: 12_800_000, status: 'active', capex: false, actualSource: 'Xero — Arsela Resources Sdn Bhd', actualsThrough: '2026-07-18', reconciled: true },
+    { id: 'BUD-2604', name: 'Cyberjaya Data Centre Node', owner: 'Marcus Lim', dept: 'Digital & Data', period: 'FY2027', allocated: 28_400_000, spent: 14_620_000, committed: 9_200_000, forecastFinal: 27_600_000, status: 'active', capex: true, actualSource: 'Xero — Arsela Resources Sdn Bhd', actualsThrough: '2026-07-18', reconciled: true },
+    { id: 'BUD-2605', name: 'Talent & Culture Programme', owner: 'Priya Nair', dept: 'People & Culture', period: 'FY2027', allocated: 18_900_000, spent: 19_280_000, committed: 0, forecastFinal: 19_280_000, status: 'amendment', capex: false, actualSource: 'Xero — Arsela Resources Sdn Bhd', actualsThrough: '2026-07-18', reconciled: true },
+    { id: 'BUD-2606', name: 'Solar Farm — Northern Phase II', owner: 'Zara Mahmood', dept: 'Energy & Assets', period: 'FY2027', allocated: 88_500_000, spent: 18_400_000, committed: 26_400_000, forecastFinal: 86_100_000, status: 'active', capex: true, actualSource: 'Xero — Arsela Resources Sdn Bhd', actualsThrough: '2026-07-18', reconciled: true },
+    { id: 'BUD-2607', name: 'Cold Chain Facility — Central', owner: 'Nurul Ain', dept: 'Property', period: 'FY2027', allocated: 38_600_000, spent: 0, committed: 4_200_000, forecastFinal: 36_800_000, status: 'draft', capex: true, actualSource: 'Xero — Arsela Resources Sdn Bhd', actualsThrough: '2026-07-18', reconciled: true },
+    { id: 'BUD-2608', name: 'MRO Line Checks — Fleet', owner: 'Iman Salleh', dept: 'Aviation', period: 'FY2027', allocated: 22_400_000, spent: 23_760_000, committed: 180_000, forecastFinal: 24_100_000, status: 'over', capex: false, actualSource: 'Xero — Arsela Resources Sdn Bhd', actualsThrough: '2026-07-18', reconciled: true },
+    { id: 'BUD-2609', name: 'CSR & Sustainability Fund', owner: 'Nadia Yeoh', dept: 'Sustainability', period: 'FY2027', allocated: 6_000_000, spent: 6_420_000, committed: 0, forecastFinal: 6_420_000, status: 'active', capex: false, actualSource: 'Xero — Arsela Resources Sdn Bhd', actualsThrough: '2026-07-18', reconciled: true },
+    { id: 'BUD-2610', name: 'Corporate IT & ERP', owner: 'Admin Arsela', dept: 'Corporate', period: 'FY2027', allocated: 28_400_000, spent: 22_140_000, committed: 1_900_000, forecastFinal: 27_800_000, status: 'active', capex: false, actualSource: 'Xero — Arsela Resources Sdn Bhd', actualsThrough: '2026-07-18', reconciled: true },
   ];
 
   const seedApprovals = [
@@ -56,27 +126,73 @@
     { id: 'AP-9004', type: 'Expense', urgent: false, title: 'ERP migration — vendor invoice #4', requester: 'Marcus Lim', amount: 214_500, when: '2 hr ago', dept: 'Digital & Data', justification: 'Milestone 4 of 6 for ERP modernisation programme, per signed SOW.', status: 'pending' },
     { id: 'AP-9005', type: 'Expense', urgent: false, title: 'MRO line-check overrun', requester: 'Iman Salleh', amount: 61_200, when: '4 hr ago', dept: 'Aviation', justification: 'Unplanned line-check volume exceeded plan by 6% this month.', status: 'pending' },
     { id: 'AP-9006', type: 'Budget amendment', urgent: false, title: 'Cold Chain — early mobilisation', requester: 'Nurul Ain', amount: 4_200_000, when: 'Yesterday', dept: 'Property', justification: 'Bring forward site mobilisation to lock in contractor rates before Q4.', status: 'pending' },
-    { id: 'AP-9007', type: 'Expense', urgent: false, title: 'CSR — community solar donation', requester: 'Nadia Yeoh', amount: 420_000, when: 'Yesterday', dept: 'Sustainability', justification: 'Matches FY26 CSR commitment approved at board level in Q1.', status: 'pending' },
+    { id: 'AP-9007', type: 'Expense', urgent: false, title: 'CSR — community solar donation', requester: 'Nadia Yeoh', amount: 420_000, when: 'Yesterday', dept: 'Sustainability', justification: 'Matches FY2027 CSR commitment approved at board level in Q1.', status: 'pending' },
   ];
 
+  /* Expense records — `status` is kept for backward-compat (mirrors
+     `approvalStatus`) but the app now tracks four INDEPENDENT
+     lifecycle fields, per the build rule that approval, Xero posting,
+     payment and bank reconciliation are separate facts about the same
+     expense:
+       approvalStatus: 'pending' | 'approved' | 'rejected'
+       xeroStatus:     'not_posted' | 'posted' | 'posting_exception'
+       paymentStatus:  'unpaid' | 'paid'
+       reconciliation: 'unreconciled' | 'reconciled'
+     Only expenses with xeroStatus 'posted' AND reconciliation
+     'reconciled' should ever be counted as a reconciled actual. */
   const seedExpenses = [
-    { id: 'EXP-2214', desc: 'Fleet servicing — Port Klang yard', amount: 8_420, dept: 'Ports & Logistics', vendor: 'Sime Darby Motors', category: 'Maintenance', status: 'pending', when: '3 min ago' },
-    { id: 'EXP-2213', desc: 'Cloud hosting — Q3', amount: 42_180, dept: 'Digital & Data', vendor: 'AWS Malaysia', category: 'IT & Software', status: 'approved', when: 'Yesterday' },
-    { id: 'EXP-2212', desc: 'Recruitment agency fees', amount: 18_600, dept: 'People & Culture', vendor: 'Michael Page', category: 'HR', status: 'approved', when: '2 days ago' },
-    { id: 'EXP-2211', desc: 'Solar panel spares', amount: 96_400, dept: 'Energy & Assets', vendor: 'Trina Solar', category: 'Machinery', status: 'approved', when: '3 days ago' },
-    { id: 'EXP-2210', desc: 'Line-check parts — inventory', amount: 61_200, dept: 'Aviation', vendor: 'SATS MRO', category: 'Maintenance', status: 'pending', when: '4 hr ago' },
-    { id: 'EXP-2189', desc: 'Site survey — Cold Chain', amount: 12_400, dept: 'Property', vendor: 'Jurutera Perunding', category: 'Professional Fees', status: 'rejected', when: 'Last week' },
-    { id: 'EXP-2188', desc: 'ERP migration invoice #4', amount: 214_500, dept: 'Digital & Data', vendor: 'Accenture', category: 'IT & Software', status: 'pending', when: '2 hr ago' },
+    { id: 'EXP-2214', desc: 'Fleet servicing — Port Klang yard', amount: 8_420, dept: 'Ports & Logistics', vendor: 'Sime Darby Motors', category: 'Maintenance', status: 'pending', when: '3 min ago',
+      approvalStatus: 'pending', xeroStatus: 'not_posted', paymentStatus: 'unpaid', reconciliation: 'unreconciled',
+      entity: 'Arsela Resources Sdn Bhd', xeroTxnId: null, invoiceNo: 'INV-SD-4471', gst: 'Standard-rated 6%', paymentAccount: null, paidDate: null, xeroImportDate: null },
+    { id: 'EXP-2213', desc: 'Cloud hosting — Q3', amount: 42_180, dept: 'Digital & Data', vendor: 'AWS Malaysia', category: 'IT & Software', status: 'approved', when: 'Yesterday',
+      approvalStatus: 'approved', xeroStatus: 'posted', paymentStatus: 'paid', reconciliation: 'reconciled',
+      entity: 'Arsela Resources Sdn Bhd', xeroTxnId: 'XERO-BILL-88231', invoiceNo: 'AWS-2607-3391', gst: 'Zero-rated (import services)', paymentAccount: 'Westpac #2077', paidDate: '2026-07-15', xeroImportDate: '2026-07-16' },
+    { id: 'EXP-2212', desc: 'Recruitment agency fees', amount: 18_600, dept: 'People & Culture', vendor: 'Michael Page', category: 'HR', status: 'approved', when: '2 days ago',
+      approvalStatus: 'approved', xeroStatus: 'posted', paymentStatus: 'paid', reconciliation: 'reconciled',
+      entity: 'Arsela Resources Sdn Bhd', xeroTxnId: 'XERO-BILL-88190', invoiceNo: 'MP-77120', gst: 'Standard-rated 6%', paymentAccount: 'Westpac #2077', paidDate: '2026-07-13', xeroImportDate: '2026-07-14' },
+    { id: 'EXP-2211', desc: 'Solar panel spares', amount: 96_400, dept: 'Energy & Assets', vendor: 'Trina Solar', category: 'Machinery', status: 'approved', when: '3 days ago',
+      approvalStatus: 'approved', xeroStatus: 'posted', paymentStatus: 'unpaid', reconciliation: 'unreconciled',
+      entity: 'Arsela Resources Sdn Bhd', xeroTxnId: 'XERO-BILL-88144', invoiceNo: 'TS-99201', gst: 'Standard-rated 6%', paymentAccount: null, paidDate: null, xeroImportDate: '2026-07-12' },
+    { id: 'EXP-2210', desc: 'Line-check parts — inventory', amount: 61_200, dept: 'Aviation', vendor: 'SATS MRO', category: 'Maintenance', status: 'pending', when: '4 hr ago',
+      approvalStatus: 'pending', xeroStatus: 'not_posted', paymentStatus: 'unpaid', reconciliation: 'unreconciled',
+      entity: 'Arsela Resources Sdn Bhd', xeroTxnId: null, invoiceNo: 'SATS-6620', gst: 'Standard-rated 6%', paymentAccount: null, paidDate: null, xeroImportDate: null },
+    { id: 'EXP-2189', desc: 'Site survey — Cold Chain', amount: 12_400, dept: 'Property', vendor: 'Jurutera Perunding', category: 'Professional Fees', status: 'rejected', when: 'Last week',
+      approvalStatus: 'rejected', xeroStatus: 'not_posted', paymentStatus: 'unpaid', reconciliation: 'unreconciled',
+      entity: 'Arsela Resources Sdn Bhd', xeroTxnId: null, invoiceNo: 'JP-3312', gst: 'Standard-rated 6%', paymentAccount: null, paidDate: null, xeroImportDate: null },
+    { id: 'EXP-2188', desc: 'ERP migration invoice #4', amount: 214_500, dept: 'Digital & Data', vendor: 'Accenture', category: 'IT & Software', status: 'pending', when: '2 hr ago',
+      approvalStatus: 'pending', xeroStatus: 'not_posted', paymentStatus: 'unpaid', reconciliation: 'unreconciled',
+      entity: 'Arsela Resources Sdn Bhd', xeroTxnId: null, invoiceNo: 'ACN-2026-004', gst: 'Standard-rated 6%', paymentAccount: null, paidDate: null, xeroImportDate: null },
   ];
 
+  /* CAPEX semantics — clarified per Arsela build rule to avoid the
+     "exposure exceeds approval" confusion: `committed` is the TOTAL
+     contracted/PO value for the project and ALREADY INCLUDES amounts
+     paid out (`spent` is a subset of `committed`, not additional to
+     it). So total exposure against the approved envelope = `committed`
+     (never committed + spent). `openCommitments` = committed - spent
+     is the contracted-but-not-yet-paid balance still to flow through
+     Xero as actuals. `remainingApprovedFunding` = approved - committed
+     is genuine uncommitted headroom left in the sanction. `spent` is
+     ONLY reconciled Xero-sourced cash actually paid (paidActuals is
+     the same figure, named for card labels). `constructionWIP` is the
+     capitalised-but-not-yet-in-service balance sitting in the Xero
+     fixed-asset WIP account (0 once the asset is in service and fully
+     capitalised, matching the depreciation schedule). */
   const seedCapex = [
-    { code: 'CAP-2601', name: 'Port Klang Terminal 3 — Berth Expansion', category: 'Buildings', approved: 145e6, committed: 92.3e6, spent: 61.2e6, stage: 'Executing', owner: 'Faris H.', eta: 'Q4 2027' },
-    { code: 'CAP-2602', name: 'Solar Farm — Northern Phase II', category: 'Machinery', approved: 88.5e6, committed: 44.8e6, spent: 18.4e6, stage: 'Executing', owner: 'Zara M.', eta: 'Q2 2027' },
-    { code: 'CAP-2603', name: 'Data Centre — Cyberjaya Node', category: 'Buildings', approved: 210e6, committed: 168.2e6, spent: 94.7e6, stage: 'Executing', owner: 'Marcus L.', eta: 'Q1 2027' },
-    { code: 'CAP-2604', name: 'Fleet Renewal — Container Handlers', category: 'Machinery', approved: 42e6, committed: 41.2e6, spent: 41.2e6, stage: 'Completing', owner: 'Faris H.', eta: 'Q3 2026' },
-    { code: 'CAP-2605', name: 'ERP Modernisation Programme', category: 'Software', approved: 28.4e6, committed: 22.1e6, spent: 14.6e6, stage: 'Executing', owner: 'Marcus L.', eta: 'Q4 2026' },
-    { code: 'CAP-2606', name: 'LNG Storage — Southern Phase I', category: 'Buildings', approved: 320e6, committed: 48e6, spent: 8.4e6, stage: 'Approved', owner: 'Zara M.', eta: 'Q3 2028' },
-    { code: 'CAP-2607', name: 'Cold Chain Facility — Central', category: 'Buildings', approved: 38.6e6, committed: 4.2e6, spent: 0, stage: 'Approved', owner: 'Nurul A.', eta: 'Q2 2027' },
+    { code: 'CAP-2601', name: 'Port Klang Terminal 3 — Berth Expansion', category: 'Buildings', approved: 145e6, committed: 92.3e6, spent: 61.2e6, stage: 'Executing', owner: 'Faris H.', eta: 'Q4 2027',
+      openCommitments: 31.1e6, paidActuals: 61.2e6, totalExposure: 92.3e6, remainingApprovedFunding: 52.7e6, constructionWIP: 61.2e6, inServiceDate: '2027-10-01', xeroFixedAssetRef: 'FA-WIP-2601', reconciled: true, actualsThrough: '2026-07-18' },
+    { code: 'CAP-2602', name: 'Solar Farm — Northern Phase II', category: 'Machinery', approved: 88.5e6, committed: 44.8e6, spent: 18.4e6, stage: 'Executing', owner: 'Zara M.', eta: 'Q2 2027',
+      openCommitments: 26.4e6, paidActuals: 18.4e6, totalExposure: 44.8e6, remainingApprovedFunding: 43.7e6, constructionWIP: 18.4e6, inServiceDate: '2027-04-01', xeroFixedAssetRef: 'FA-WIP-2602', reconciled: true, actualsThrough: '2026-07-18' },
+    { code: 'CAP-2603', name: 'Data Centre — Cyberjaya Node', category: 'Buildings', approved: 210e6, committed: 168.2e6, spent: 94.7e6, stage: 'Executing', owner: 'Marcus L.', eta: 'Q1 2027',
+      openCommitments: 73.5e6, paidActuals: 94.7e6, totalExposure: 168.2e6, remainingApprovedFunding: 41.8e6, constructionWIP: 94.7e6, inServiceDate: '2027-01-01', xeroFixedAssetRef: 'FA-WIP-2603', reconciled: true, actualsThrough: '2026-07-18' },
+    { code: 'CAP-2604', name: 'Fleet Renewal — Container Handlers', category: 'Machinery', approved: 42e6, committed: 41.2e6, spent: 41.2e6, stage: 'Completing', owner: 'Faris H.', eta: 'Q3 2026',
+      openCommitments: 0, paidActuals: 41.2e6, totalExposure: 41.2e6, remainingApprovedFunding: 0.8e6, constructionWIP: 0, inServiceDate: '2026-09-01', xeroFixedAssetRef: 'FA-2604', reconciled: true, actualsThrough: '2026-07-18' },
+    { code: 'CAP-2605', name: 'ERP Modernisation Programme', category: 'Software', approved: 28.4e6, committed: 22.1e6, spent: 14.6e6, stage: 'Executing', owner: 'Marcus L.', eta: 'Q4 2026',
+      openCommitments: 7.5e6, paidActuals: 14.6e6, totalExposure: 22.1e6, remainingApprovedFunding: 6.3e6, constructionWIP: 14.6e6, inServiceDate: '2026-12-01', xeroFixedAssetRef: 'FA-WIP-2605', reconciled: true, actualsThrough: '2026-07-18' },
+    { code: 'CAP-2606', name: 'LNG Storage — Southern Phase I', category: 'Buildings', approved: 320e6, committed: 48e6, spent: 8.4e6, stage: 'Approved', owner: 'Zara M.', eta: 'Q3 2028',
+      openCommitments: 39.6e6, paidActuals: 8.4e6, totalExposure: 48e6, remainingApprovedFunding: 272e6, constructionWIP: 8.4e6, inServiceDate: '2028-09-01', xeroFixedAssetRef: 'FA-WIP-2606', reconciled: true, actualsThrough: '2026-07-18' },
+    { code: 'CAP-2607', name: 'Cold Chain Facility — Central', category: 'Buildings', approved: 38.6e6, committed: 4.2e6, spent: 0, stage: 'Approved', owner: 'Nurul A.', eta: 'Q2 2027',
+      openCommitments: 4.2e6, paidActuals: 0, totalExposure: 4.2e6, remainingApprovedFunding: 34.4e6, constructionWIP: 0, inServiceDate: '2027-04-01', xeroFixedAssetRef: null, reconciled: true, actualsThrough: '2026-07-18' },
   ];
 
   const seedNotifications = [
@@ -124,9 +240,9 @@
      state; lifted into Store so "New scenario" and switching the
      active scenario actually persist. */
   const seedScenarios = [
-    { id: 'SC-1', n: 'Base case', v: 254_800_000, d: '+2.6% vs plan', c: 'success', active: true },
-    { id: 'SC-2', n: 'Upside — Port expansion', v: 262_400_000, d: '+5.6% vs plan', c: 'blue', active: false },
-    { id: 'SC-3', n: 'Downside — MYR volatility', v: 244_100_000, d: '−1.7% vs plan', c: 'warning', active: false },
+    { id: 'SC-1', n: 'Base case', v: 258_000_000, d: '+1.3% vs plan', c: 'success', active: true },
+    { id: 'SC-2', n: 'Upside — Port expansion', v: 265_600_000, d: '+4.2% vs plan', c: 'blue', active: false },
+    { id: 'SC-3', n: 'Downside — MYR volatility', v: 247_300_000, d: '−2.9% vs plan', c: 'warning', active: false },
   ];
 
   /* Cash Flow scenario planning — "what if budget / expense / revenue
@@ -137,7 +253,7 @@
      Store (not local screen state) so it persists and follows the same
      add/switch/delete pattern as Quarterly's scenario comparison. */
   const seedCashFlowScenarios = [
-    { id: 'CFS-1', n: 'Base case', budgetDeltaPct: 0, expenseDeltaPct: 0, revenueDeltaPct: 0, note: 'Current approved FY26 plan — no changes applied.', active: true },
+    { id: 'CFS-1', n: 'Base case', budgetDeltaPct: 0, expenseDeltaPct: 0, revenueDeltaPct: 0, note: 'Current approved FY2027 plan — no changes applied.', active: true },
     { id: 'CFS-2', n: 'CAPEX deferred — LNG Phase I', budgetDeltaPct: -15, expenseDeltaPct: 0, revenueDeltaPct: 0, note: 'Push LNG Storage sanction back two quarters to preserve near-term cash.', active: false },
     { id: 'CFS-3', n: 'Opex savings drive', budgetDeltaPct: 0, expenseDeltaPct: -8, revenueDeltaPct: 0, note: 'Group-wide 8% discretionary opex reduction from Q4.', active: false },
     { id: 'CFS-4', n: 'Revenue downside — trade slowdown', budgetDeltaPct: 0, expenseDeltaPct: 0, revenueDeltaPct: -10, note: 'Port throughput and MRO volumes soften on regional demand.', active: false },
@@ -172,8 +288,11 @@
     budgetCodes: seedBudgetCodes,
     scenarios: seedScenarios,
     cashFlowScenarios: seedCashFlowScenarios,
-    currency: 'MYR',
-    period: 'Q3 · FY 2026',
+    // Arsela Resources' reporting currency is AUD; MYR remains available
+    // as a display option via the currency switcher (CURRENCY_CONFIG
+    // below) but is no longer the default.
+    currency: 'AUD',
+    period: fyQuarterLabel(APP_TODAY),
     toasts: [],
     copilotMessages: null, // per-screen default seeded lazily
   };
@@ -201,7 +320,11 @@
   if (!state.budgetCodes) state.budgetCodes = seedBudgetCodes;
   if (!state.scenarios) state.scenarios = seedScenarios;
   if (!state.cashFlowScenarios) state.cashFlowScenarios = seedCashFlowScenarios;
-  if (!state.currency) state.currency = 'MYR';
+  if (!state.currency) state.currency = 'AUD';
+  // Force-correct the period label for any state persisted before the
+  // FY-start-month fix (Arsela's FY starts 1 Jul, so 22 Jul 2026 is
+  // Q1 FY2027, not "Q3 · FY 2026").
+  state.period = fyQuarterLabel(APP_TODAY);
 
   const listeners = new Set();
 
@@ -600,6 +723,20 @@
       setState({ period });
       toast(`Period set to ${period}`, 'info');
     },
+
+    // ---- fiscal-year helpers (single source of truth — Arsela's FY
+    // starts 1 July). Every screen should call these instead of
+    // hardcoding FY/quarter labels or calendar-year assumptions. ----
+    today: () => APP_TODAY,
+    fyYearOf,
+    fyQuarterOf,
+    fyStartDate,
+    fyEndDate,
+    fyProgressPctOf,
+    fyQuarterLabel,
+    fyLabel,
+    /** Fraction (0-1) of the CURRENT fiscal year elapsed, as of APP_TODAY. */
+    fyProgressPct: () => fyProgressPctOf(APP_TODAY),
   };
 
   window.Store = Store;

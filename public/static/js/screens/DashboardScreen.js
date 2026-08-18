@@ -1,24 +1,21 @@
 /* Dashboard — role-aware, wired to Store (role switch re-renders live) */
 (function () {
-  /* FY progress — fraction of the fiscal year elapsed as of the app's
-     reference "today" (22 July 2026), used to prorate "budget to date"
-     against the full annual allocation for the Spent-vs-Budget-to-date
-     panel below. */
-  const FY_REFERENCE_DATE = new Date(2026, 6, 22); // 22 July 2026
-  function fyProgressPct() {
-    const start = new Date(FY_REFERENCE_DATE.getFullYear(), 0, 1);
-    const end = new Date(FY_REFERENCE_DATE.getFullYear(), 11, 31);
-    const elapsed = (FY_REFERENCE_DATE - start) / (end - start);
-    return Math.min(1, Math.max(0, elapsed));
-  }
+  /* FY progress — Arsela's fiscal year starts 1 July, so these now
+     delegate to store.js's single source of truth (fyProgressPct /
+     fyLabel / fyQuarterLabel) instead of a locally-hardcoded
+     calendar-year calculation. Re-exported below (unchanged names)
+     so ReportsScreen.js and other consumers keep working. */
+  const FY_REFERENCE_DATE = window.Store.today();
+  function fyProgressPct() { return window.Store.fyProgressPct(); }
 
   /* Spent-to-date vs Budget-to-date panel — reads LIVE budgets from the
      Store (not a hardcoded snapshot), so it stays in sync the moment any
      budget is created/edited/approved elsewhere in the app. "Budget to
-     date" is the annual allocation prorated by how far through FY26 we
-     are; "Spent to date" is the real cumulative spend. Clicking routes
-     to the Reports variance view; the delta figure itself explains
-     whether spend is running ahead of or behind the time-prorated plan. */
+     date" is the annual allocation prorated by how far through the
+     current fiscal year (1 Jul – 30 Jun) we are; "Xero actuals to
+     date" is reconciled cumulative spend only. Clicking routes to the
+     Reports variance view; the delta figure itself explains whether
+     spend is running ahead of or behind the time-prorated plan. */
   const SpentVsBudgetToDate = ({ budgets }) => {
     const totalAllocated = budgets.reduce((a, b) => a + (b.allocated || 0), 0);
     const totalSpent = budgets.reduce((a, b) => a + (b.spent || 0), 0);
@@ -37,7 +34,7 @@
       >
         <ArsSectionHeader
           title="Spent to Date vs Budget to Date"
-          subtitle={`Time-prorated FY26 plan (${Math.round(pct * 100)}% of year elapsed) vs actual cumulative spend`}
+          subtitle={`Time-prorated ${window.Store.fyLabel(FY_REFERENCE_DATE)} plan (${Math.round(pct * 100)}% of year elapsed) vs reconciled Xero actuals`}
         />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, marginTop: 4 }}>
           <div>
@@ -46,9 +43,9 @@
             <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 3 }}>of {fmtMYR(totalAllocated, { compact: true })} annual plan</div>
           </div>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.5, textTransform: 'uppercase' }}>Spent to date</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.5, textTransform: 'uppercase' }}>Xero actuals to date</div>
             <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(totalSpent, { compact: true })}</div>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 3 }}>actual cumulative spend</div>
+            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 3 }}>reconciled cumulative spend (excl. commitments)</div>
           </div>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.5, textTransform: 'uppercase' }}>Variance</div>
@@ -112,17 +109,29 @@
   function PeriodPicker() {
     const { useState: useState2, useRef: useRef2, useEffect: useEffect2 } = React;
     const [open, setOpen] = useState2(false);
-    const [period, setPeriod] = useState2(window.Store.getState().period || 'Q3 · FY 2026');
+    const defaultPeriod = window.Store.fyQuarterLabel(window.Store.today());
+    const [period, setPeriod] = useState2(window.Store.getState().period || defaultPeriod);
     const ref = useRef2(null);
-    useEffect2(() => window.Store.subscribe((s) => setPeriod(s.period || 'Q3 · FY 2026')), []);
+    useEffect2(() => window.Store.subscribe((s) => setPeriod(s.period || defaultPeriod)), []);
     useEffect2(() => {
       if (!open) return;
       const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
       document.addEventListener('mousedown', h);
       return () => document.removeEventListener('mousedown', h);
     }, [open]);
-    const quarters = ['Q1 · FY 2026', 'Q2 · FY 2026', 'Q3 · FY 2026', 'Q4 · FY 2026'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    // Arsela's FY runs 1 Jul → 30 Jun, so Q1 = Jul-Sep, Q2 = Oct-Dec,
+    // Q3 = Jan-Mar, Q4 = Apr-Jun — all within the SAME fiscal year label.
+    const fyNow = window.Store.fyYearOf(window.Store.today());
+    const quarters = [1, 2, 3, 4].map((q) => `Q${q} FY${fyNow}`);
+    // Fiscal-year month order starting July, each tagged with its real
+    // calendar year so "Jan" (which falls in the back half of the FY)
+    // doesn't get mislabeled against the wrong year.
+    const fyMonths = [
+      { m: 'Jul', y: fyNow - 1 }, { m: 'Aug', y: fyNow - 1 }, { m: 'Sep', y: fyNow - 1 },
+      { m: 'Oct', y: fyNow - 1 }, { m: 'Nov', y: fyNow - 1 }, { m: 'Dec', y: fyNow - 1 },
+      { m: 'Jan', y: fyNow }, { m: 'Feb', y: fyNow }, { m: 'Mar', y: fyNow },
+      { m: 'Apr', y: fyNow }, { m: 'May', y: fyNow }, { m: 'Jun', y: fyNow },
+    ];
     const choose = (label, isQuarter) => {
       window.Store.setPeriod(label);
       setOpen(false);
@@ -150,8 +159,8 @@
             </div>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.5, textTransform: 'uppercase', padding: '2px 6px 6px', borderTop: '1px solid var(--arsela-border)' }}>Month</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 4 }}>
-              {months.map((m) => (
-                <button key={m} onClick={() => choose(m + ' 2026', false)} style={{
+              {fyMonths.map(({ m, y }) => (
+                <button key={m} onClick={() => choose(m + ' ' + y, false)} style={{
                   padding: '6px 4px', fontSize: 12, fontWeight: 600, borderRadius: 6,
                   background: period.startsWith(m) ? 'var(--arsela-blue-50)' : 'transparent', color: period.startsWith(m) ? 'var(--arsela-blue)' : 'var(--arsela-navy)',
                   border: 'none', cursor: 'pointer', fontFamily: 'inherit',
@@ -278,7 +287,7 @@
     <ArsCard>
       <ArsSectionHeader
         title="Budget health"
-        subtitle="Utilisation by category · semantic colour is meaning"
+        subtitle="Utilisation by category · colour indicates budget status"
         action={
           <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--arsela-text-muted)' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--success)' }}/>Under (&lt; 80%)</span>
@@ -314,7 +323,7 @@
   );
 
   const roleGreetings = {
-    finance: { hi: 'Good morning, Priya.', sub: "Here's how your organisation is tracking against plan · Q3 reforecast cycle closes 31 July." },
+    finance: { hi: 'Good morning, Priya.', sub: "Here's how your organisation is tracking against plan · Q1 reforecast cycle closes 30 September." },
     approver: { hi: 'Good morning, Marcus.', sub: 'You have items awaiting your review.' },
     employee: { hi: 'Good morning, Aisha.', sub: 'Your expenses and budget usage at a glance.' },
     admin: { hi: 'Good morning, Keith.', sub: 'All integrations healthy · pending user provisioning requests.' },
@@ -328,6 +337,26 @@
     const greet = roleGreetings[role] || roleGreetings.finance;
     const pendingApprovals = window.Store.pendingApprovalsCount();
     const pendingExpenses = s.expenses.filter((e) => e.status === 'pending').length;
+
+    /* Top-line totals for the finance/admin stat-card row — computed
+       LIVE from Store, not hardcoded, and each one is a distinct,
+       clearly-labeled basis so they never silently conflict with one
+       another (per the "standardise financial definitions" build
+       rule): Total annual plan = every budget's allocation regardless
+       of status; Approved active budgets = allocation for budgets
+       actually in force (excludes Draft, which hasn't been approved
+       yet, and Closed/Archived, which are done); Xero actuals =
+       reconciled spend only; Actual + commitments = the fuller
+       exposure picture including approved-but-not-yet-posted amounts. */
+    const totalAnnualPlan = s.budgets.reduce((a, b) => a + (b.allocated || 0), 0);
+    const activeStatuses = ['active', 'over', 'amendment'];
+    const approvedActiveBudgets = s.budgets.filter((b) => activeStatuses.includes(b.status)).reduce((a, b) => a + (b.allocated || 0), 0);
+    const xeroActuals = s.budgets.reduce((a, b) => a + (b.reconciled ? (b.spent || 0) : 0), 0);
+    const totalCommitted = s.budgets.reduce((a, b) => a + (b.committed || 0), 0);
+    const actualPlusCommitments = xeroActuals + totalCommitted;
+    const burnPct = totalAnnualPlan > 0 ? (xeroActuals / totalAnnualPlan) * 100 : 0;
+    const unreconciledCount = s.budgets.filter((b) => !b.reconciled).length;
+    const latestActualsThrough = s.budgets.reduce((latest, b) => (b.actualsThrough && (!latest || b.actualsThrough > latest)) ? b.actualsThrough : latest, null);
 
     const departments = [
       { name: 'Ports & Logistics', owner: 'Faris H.', budget: 62_400_000, spent: 41_200_000, tone: 'blue' },
@@ -390,11 +419,34 @@
                 <ArsRoleBadge role={role}/>
               </div>
               <div style={{ fontSize: 13, color: 'var(--arsela-text-muted)', marginTop: 4 }}>
-                {greet.sub} · <span style={{ color: 'var(--arsela-navy)', fontWeight: 600 }}>22 July 2026</span>
+                {greet.sub} · <span style={{ color: 'var(--arsela-navy)', fontWeight: 600 }}>{FY_REFERENCE_DATE.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
               </div>
             </div>
             <ArsLiveDot label="Live · updated 2 min ago"/>
           </div>
+
+          {role !== 'employee' && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', marginBottom: 20,
+              borderRadius: 10, background: unreconciledCount === 0 ? 'var(--arsela-teal-50)' : 'var(--arsela-warning-50)',
+              border: '1px solid ' + (unreconciledCount === 0 ? 'var(--arsela-teal-200, #BFEFE8)' : 'var(--arsela-warning-200, #F3DBA3)'),
+              cursor: 'pointer',
+            }} onClick={() => window.Router.go('/reconciliations')} title="Click to open the Reconciliations module">
+              <span style={{
+                width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: unreconciledCount === 0 ? '#fff' : '#fff', color: unreconciledCount === 0 ? 'var(--arsela-teal-600)' : '#B4740A',
+              }}><IconInfo size={16}/></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>
+                  Reconciliation status: {unreconciledCount === 0 ? 'All budgets reconciled to Xero' : `${unreconciledCount} budget${unreconciledCount === 1 ? '' : 's'} pending reconciliation`}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>
+                  Actuals imported from {s.budgets[0]?.actualSource || 'Xero'} through {latestActualsThrough || '—'} · figures marked "Live" reflect Xero data as at this date, not real-time.
+                </div>
+              </div>
+              <ArsBadge tone={unreconciledCount === 0 ? 'success' : 'warning'} dot size="sm">{unreconciledCount === 0 ? 'Reconciled' : 'Review needed'}</ArsBadge>
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
             {role === 'employee' ? (
@@ -413,10 +465,10 @@
               </>
             ) : (
               <>
-                <StatCard label="Total Budget · FY26" value={fmtMYR(248_400_000, { compact: true })} delta="▲ +4.1% YoY" deltaTone="blue" sub={`vs ${fmtMYR(238_600_000, { compact: true })} FY25`} icon={<IconWallet size={17}/>} tone="blue" title="Click to view all budgets" onClick={() => window.Router.go('/budgets')}/>
-                <StatCard label="Spent to Date" value={fmtMYR(156_700_000, { compact: true })} delta="63.1% burn" deltaTone="teal" sub="of annual budget" icon={<IconTrend size={17}/>} tone="teal" title="Click to view budgets by spend" onClick={() => window.Router.go('/budgets?status=active')}/>
-                <StatCard label="Committed" value={fmtMYR(41_200_000, { compact: true })} delta="● On track" deltaTone="success" sub="POs & contracts" icon={<IconFile size={17}/>} tone="navy" title="Click to view CAPEX & commitments" onClick={() => window.Router.go('/capex')}/>
-                <StatCard label="Variance vs Plan" value={'+' + fmtMYR(2_800_000, { compact: true })} delta="▲ 1.8% over" deltaTone="warning" sub="drivers: Ops, People" icon={<IconArrowUp size={17}/>} tone="warn" title="Click to view variance report" onClick={() => window.Router.go('/reports')}/>
+                <StatCard label={`Total Annual Plan · ${window.Store.fyLabel(FY_REFERENCE_DATE)}`} value={fmtMYR(totalAnnualPlan, { compact: true })} delta="All budgets, any status" deltaTone="blue" sub={`${fmtMYR(approvedActiveBudgets, { compact: true })} in approved active budgets`} icon={<IconWallet size={17}/>} tone="blue" title="Click to view all budgets" onClick={() => window.Router.go('/budgets')}/>
+                <StatCard label="Xero Actuals (Reconciled)" value={fmtMYR(xeroActuals, { compact: true })} delta={`${burnPct.toFixed(1)}% of plan`} deltaTone="teal" sub={latestActualsThrough ? `through ${latestActualsThrough}` : 'no actuals imported'} icon={<IconTrend size={17}/>} tone="teal" title="Click to view budgets by spend" onClick={() => window.Router.go('/budgets?status=active')}/>
+                <StatCard label="Actual + Commitments" value={fmtMYR(actualPlusCommitments, { compact: true })} delta={`+${fmtMYR(totalCommitted, { compact: true })} committed`} deltaTone="navy" sub="reconciled actuals + open POs" icon={<IconFile size={17}/>} tone="navy" title="Click to view CAPEX & commitments" onClick={() => window.Router.go('/capex')}/>
+                <StatCard label="Budget-to-Date Variance" value={'+' + fmtMYR(2_800_000, { compact: true })} delta="▲ 1.8% over" deltaTone="warning" sub="drivers: Ops, People" icon={<IconArrowUp size={17}/>} tone="warn" title="Click to view variance report" onClick={() => window.Router.go('/reports')}/>
               </>
             )}
           </div>
@@ -457,7 +509,7 @@
               <BudgetChart/>
             </ArsCard>
             <ArsCard>
-              <ArsSectionHeader title="Category Mix" subtitle="Share of planned FY26" action={<IconMore size={16} style={{ color: 'var(--arsela-text-subtle)', cursor: 'pointer' }} onClick={() => window.Store.toast('Category breakdown exported', 'info')}/>}/>
+              <ArsSectionHeader title="Category Mix" subtitle={`Share of planned ${window.Store.fyLabel(FY_REFERENCE_DATE)}`} action={<IconMore size={16} style={{ color: 'var(--arsela-text-subtle)', cursor: 'pointer' }} onClick={() => window.Store.toast('Category breakdown exported', 'info')}/>}/>
               <CategoryDonut/>
             </ArsCard>
           </div>
@@ -467,7 +519,7 @@
               <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--arsela-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)' }}>Departments · Utilisation</div>
-                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Spend to date vs allocated FY26 budget</div>
+                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Spend to date vs allocated {window.Store.fyLabel(FY_REFERENCE_DATE)} budget</div>
                 </div>
                 <a style={{ fontSize: 12, color: 'var(--arsela-blue)', fontWeight: 600, cursor: 'pointer' }} onClick={() => window.Router.go('/budgets')}>View all →</a>
               </div>
