@@ -225,13 +225,25 @@
       };
     }
     // Generic fallback grounded in current data
+    if (s.budgets.length === 0) {
+      return {
+        cite: 'Live budgets · Store snapshot',
+        body: (
+          <React.Fragment>
+            <div>No budgets have been created yet, so there's no portfolio data to report on.</div>
+            <div style={{ marginTop: 8 }}>Once budgets are added, ask me about variance, forecasts, specific budgets, pending approvals, or request a board narrative draft.</div>
+          </React.Fragment>
+        ),
+      };
+    }
     const totalAllocated = s.budgets.reduce((sum,b)=>sum+b.allocated,0);
     const totalSpent = s.budgets.reduce((sum,b)=>sum+b.spent,0);
+    const utilPct = totalAllocated ? ((totalSpent/totalAllocated)*100).toFixed(1) : '0.0';
     return {
       cite: 'Live budgets · Store snapshot',
       body: (
         <React.Fragment>
-          <div>Based on your current portfolio: {fmtMYR(totalSpent, {compact:true})} spent of {fmtMYR(totalAllocated, {compact:true})} allocated across {s.budgets.length} budgets ({((totalSpent/totalAllocated)*100).toFixed(1)}% utilisation).</div>
+          <div>Based on your current portfolio: {fmtMYR(totalSpent, {compact:true})} spent of {fmtMYR(totalAllocated, {compact:true})} allocated across {s.budgets.length} budgets ({utilPct}% utilisation).</div>
           <div style={{ marginTop: 8 }}>Ask me about variance, forecasts, specific budgets, pending approvals, or request a board narrative draft.</div>
         </React.Fragment>
       ),

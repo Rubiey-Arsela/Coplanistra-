@@ -173,19 +173,43 @@
     );
   }
 
-  const BudgetChart = () => {
+  /* Rolling 12-month Budget vs Actual chart — derived from live Store
+     budgets rather than a hardcoded snapshot. With no budgets yet
+     (fresh install), every bar is simply 0 so the chart renders an
+     honest empty grid instead of fabricated figures. The chart shows a
+     flat month-by-month view of total allocated (as budget, in $M) vs
+     total reconciled spend (as actual), since Coplanistra's budget
+     model doesn't yet track a month-by-month plan/actual breakdown —
+     until it does, every month reflects the SAME current totals rather
+     than synthetic per-month variation. */
+  const BudgetChart = ({ budgets }) => {
     const [hover, setHover] = React.useState(null); // { i, kind }
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'];
-    const budget = [32, 34, 36, 38, 38, 40, 42];
-    const actual = [28, 33, 31, 39, 36, 38, 40];
-    const forecast = [42, 42, 44, 45, 46];
+    const totalAllocatedM = budgets.reduce((s, b) => s + (b.allocated || 0), 0) / 1e6;
+    const totalSpentM = budgets.reduce((s, b) => s + (b.reconciled ? (b.spent || 0) : 0), 0) / 1e6;
+    const budget = months.map(() => totalAllocatedM);
+    const actual = months.map(() => totalSpentM);
+    const forecast = [totalSpentM, totalAllocatedM, totalAllocatedM, totalAllocatedM, totalAllocatedM];
     const w = 660, h = 260, pad = { l: 44, r: 20, t: 20, b: 30 };
-    const max = 55;
+    const max = Math.max(10, totalAllocatedM * 1.3);
     const barW = 22;
     const gap = (w - pad.l - pad.r) / months.length;
     const yFor = (v) => pad.t + (h - pad.t - pad.b) * (1 - v / max);
     const xFor = (i) => pad.l + gap * i + gap / 2;
     const goMonth = (m) => window.Router.go('/monthly?month=' + encodeURIComponent(m));
+
+    if (budgets.length === 0) {
+      return (
+        <div style={{ height: h, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <ArsEmpty
+            icon={<IconWallet size={22}/>}
+            title="No budgets yet"
+            body="Add a budget to see planned vs actual spend here."
+            action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>}
+          />
+        </div>
+      );
+    }
 
     return (
       <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block' }}>
@@ -228,20 +252,38 @@
     );
   };
 
-  const CategoryDonut = () => {
+  const DONUT_COLORS = ['#1343CB', '#00A896', '#2657DB', '#5B9EFF', '#B9CBFF', '#F59E0B', '#D64045', '#8492A6'];
+
+  /* Category Mix donut — grouped by department from LIVE budgets
+     (share of total planned allocation), not a hardcoded snapshot.
+     Shows an empty state when there are no budgets to break down. */
+  const CategoryDonut = ({ budgets }) => {
     const [hover, setHover] = React.useState(null);
-    const data = [
-      { label: 'Operations', dept: 'Operations', value: 38, color: '#1343CB' },
-      { label: 'Logistics', dept: 'Ports & Logistics', value: 22, color: '#00A896' },
-      { label: 'Digital', dept: 'Digital & Data', value: 16, color: '#2657DB' },
-      { label: 'People', dept: 'People & Culture', value: 14, color: '#5B9EFF' },
-      { label: 'Other', dept: 'All', value: 10, color: '#B9CBFF' },
-    ];
-    const total = data.reduce((s, d) => s + d.value, 0);
+    const totalAllocated = budgets.reduce((s, b) => s + (b.allocated || 0), 0);
+    const byDept = {};
+    budgets.forEach((b) => { byDept[b.dept] = (byDept[b.dept] || 0) + (b.allocated || 0); });
+    const data = Object.keys(byDept).map((dept, i) => ({
+      label: dept, dept,
+      value: totalAllocated ? Math.round((byDept[dept] / totalAllocated) * 100) : 0,
+      color: DONUT_COLORS[i % DONUT_COLORS.length],
+    })).sort((a, b) => b.value - a.value);
+    const total = data.reduce((s, d) => s + d.value, 0) || 1;
     const cx = 90, cy = 90, r = 70, sw = 22;
     let acc = 0;
     const circ = 2 * Math.PI * r;
     const goDept = (dept) => window.Router.go(dept === 'All' ? '/budgets' : '/budgets?dept=' + encodeURIComponent(dept));
+
+    if (budgets.length === 0) {
+      return (
+        <ArsEmpty
+          icon={<IconWallet size={22}/>}
+          title="No budgets yet"
+          body="Category mix will appear once budgets are added."
+          action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>}
+        />
+      );
+    }
+
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
         <svg width="180" height="180">
@@ -266,7 +308,7 @@
             {hover != null ? data[hover].label : 'Total'}
           </text>
           <text x={cx} y={cy + 16} textAnchor="middle" fontSize="20" fill="#001F3D" fontWeight="700">
-            {hover != null ? `${data[hover].value}%` : curLabel(248)}
+            {hover != null ? `${data[hover].value}%` : fmtMYR(totalAllocated, { compact: true })}
           </text>
         </svg>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -287,7 +329,7 @@
     <ArsCard>
       <ArsSectionHeader
         title="Budget health"
-        subtitle="Utilisation by category · colour indicates budget status"
+        subtitle="Utilisation by OPEX category · colour indicates budget status"
         action={
           <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--arsela-text-muted)' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--success)' }}/>Under (&lt; 80%)</span>
@@ -296,9 +338,17 @@
           </div>
         }
       />
+      {categories.length === 0 ? (
+        <ArsEmpty
+          icon={<IconWallet size={22}/>}
+          title="No OPEX categories yet"
+          body="Add categories with a plan figure in Monthly Monitoring to see budget health here."
+          action={<ArsButton size="sm" onClick={() => window.Router.go('/monthly')}>Go to Monthly Monitoring</ArsButton>}
+        />
+      ) : (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '18px 24px' }}>
         {categories.map((c) => {
-          const pct = Math.round((c.spent / c.budget) * 100);
+          const pct = c.budget ? Math.round((c.spent / c.budget) * 100) : 0;
           const tone = pct > 100 ? 'danger' : pct > 80 ? 'warning' : 'success';
           return (
             <div key={c.name} onClick={() => window.Router.go('/expenses?q=' + encodeURIComponent(c.name))} title={`Click to view ${c.name} expenses`}
@@ -319,6 +369,7 @@
           );
         })}
       </div>
+      )}
     </ArsCard>
   );
 
@@ -358,37 +409,55 @@
     const unreconciledCount = s.budgets.filter((b) => !b.reconciled).length;
     const latestActualsThrough = s.budgets.reduce((latest, b) => (b.actualsThrough && (!latest || b.actualsThrough > latest)) ? b.actualsThrough : latest, null);
 
-    const departments = [
-      { name: 'Ports & Logistics', owner: 'Faris H.', budget: 62_400_000, spent: 41_200_000, tone: 'blue' },
-      { name: 'Operations', owner: 'Aisha R.', budget: 48_000_000, spent: 44_800_000, tone: 'warn' },
-      { name: 'Digital & Data', owner: 'Marcus L.', budget: 28_000_000, spent: 12_600_000, tone: 'teal' },
-      { name: 'People & Culture', owner: 'Priya N.', budget: 21_000_000, spent: 18_900_000, tone: 'warn' },
-      { name: 'Energy & Assets', owner: 'Zara M.', budget: 34_500_000, spent: 19_200_000, tone: 'blue' },
-    ];
+    /* Departments · Utilisation table — grouped LIVE from Store budgets
+       by department (allocated vs reconciled spend), not a hardcoded
+       snapshot. Owner shown is whichever budget owner appears first for
+       that department. With no budgets yet, this is simply an empty
+       array and the table shows its empty state below. */
+    const deptTones = ['blue', 'teal', 'warn', 'navy'];
+    const departments = (() => {
+      const byDept = {};
+      s.budgets.forEach((b) => {
+        if (!byDept[b.dept]) byDept[b.dept] = { name: b.dept, owner: b.owner, budget: 0, spent: 0 };
+        byDept[b.dept].budget += (b.allocated || 0);
+        byDept[b.dept].spent += (b.reconciled ? (b.spent || 0) : 0);
+      });
+      return Object.values(byDept).map((d, i) => ({ ...d, tone: deptTones[i % deptTones.length] }));
+    })();
 
-    const budgetHealthData = [
-      { name: 'Payroll', budget: 15_300_000, spent: 14_100_000 },
-      { name: 'Information Tech.', budget: 3_900_000, spent: 4_400_000 },
-      { name: 'Software Licences', budget: 1_800_000, spent: 2_000_000 },
-      { name: 'Marketing', budget: 2_600_000, spent: 1_820_000 },
-      { name: 'Professional Fees', budget: 1_600_000, spent: 1_440_000 },
-      { name: 'Travel', budget: 1_100_000, spent: 620_000 },
-      { name: 'Utilities', budget: 1_400_000, spent: 1_260_000 },
-      { name: 'Maintenance', budget: 1_200_000, spent: 1_120_000 },
-    ];
+    /* Budget health widget — reads live OPEX categories from Store
+       (Monthly Monitoring's managed list), not a hardcoded snapshot. */
+    const budgetHealthData = (s.opexCategories || [])
+      .filter((c) => !c.archived)
+      .map((c) => ({ name: c.name, budget: c.plan || 0, spent: c.actual || 0 }));
 
-    const activities = [
-      { who: 'Faris Hamzah', action: 'submitted', target: 'Q3 CAPEX — Port Klang expansion', amount: fmtMYR(4_200_000, { compact: true }), when: '12 min ago', tone: 'blue' },
-      { who: 'Aisha Rashid', action: 'approved', target: 'August operating budget · Ops', amount: fmtMYR(3_600_000, { compact: true }), when: '1 h ago', tone: 'teal' },
-      { who: 'System', action: 'flagged over-spend on', target: 'People & Culture — training', amount: '+9.2%', when: '3 h ago', tone: 'warn' },
-      { who: 'Marcus Lim', action: 'created', target: 'Data centre — cooling retrofit', amount: fmtMYR(1_800_000, { compact: true }), when: 'Yesterday', tone: 'navy' },
-    ];
+    /* Recent Activity feed — built from the most recent real approvals
+       and expenses in Store (by decidedAt / when-ago heuristics), not a
+       hardcoded snapshot. Empty when there is no activity yet. */
+    const activities = (() => {
+      const items = [];
+      s.approvals.forEach((a) => {
+        if (a.status !== 'pending') {
+          items.push({
+            who: a.decidedBy || a.requester, action: a.status === 'approved' ? 'approved' : a.status === 'rejected' ? 'rejected' : 'requested changes on',
+            target: a.title, amount: fmtMYR(a.amount, { compact: true }), when: a.decidedAt ? new Date(a.decidedAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : a.when,
+            tone: a.status === 'approved' ? 'teal' : a.status === 'rejected' ? 'warn' : 'blue', sortKey: a.decidedAt || '',
+          });
+        } else {
+          items.push({ who: a.requester, action: 'submitted', target: a.title, amount: fmtMYR(a.amount, { compact: true }), when: a.when, tone: 'blue', sortKey: '' });
+        }
+      });
+      s.expenses.forEach((e) => {
+        items.push({ who: e.vendor || e.dept, action: e.approvalStatus === 'approved' ? 'expense approved for' : e.approvalStatus === 'rejected' ? 'expense rejected for' : 'submitted expense', target: e.desc, amount: fmtMYR(e.amount, { compact: true }), when: e.when, tone: e.approvalStatus === 'approved' ? 'teal' : e.approvalStatus === 'rejected' ? 'warn' : 'navy', sortKey: '' });
+      });
+      return items.slice(0, 4);
+    })();
 
     const exportDashboard = () => {
       exportRowsToCSV(
         'dashboard-overview',
         ['Department', 'Owner', 'Budget (MYR)', 'Spent (MYR)', 'Remaining (MYR)', 'Utilisation %'],
-        departments.map((d) => [d.name, d.owner, d.budget, d.spent, d.budget - d.spent, Math.round((d.spent / d.budget) * 100)])
+        departments.map((d) => [d.name, d.owner, d.budget, d.spent, d.budget - d.spent, d.budget ? Math.round((d.spent / d.budget) * 100) : 0])
       );
     };
 
@@ -506,11 +575,11 @@
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: 'linear-gradient(180deg,#1E52DA,#1343CB)' }}/> Actual</span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 20, height: 2, background: '#00A896' }}/> Forecast</span>
               </div>
-              <BudgetChart/>
+              <BudgetChart budgets={s.budgets}/>
             </ArsCard>
             <ArsCard>
               <ArsSectionHeader title="Category Mix" subtitle={`Share of planned ${window.Store.fyLabel(FY_REFERENCE_DATE)}`} action={<IconMore size={16} style={{ color: 'var(--arsela-text-subtle)', cursor: 'pointer' }} onClick={() => window.Store.toast('Category breakdown exported', 'info')}/>}/>
-              <CategoryDonut/>
+              <CategoryDonut budgets={s.budgets}/>
             </ArsCard>
           </div>
 
@@ -523,6 +592,11 @@
                 </div>
                 <a style={{ fontSize: 12, color: 'var(--arsela-blue)', fontWeight: 600, cursor: 'pointer' }} onClick={() => window.Router.go('/budgets')}>View all →</a>
               </div>
+              {departments.length === 0 ? (
+                <div style={{ padding: '32px 20px' }}>
+                  <ArsEmpty icon={<IconWallet size={22}/>} title="No budgets yet" body="Departments will appear here once budgets are added." action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>}/>
+                </div>
+              ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: '#FAFBFD', borderBottom: '1px solid var(--arsela-border)' }}>
@@ -533,7 +607,7 @@
                 </thead>
                 <tbody>
                   {departments.map((d, i) => {
-                    const pct = Math.round((d.spent / d.budget) * 100);
+                    const pct = d.budget ? Math.round((d.spent / d.budget) * 100) : 0;
                     const tone = pct > 90 ? 'danger' : pct > 75 ? 'warning' : 'blue';
                     const status = pct > 90 ? ['danger', 'Watch'] : pct > 75 ? ['warning', 'Nearing cap'] : ['success', 'On track'];
                     return (
@@ -559,6 +633,7 @@
                   })}
                 </tbody>
               </table>
+              )}
             </ArsCard>
 
             <ArsCard padded={false}>
@@ -566,6 +641,11 @@
                 <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)' }}>Recent Activity</div>
                 <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Approvals, submissions & alerts</div>
               </div>
+              {activities.length === 0 ? (
+                <div style={{ padding: '32px 20px' }}>
+                  <ArsEmpty icon={<IconInfo size={22}/>} title="No activity yet" body="Approvals and expense actions will show up here."/>
+                </div>
+              ) : (
               <div>
                 {activities.map((a, i) => (
                   <div key={i} style={{ padding: '14px 20px', borderBottom: i < activities.length - 1 ? '1px solid var(--arsela-border)' : 'none', display: 'flex', gap: 12 }}>
@@ -587,6 +667,7 @@
                   </div>
                 ))}
               </div>
+              )}
             </ArsCard>
           </div>
         </div>
