@@ -137,6 +137,21 @@
     const capexCommitted = capexProjects.reduce((a, c) => a + c.committed, 0);
     const capexSpent = capexProjects.reduce((a, c) => a + (c.paidActuals != null ? c.paidActuals : c.spent), 0);
 
+    // ---- Client ask (2026-08-19): the Director's Report must explicitly
+    // and clearly answer three questions using REAL imported Xero data
+    // where available, not the budget/CAPEX proxy alone:
+    //   1. Where's the money coming from (revenue/funding sources)
+    //   2. Do we have enough to cover our expenses (liquidity/coverage)
+    //   3. Are we solvent (assets vs liabilities)
+    // Each pulls from the latest Xero Data Imports snapshot for its
+    // report type and shows an honest empty state until that report has
+    // been imported at least once — no fabricated numbers.
+    const latestPL = window.Store.latestXeroImport ? window.Store.latestXeroImport('profitAndLoss') : null;
+    const latestBS = window.Store.latestXeroImport ? window.Store.latestXeroImport('balanceSheet') : null;
+    const latestAR = window.Store.latestXeroImport ? window.Store.latestXeroImport('agedReceivables') : null;
+    const latestAP = window.Store.latestXeroImport ? window.Store.latestXeroImport('agedPayables') : null;
+    const latestCFA = window.Store.latestXeroImport ? window.Store.latestXeroImport('cashFlowActuals') : null;
+
     const FY_PERIOD_LABEL = window.Store.fyLabel(window.Store.today());
     const cf = window.computeCashFlow ? window.computeCashFlow(FY_PERIOD_LABEL, activeScenario, budgets, capexProjects) : null;
     // 13-week (~3 month) look-ahead cash view, built from the same
@@ -145,6 +160,40 @@
     const next13WeekInflow = cf ? cf.operating.slice(1, 4).reduce((a, v) => a + Math.max(0, v), 0) : 0;
     const solvent = cf && cf.hasData ? cf.minCash > 0 : true;
     const withinRunwayThreshold = cf && cf.hasData ? cf.minCash >= 60 : true;
+
+    // ---- Q1: Where's the money coming from — real revenue mix from the
+    // latest imported Profit & Loss (Xero), falling back to an honest
+    // "no P&L imported yet" state (Coplanistra has no other revenue
+    // data model — budgets/CAPEX only track spend, never income).
+    const revenueBySource = latestPL && latestPL.totals ? (latestPL.totals.revenueBySource || []) : [];
+    const totalRevenueYTD = latestPL && latestPL.totals ? (latestPL.totals.totalRevenueYTD || 0) : 0;
+
+    // ---- Q2: Do we have enough to cover our expenses — a real coverage
+    // ratio when a Balance Sheet and/or Aged Receivables/Payables have
+    // been imported (cash+receivables due vs payables+ongoing burn),
+    // else falls back to the existing budget-derived runway view so the
+    // section is never blank on a Store that only has budgets/CAPEX.
+    const arOutstanding = latestAR && latestAR.totals ? (latestAR.totals.totalOutstanding || 0) : null;
+    const apOutstanding = latestAP && latestAP.totals ? (latestAP.totals.totalOutstanding || 0) : null;
+    const hasCoverageData = arOutstanding != null || apOutstanding != null;
+    // Monthly burn re-used from the existing cash-flow model (AUD, in
+    // millions -> convert to whole units for comparison with AR/AP).
+    const monthlyBurnUnits = cf ? (cf.monthlyBurn || 0) * 1e6 : 0;
+    const coverageMonths = (hasCoverageData && monthlyBurnUnits > 0)
+      ? ((arOutstanding || 0) - (apOutstanding || 0) + (cf ? cf.closingCash * 1e6 : 0)) / monthlyBurnUnits
+      : null;
+    const canCoverExpenses = hasCoverageData
+      ? ((arOutstanding || 0) + (cf ? cf.closingCash * 1e6 : 0)) >= (apOutstanding || 0)
+      : (cf && cf.hasData ? cf.minCash > 0 : null);
+
+    // ---- Q3: Are we solvent — real assets-vs-liabilities from the
+    // latest imported Balance Sheet (the client's stated definition of
+    // solvency), falling back to the cash-runway proxy (`solvent` above)
+    // only when no Balance Sheet has been imported yet.
+    const bsTotals = latestBS && latestBS.totals ? latestBS.totals : null;
+    const realSolvent = bsTotals ? bsTotals.totalAssets >= bsTotals.totalLiabilities : null;
+    const currentRatio = bsTotals ? bsTotals.currentRatio : null;
+    const workingCapital = bsTotals ? bsTotals.workingCapital : null;
 
     // Department rollup — carries ALL bases (actual/committed/forecast)
     // so a near-zero-spend department against a large allocation is never
@@ -213,6 +262,24 @@
             ['Cash Flow', 'Next 13-week forecast inflow (AUD M)', next13WeekInflow.toFixed(1)],
             ['Cash Flow', 'Next 13-week forecast outflow (AUD M)', next13WeekOutflow.toFixed(1)],
             ['Cash Flow', 'Solvency status', solvent ? (withinRunwayThreshold ? 'Solvent — within threshold' : 'Solvent — below comfort threshold') : 'At risk — projected negative balance'],
+          ] : []),
+          // Three questions (client ask, 2026-08-19) — Xero-import-backed where available
+          ['Q1: Where is the money coming from', 'Total revenue YTD (AUD)', latestPL ? totalRevenueYTD : 'Not answerable — no Profit & Loss imported'],
+          ...(latestPL ? [['Q1: Where is the money coming from', 'Period', latestPL.period]] : []),
+          ...revenueBySource.slice(0, 5).map((r) => ['Q1: Revenue by source', r.account, r.ytd]),
+          ['Q2: Enough to cover expenses', 'Status', canCoverExpenses == null ? 'Not answerable' : (canCoverExpenses ? 'Yes — covered' : 'At risk — shortfall')],
+          ...(hasCoverageData ? [
+            ['Q2: Enough to cover expenses', 'Receivables outstanding (AUD)', arOutstanding],
+            ['Q2: Enough to cover expenses', 'Payables outstanding (AUD)', apOutstanding],
+            ['Q2: Enough to cover expenses', 'Months of burn covered', coverageMonths != null ? coverageMonths.toFixed(1) : 'n/a'],
+          ] : []),
+          ['Q3: Are we solvent', 'Status', bsTotals ? (realSolvent ? 'Solvent' : 'Insolvent — liabilities exceed assets') : `Proxy only (cash runway) — ${solvent ? 'within/below threshold, no Balance Sheet imported' : 'at risk'}`],
+          ...(bsTotals ? [
+            ['Q3: Are we solvent', 'Total assets (AUD)', bsTotals.totalAssets],
+            ['Q3: Are we solvent', 'Total liabilities (AUD)', bsTotals.totalLiabilities],
+            ['Q3: Are we solvent', 'Working capital (AUD)', workingCapital],
+            ['Q3: Are we solvent', 'Current ratio', currentRatio != null ? currentRatio.toFixed(2) : 'n/a'],
+            ['Q3: Are we solvent', 'Balance Sheet as at', latestBS.period],
           ] : []),
           ...deptRows.map((d) => [`Department — ${d.dept}`, 'Allocated / Actual (reconciled) / Committed / Forecast final (AUD)', `${d.allocated} / ${d.spent} / ${d.committed} / ${d.forecastFinal}`]),
         ]
@@ -294,9 +361,21 @@
         doc.text(`Solvency status: ${solvent ? (withinRunwayThreshold ? 'Solvent — within comfort threshold' : 'Solvent — below comfort threshold, monitor closely') : 'At risk — projected balance may go negative'}`, 40, y); y += 20;
       }
 
+      if (y > 600) { doc.addPage(); y = 50; }
+      doc.setFontSize(13); doc.setFont(undefined, 'bold');
+      doc.text('5. The three questions this report must answer', 40, y); y += 8;
+      doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
+      doc.text(`Q1 — Where's the money coming from: ${latestPL ? `${fmtMYR(totalRevenueYTD, { compact: true })} total revenue YTD (${latestPL.period})` : 'Not answerable — no Profit & Loss imported yet.'}`, 40, y, { maxWidth: pageW - 80 }); y += latestPL ? 14 : 14;
+      if (latestPL && revenueBySource.length) {
+        revenueBySource.slice(0, 3).forEach((r) => { doc.text(`   • ${r.account}: ${fmtMYR(r.ytd, { compact: true })}`, 40, y); y += 12; });
+      }
+      y += 6;
+      doc.text(`Q2 — Enough to cover our expenses: ${canCoverExpenses == null ? 'Not answerable — add budgets/CAPEX or import Aged Receivables/Payables.' : (canCoverExpenses ? 'Yes — covered.' : 'At risk — projected shortfall.')}${hasCoverageData ? ` Receivables due ${fmtMYR(arOutstanding, { compact: true })}, payables due ${fmtMYR(apOutstanding, { compact: true })}${coverageMonths != null ? `, ≈${coverageMonths.toFixed(1)} months of burn covered.` : '.'}` : ''}`, 40, y, { maxWidth: pageW - 80 }); y += 26;
+      doc.text(`Q3 — Are we solvent: ${bsTotals ? (realSolvent ? `Yes — solvent. Assets ${fmtMYR(bsTotals.totalAssets, { compact: true })} vs liabilities ${fmtMYR(bsTotals.totalLiabilities, { compact: true })}, current ratio ${currentRatio != null ? currentRatio.toFixed(2) + 'x' : 'n/a'} (Balance Sheet as at ${latestBS.period}).` : `No — liabilities exceed assets. Assets ${fmtMYR(bsTotals.totalAssets, { compact: true })} vs liabilities ${fmtMYR(bsTotals.totalLiabilities, { compact: true })} (Balance Sheet as at ${latestBS.period}).`) : `No Balance Sheet imported — cash-runway proxy only (${solvent ? (withinRunwayThreshold ? 'within comfort threshold' : 'below comfort threshold') : 'at risk'}).`}`, 40, y, { maxWidth: pageW - 80 }); y += 30;
+
       if (y > 640) { doc.addPage(); y = 50; }
       doc.setFontSize(13); doc.setFont(undefined, 'bold');
-      doc.text('5. Approvals requiring director attention', 40, y); y += 8;
+      doc.text('6. Approvals requiring director attention', 40, y); y += 8;
       doc.autoTable({
         startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
         head: [['Item', 'Type', 'Amount', 'Requester', 'Urgent']],
@@ -306,7 +385,7 @@
 
       if (y > 640) { doc.addPage(); y = 50; }
       doc.setFontSize(13); doc.setFont(undefined, 'bold');
-      doc.text('6. Data limitations', 40, y); y += 8;
+      doc.text('7. Data limitations', 40, y); y += 8;
       doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
       doc.text(`This report is ${isPreliminary ? 'a PRELIMINARY SNAPSHOT — ' : ''}based on Xero actuals reconciled through ${latestActualsThrough || 'n/a'}. ${unreconciledBudgets.length} of ${budgets.length} budget lines are pending reconciliation, and ${unpostedExpenses.length} approved expense(s) are not yet posted in Xero. Figures beyond the reconciled-through date are forecasts, not actuals.`, 40, y, { maxWidth: pageW - 80 });
 
@@ -383,6 +462,94 @@
             <div>
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Reconciliation status</div>
               <div className="arsela-num" style={{ fontSize: 16, fontWeight: 700, color: unreconciledBudgets.length === 0 ? 'var(--success)' : 'var(--warning)', marginTop: 6 }}>{unreconciledBudgets.length === 0 ? 'All reconciled' : `${unreconciledBudgets.length} pending`}</div>
+            </div>
+          </div>
+        </ArsCard>
+
+        {/* ---- The three questions the director's report must answer
+            (client ask, 2026-08-19): where the money is coming from, do
+            we have enough to cover expenses, and are we solvent. Each
+            card pulls from the latest imported Xero report where one
+            exists, and shows an honest "import to see this" empty state
+            otherwise — never a fabricated number. ---- */}
+        <ArsCard style={{ marginBottom: 20 }}>
+          <ArsSectionHeader title="The three questions this report must answer" subtitle="Money source · expense coverage · solvency — each backed by the latest imported Xero report"/>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+
+            {/* Q1 — where's the money coming from */}
+            <div onClick={() => window.Router.go('/dataimports')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16 }} title="Click to import or review Profit &amp; Loss">
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Where's the money coming from?</div>
+              {latestPL ? (
+                <>
+                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--success)', marginTop: 6 }}>{fmtMYR(totalRevenueYTD, { compact: true })}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Total revenue (YTD) · {latestPL.period}</div>
+                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {revenueBySource.slice(0, 3).map((r, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                        <span style={{ color: 'var(--arsela-navy)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>{r.account}</span>
+                        <span className="arsela-num" style={{ fontWeight: 700, flexShrink: 0, color: 'var(--arsela-text-muted)' }}>{fmtMYR(r.ytd, { compact: true })}</span>
+                      </div>
+                    ))}
+                    {revenueBySource.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)' }}>No revenue lines found in the imported P&amp;L.</div>}
+                  </div>
+                </>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ArsBadge tone="neutral" size="sm">Not answerable yet</ArsBadge>
+                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Import a Profit &amp; Loss from Xero to see revenue by source here.</div>
+                </div>
+              )}
+            </div>
+
+            {/* Q2 — do we have enough to cover our expenses */}
+            <div onClick={() => window.Router.go(hasCoverageData ? '/dataimports' : '/cashflow')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16 }} title="Click to review the underlying data">
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Enough to cover our expenses?</div>
+              {canCoverExpenses != null ? (
+                <>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: canCoverExpenses ? 'var(--success)' : 'var(--danger)', marginTop: 6 }}>
+                    {canCoverExpenses ? 'Yes — covered' : 'At risk — shortfall'}
+                  </div>
+                  {hasCoverageData ? (
+                    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Receivables due in</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{arOutstanding != null ? fmtMYR(arOutstanding, { compact: true }) : '—'}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Payables due out</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{apOutstanding != null ? fmtMYR(apOutstanding, { compact: true }) : '—'}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid var(--arsela-border)' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash on hand (cash flow model)</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{cf ? curLabel(cf.closingCash) : '—'}</span></div>
+                      {coverageMonths != null && <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>≈ {coverageMonths.toFixed(1)} months of burn covered</div>}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Based on the budget-derived cash flow model (no Aged Receivables/Payables imported yet). Minimum projected balance {cf ? curLabel(cf.minCash) : '—'}.</div>
+                  )}
+                </>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ArsBadge tone="neutral" size="sm">Not answerable yet</ArsBadge>
+                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Add budgets/CAPEX or import Aged Receivables and Aged Payables to see expense coverage here.</div>
+                </div>
+              )}
+            </div>
+
+            {/* Q3 — are we solvent */}
+            <div onClick={() => window.Router.go('/dataimports')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16 }} title="Click to import or review the Balance Sheet">
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Are we solvent?</div>
+              {bsTotals ? (
+                <>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: realSolvent ? 'var(--success)' : 'var(--danger)', marginTop: 6 }}>
+                    {realSolvent ? 'Solvent' : 'Insolvent — liabilities exceed assets'}
+                  </div>
+                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Total assets</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(bsTotals.totalAssets, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Total liabilities</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(bsTotals.totalLiabilities, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid var(--arsela-border)' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Working capital</span><span className="arsela-num" style={{ fontWeight: 700, color: workingCapital >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmtMYR(workingCapital, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Current ratio</span><span className="arsela-num" style={{ fontWeight: 700, color: currentRatio >= 1 ? 'var(--success)' : 'var(--danger)' }}>{currentRatio != null ? currentRatio.toFixed(2) + 'x' : '—'}</span></div>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 8 }}>Balance Sheet as at {latestBS.period}</div>
+                </>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ArsBadge tone={solvent ? 'warning' : 'danger'} size="sm">{solvent ? 'Proxy only — not confirmed' : 'At risk (proxy)'}</ArsBadge>
+                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>No Balance Sheet imported yet — showing the cash-runway proxy only ({!solvent ? 'projected balance may go negative' : withinRunwayThreshold ? 'within comfort threshold' : 'below comfort threshold'}). Import a Balance Sheet for a real assets-vs-liabilities answer.</div>
+                </div>
+              )}
             </div>
           </div>
         </ArsCard>

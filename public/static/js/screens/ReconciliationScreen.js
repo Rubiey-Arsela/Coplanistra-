@@ -154,6 +154,36 @@
             </ArsCard>
           </div>
 
+          {/* ---- contextual Xero import shortcut — Bank Reconciliation
+              Report Pack (Westpac #2077) and General Ledger Detail are
+              the two Xero exports that feed this module's matching work.
+              Links out to the central Data Imports hub rather than
+              duplicating the import UI here. ---- */}
+          <ArsCard onClick={() => window.Router.go('/dataimports')} style={{ cursor: 'pointer', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 14 }} title="Click to open Data Imports">
+            <div style={{ width: 38, height: 38, borderRadius: 8, background: 'var(--arsela-blue-50)', color: 'var(--arsela-blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><IconDownload size={17}/></div>
+            <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--arsela-navy)' }}>Bank Reconciliation Report Pack (Westpac #2077)</div>
+                {(() => {
+                  const latest = window.Store.latestXeroImport ? window.Store.latestXeroImport('bankReconciliation') : null;
+                  return latest
+                    ? <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Last imported: {latest.period}{latest.totals && latest.totals.unreconciledCount != null ? ` · ${latest.totals.unreconciledCount} unreconciled` : ''}</div>
+                    : <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Not yet imported from Xero</div>;
+                })()}
+              </div>
+              <div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--arsela-navy)' }}>General Ledger Detail</div>
+                {(() => {
+                  const latest = window.Store.latestXeroImport ? window.Store.latestXeroImport('generalLedger') : null;
+                  return latest
+                    ? <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Last imported: {latest.period} · {latest.rows ? latest.rows.length : 0} lines</div>
+                    : <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Not yet imported from Xero</div>;
+                })()}
+              </div>
+            </div>
+            <ArsButton variant="secondary" size="sm" icon={<IconDownload size={13}/>} onClick={(e) => { e.stopPropagation(); window.Router.go('/dataimports'); }}>Import from Xero</ArsButton>
+          </ArsCard>
+
           {/* ---- by-source breakdown — the 6 lanes ---- */}
           <ArsCard style={{ marginBottom: 20 }}>
             <ArsSectionHeader title="By reconciliation source" subtitle="Each lane compares one Arsela source of truth against Xero"/>

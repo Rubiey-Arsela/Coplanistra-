@@ -361,6 +361,24 @@
           </span>
         </div>
 
+        {/* ---- contextual Xero import shortcut — Statement of Cash Flows
+            (Direct) / Cash Summary is the real Xero export that should
+            eventually replace/supplement this budget-derived projection.
+            Links out to the central Data Imports hub. ---- */}
+        <ArsCard onClick={() => window.Router.go('/dataimports')} style={{ cursor: 'pointer', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }} title="Click to open Data Imports">
+          <div style={{ width: 38, height: 38, borderRadius: 8, background: 'var(--arsela-blue-50)', color: 'var(--arsela-blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><IconDownload size={17}/></div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--arsela-navy)' }}>Statement of Cash Flows (Direct) / Cash Summary</div>
+            {(() => {
+              const latest = window.Store.latestXeroImport ? window.Store.latestXeroImport('cashFlowActuals') : null;
+              return latest
+                ? <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Last imported: {latest.period} · net operating {latest.totals ? fmtMYR(latest.totals.netOperatingYTD, { compact: true }) : '—'} (YTD) — the projection below is still budget-derived, not this actual.</div>
+                : <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Not yet imported from Xero — the projection below is a budget-derived estimate, not a real bank-fed actual.</div>;
+            })()}
+          </div>
+          <ArsButton variant="secondary" size="sm" icon={<IconDownload size={13}/>} onClick={(e) => { e.stopPropagation(); window.Router.go('/dataimports'); }}>Import from Xero</ArsButton>
+        </ArsCard>
+
         {!hasData ? (
           <ArsCard style={{ marginBottom: 20 }}>
             <ArsEmpty

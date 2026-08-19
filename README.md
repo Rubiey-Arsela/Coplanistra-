@@ -8,9 +8,35 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: https://7f4a1e24.coplanistra.pages.dev — 2026-08-19, "start fresh" reset — all seeded demo financial data cleared, every screen now derives from live Store data with proper empty states)
+- **Production**: https://coplanistra.pages.dev (latest deploy: see "Session update (2026-08-19, part 6)" below — Xero multi-report Data Imports hub + Director's Report 3-question upgrade)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-08-19, part 6) — Xero multi-report Data Imports hub (8 report types) + Director's Report "three questions" upgrade
+Client request: *"make sure all panel include import from Xero"* for 8 named Xero report types, support for logging documents outside Xero, and a Director's Report that explicitly answers **where is the money coming from, do we have enough to cover our expenses, and are we solvent**. Full scope approved by the client ("yes for all") and delivered:
+- **NEW: Data Imports hub** (`/dataimports`, Finance Manager / Administrator, sidebar between CAPEX/Reconciliation-area and Cash Flow) — one screen to import all 8 requested Xero reports, each as its own dated-snapshot history:
+  1. Profit and Loss — YTD revenue/expense totals + **revenue-by-source breakdown**
+  2. Balance Sheet — total assets/liabilities/equity, working capital, current ratio
+  3. Statement of Cash Flows (Direct) / Cash Summary — operating/investing/financing actuals
+  4. Bank Reconciliation Report Pack (Westpac Account #2077) — unreconciled item count/value
+  5. General Ledger Detail — full transaction listing
+  6. Trial Balance — debit/credit balances
+  7. Aged Receivables Detail — current/30/60/90/90+ ageing buckets + total outstanding
+  8. Aged Payables Detail — current/30/60/90/90+ ageing buckets + total outstanding
+  
+  Each report type has its own CSV column auto-detection (with aliases, e.g. "Amount"/"Gross"/"Total"), an editable preview before confirming, and a **history view** to see/compare prior snapshots. This is the same 100%-client-side CSV pattern as the existing Expenses "Import from Xero" — **no Xero OAuth/API connection required**, works with any CSV exported from Xero's report screens.
+  
+  - **Documents outside Xero**: a lightweight **Supporting Documents register** on the same screen — log name, category (e.g. contract, invoice, bank statement, board minute, other), date, note and who added it. This is a **metadata-only log, not a file store**: per the approved scope, raw file bytes are not uploaded/persisted (no Cloudflare R2 binding yet) — it exists so the team has one place to record *that* a supporting document exists and where to find it, pending a future R2-backed upload.
+- **Director's Report — "the three questions this report must answer"**: a new section on the Director's Report (Reports screen) directly answers, using **real imported Xero figures when available**:
+  - **Q1 — Where is the money coming from?** Revenue-by-source breakdown from the latest imported Profit & Loss, with YTD total.
+  - **Q2 — Do we have enough to cover our expenses?** Computed from Aged Receivables + Aged Payables + projected cash position when those reports have been imported (owed-to-us + cash vs owed-by-us); **honestly falls back** to the existing cash-runway signal (`minCash > 0`) when no AR/AP has been imported yet, and to a clear "Not answerable yet — import Aged Receivables/Payables" empty state with a direct link to Data Imports when neither is available.
+  - **Q3 — Are we solvent?** Computed from the latest imported Balance Sheet (assets ≥ liabilities), showing total assets, total liabilities, working capital and current ratio; falls back to an honest "Not answerable yet — import a Balance Sheet" empty state (linking to Data Imports) rather than fabricating a solvency verdict from unrelated data.
+  - All three cards link through to Data Imports (or Cash Flow for the Q2 fallback). **CSV and PDF exports updated** to include all three answers as new export sections.
+- **Contextual "Import from Xero" shortcuts** added directly on the two screens most tied to specific report types, so users don't have to already know the Data Imports hub exists:
+  - **Reconciliation** screen — shortcut card showing Bank Reconciliation Report Pack (Westpac #2077) and General Ledger Detail import status (latest period + count, or "Not yet imported"), with a one-click "Import from Xero" button to `/dataimports`.
+  - **Cash Flow** screen — shortcut card showing Statement of Cash Flows (Direct)/Cash Summary import status, noting the chart below remains budget-derived until actuals are imported.
+- Verified: `npm run build` (success), Playwright console-error sweep on `/dataimports`, `/reports`, `/reconciliations`, `/cashflow` — zero errors on any route; plus a standalone Node.js simulation of the Store data-flow (`addXeroImport` → `latestXeroImport` → totals consumed by the Director's Report) confirming the shapes match end-to-end.
+- Committed (`743951a` for the Data Imports hub + Store schema; Director's Report/contextual-shortcuts follow-up commit on top) and redeployed to Cloudflare Pages (BYOK).
 
 ## Session update (2026-08-19, part 5) — "Start fresh": all demo/seed financial data removed, every screen now Store-derived with empty states
 Per the client's request to remove all placeholder/demo figures before real usage, this session cleared every seeded financial record (budgets, expenses, CAPEX projects, approvals, cash-flow scenarios, reconciliation ledger items, KPIs) while keeping structural config (users, departments, expense categories, reconciliation source lanes) intact, then fixed every screen that had previously displayed hardcoded/disconnected mock data so the whole app now degrades gracefully to informative empty states on a fresh workspace instead of showing fake numbers or breaking with `NaN%`/crashes:
@@ -161,6 +187,7 @@ All routes are client-side hash routes (`#/...`), served by the single Hono catc
 | `/cashflow` | CashFlowScreen |
 | `/performance` | PerformanceScreen |
 | `/reports` | ReportsScreen |
+| `/dataimports` | DataImportsScreen |
 | `/copilot` | CopilotScreen |
 | `/admin` | AdminScreen |
 | `/settings` | SettingsScreen |
@@ -186,10 +213,12 @@ Includes the workspace's real members list (mirrors the client's existing user t
 - Admin screen's Invite/Deactivate actions are local-only (don't send real emails or persist across browsers).
 - Exchange rates in `CURRENCY_CONFIG` are static demo values, not live market rates.
 - Receipt uploads are stored as filenames only (no Cloudflare R2 binding yet) — files are not actually persisted server-side.
+- Xero imports are CSV-upload snapshots, not a live OAuth/API sync — each import is a manual, dated snapshot rather than continuously refreshed data.
+- Supporting Documents register (`/dataimports`) is metadata-only (name/category/date/note) — raw file bytes are not uploaded/stored (no R2 binding yet).
 
 ## Deployment
 - **Platform**: Cloudflare Pages (via Hono + Wrangler), deployed under the client's own Cloudflare account
 - **Status**: ✅ **Live in production** at https://coplanistra.pages.dev
 - **Source control**: ✅ Connected to GitHub — https://github.com/Rubiey-Arsela/Coplanistra- (`main` branch)
 - **Tech Stack**: Hono (backend/static-serving) + React 18 (CDN) + Babel Standalone v7 (CDN, in-browser JSX transform) + vanilla CSS design tokens
-- **Last Updated**: 2026-08-19 (part 5 — "start fresh" reset complete)
+- **Last Updated**: 2026-08-19 (part 6 — Xero multi-report Data Imports hub + Director's Report "three questions" upgrade)
