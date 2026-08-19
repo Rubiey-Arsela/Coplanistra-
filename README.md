@@ -8,8 +8,24 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: https://12997337.coplanistra.pages.dev)
+- **Production**: https://coplanistra.pages.dev (latest deploy: https://9959c1d7.coplanistra.pages.dev)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
+
+## Session update (2026-08-19) — FY/currency correctness, reconciliation-aware financials, Cash Flow & Director's Report rebuild, ArsProgress bug fix
+Responding to a full production-readiness critique for Al Bukhary Group / Arsela Resources, this session made the following **verified and deployed** changes:
+- **Fiscal year corrected app-wide**: Arsela's FY starts 1 July, not 1 January. `store.js` now exposes `Store.fyLabel()/fyQuarterLabel()/fyYearOf()/fyProgressPct()/today()` etc., and every screen (Dashboard, Login, shell org badge, Cash Flow, Budgets detail, Approvals, Quarterly, Closeout, CAPEX, Performance, Copilot, Reports — both the Director's Report and the Variance-analysis tab) now computes its FY/quarter/month labels from these helpers instead of hardcoded "FY26"/"FY 2026"/"Jan-Dec" strings. Settings' `fiscalYearStart` default was also corrected from "January" to "July" (was silently contradicting the rest of the app).
+- **Reporting currency corrected to AUD**: `defaultState.currency` changed from MYR to AUD; all remaining hardcoded "(RM)" field labels and CSV headers (CreateBudget, Expenses, Monthly, Quarterly, Closeout) now read the live currency code from the store; Settings' currency description text no longer describes MYR as the base unit.
+- **Reconciliation-aware financial data model**: Budgets, Expenses and (this session) CAPEX projects now carry explicit `reconciled`/`actualsThrough`/`committed`/`forecastFinal` fields. The core build rule — *only reconciled Xero amounts are classified as actuals; approved items remain commitments; future amounts remain forecasts* — is enforced in the Dashboard and the Director's Report computations.
+- **Director's Report rebuilt** (Reports screen): now shows a Preliminary-snapshot banner, basis-labeled executive summary (Actual/Committed/Actual+Committed/Forecast), a reworked department table that flags early-year near-zero spend as a "timing gap" instead of a misleading green underspend, a 13-week cash look-ahead, and a solvency/funding status block — all pulling live from Store and the shared `computeCashFlow()` function. CSV/PDF exports updated to match.
+- **Cash Flow screen corrected**: fiscal-year month ordering (Jul→Jun), solid-vs-dashed actual/forecast chart rendering, and the previously-hardcoded "9.4% vs Jan opening" badge now uses a real computed `netChangePct`.
+- **ArsProgress bug fixed**: budget utilisation bars/labels were clamped to a flat "100%" even when a budget was over its cap (e.g. Fleet Maintenance & Renewal at 107.1%). The bar width still caps visually at 100%, but the numeric label now always shows the true value.
+- Verified via `npm run build` and Playwright across all 13 app routes with zero console errors before each commit; pushed to GitHub (`fbc1b61`) and deployed to Cloudflare Pages.
+
+### Still pending (tracked for a future session)
+- **New Reconciliation module**: not yet built (no screen, no data model, no nav entry) — this was the 3rd item in the user's stated priority order and is the largest remaining piece of work.
+- **CapexScreen.js UI**: the new exposure/commitment data fields (openCommitments, totalExposure, remainingApprovedFunding, constructionWIP, etc.) added to the CAPEX data model are not yet surfaced in the CAPEX screen's cards/table.
+- **BudgetsScreen.js**: Draft/Closed status summary cards and a "Nearing cap" lifecycle badge are not yet added (draft/over/active/nearing counts exist, draft/closed do not have their own summary tiles).
+- Per-screen enhancements from the original critique not yet started: Monthly Monitoring, Expenses (4-way status split UI), Approvals (precision/audit rules), Performance/KPIs, AI Copilot.
 - (Sandbox preview URLs are temporary; the pages.dev link above is the permanent, short URL for the client.)
 
 ## Bug fix (2026-08-05) — Cash Flow scenario cards not clickable / not syncing
