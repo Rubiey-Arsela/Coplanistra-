@@ -295,7 +295,7 @@
               </thead>
               <tbody>
                 {pageItems.map((b, i) => {
-                  const pct = b.allocated ? Math.round((b.spent / b.allocated) * 100) : 0;
+                  const pct = b.allocated ? (b.spent / b.allocated) * 100 : 0;
                   const tone = pct >= 100 ? 'danger' : pct > 90 ? 'danger' : pct > 80 ? 'warning' : 'blue';
                   return (
                     <tr key={b.id} style={{ borderBottom: i < pageItems.length - 1 ? '1px solid var(--arsela-border)' : 'none', cursor: 'pointer' }}
@@ -315,7 +315,7 @@
                       <td style={{ padding: '14px 16px', fontSize: 13, color: 'var(--arsela-navy)' }}>{b.dept}</td>
                       <td style={{ padding: '14px 16px', fontSize: 13, color: 'var(--arsela-text-muted)' }}>{b.period}</td>
                       <td style={{ padding: '14px 16px', width: 200 }}>
-                        <ArsProgress value={Math.min(100, pct)} tone={tone} showValue/>
+                        <ArsProgress value={pct} tone={tone} showValue decimals={pct >= 100 ? 1 : 0}/>
                       </td>
                       <td className="arsela-num" style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>{fmtMYR(b.allocated, { compact: true })}</td>
                       <td className="arsela-num" style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, color: 'var(--arsela-navy)' }}>{fmtMYR(b.spent, { compact: true })}</td>
@@ -339,7 +339,7 @@
           ) : (
             <div style={{ padding: 20, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
               {pageItems.map((b) => {
-                const pct = b.allocated ? Math.round((b.spent / b.allocated) * 100) : 0;
+                const pct = b.allocated ? (b.spent / b.allocated) * 100 : 0;
                 const tone = pct >= 100 ? 'danger' : pct > 90 ? 'danger' : pct > 80 ? 'warning' : 'blue';
                 return (
                   <div key={b.id} onClick={() => goDetail(b.id)} style={{
@@ -351,7 +351,7 @@
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8 }}>{b.name}</div>
                     <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{b.dept} · {b.period}</div>
-                    <div style={{ marginTop: 12 }}><ArsProgress value={Math.min(100, pct)} tone={tone} showValue/></div>
+                    <div style={{ marginTop: 12 }}><ArsProgress value={pct} tone={tone} showValue decimals={pct >= 100 ? 1 : 0}/></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12 }}>
                       <span style={{ color: 'var(--arsela-text-muted)' }}>Allocated <b className="arsela-num" style={{ color: 'var(--arsela-navy)' }}>{fmtMYR(b.allocated, { compact: true })}</b></span>
                       <span style={{ color: 'var(--arsela-text-muted)' }}>Spent <b className="arsela-num" style={{ color: 'var(--arsela-navy)' }}>{fmtMYR(b.spent, { compact: true })}</b></span>

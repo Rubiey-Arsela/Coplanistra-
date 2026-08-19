@@ -99,7 +99,14 @@ const ArsInput = ({ label, value, placeholder, icon, style, type = 'text', hint,
   </label>
 );
 
-const ArsProgress = ({ value = 0, tone = 'blue', height = 6, showValue = false }) => {
+// NOTE: the bar's visual WIDTH is always capped at 100% (a bar can't
+// physically render past its container), but the numeric LABEL shows the
+// true, un-capped value — e.g. a budget at 107.1% of allocation must show
+// "107.1%" next to a full bar, never a misleading capped "100%". Callers
+// should pass the real (uncapped) percentage as `value` and let this
+// component do the bar-width clamping internally; do NOT pre-clamp with
+// Math.min() before passing in, or the label will silently lose precision.
+const ArsProgress = ({ value = 0, tone = 'blue', height = 6, showValue = false, decimals = 0 }) => {
   const colors = {
     blue: 'linear-gradient(90deg, #1343CB, #2657DB)',
     teal: 'linear-gradient(90deg, #00A896, #00C4B0)',
@@ -107,13 +114,15 @@ const ArsProgress = ({ value = 0, tone = 'blue', height = 6, showValue = false }
     danger: 'linear-gradient(90deg, #EF4444, #F87171)',
     success: 'linear-gradient(90deg, #16A34A, #22C55E)',
   };
-  const clamped = Math.min(100, Math.max(0, value));
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const barPct = Math.min(100, Math.max(0, safeValue));
+  const displayValue = decimals > 0 ? safeValue.toFixed(decimals) : Math.round(safeValue);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ flex: 1, background: '#EEF1F6', borderRadius: 'var(--r-full)', height, overflow: 'hidden' }}>
-        <div style={{ width: `${clamped}%`, height: '100%', background: colors[tone], borderRadius: 'var(--r-full)' }} />
+        <div style={{ width: `${barPct}%`, height: '100%', background: colors[tone], borderRadius: 'var(--r-full)' }} />
       </div>
-      {showValue && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', minWidth: 36, textAlign: 'right' }}>{clamped}%</span>}
+      {showValue && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', minWidth: 36, textAlign: 'right' }}>{displayValue}%</span>}
     </div>
   );
 };
