@@ -312,6 +312,10 @@ const ArsLifecycle = ({ status }) => {
     closed:     { bg: '#E7EBF3', fg: '#001F3D', label: 'Closed',             dot: '#001F3D' },
     archived:   { bg: '#F3F0FA', fg: '#5B21B6', label: 'Archived',           dot: '#7C3AED' },
     over:       { bg: '#FEECEC', fg: '#D64045', label: 'Over Budget',        dot: '#D64045' },
+    // Not a real underlying budget.status value — a derived visual flag
+    // (utilisation 80-99%) that BudgetsScreen overlays on top of 'active'
+    // so at-risk budgets are visible before they actually breach 100%.
+    nearing:    { bg: '#FFF3E0', fg: '#B4740A', label: 'Nearing Cap',        dot: '#F59E0B' },
   };
   const t = map[status] || map.draft;
   return (

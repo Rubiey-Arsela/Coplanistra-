@@ -7,6 +7,11 @@
   const { useState, useEffect, useMemo } = React;
 
   const STATUS_OPTIONS = ['Any', 'draft', 'active', 'amendment', 'over', 'closed', 'archived', 'nearing'];
+  // Label override for filter values not meant to appear as raw keys in
+  // the dropdown/badge UI (closedOrArchived is set only by the "Closed"
+  // summary card, not offered as its own dropdown option since it's a
+  // shorthand for "closed OR archived").
+  const STATUS_LABELS = { closedOrArchived: 'Closed/Archived' };
   const PAGE_SIZE = 8;
 
   function FilterDropdown({ label, value, options, onChange }) {
@@ -27,7 +32,7 @@
           fontSize: 13, fontFamily: 'inherit', color: 'var(--arsela-navy)', cursor: 'pointer',
         }}>
           <span style={{ color: 'var(--arsela-text-muted)' }}>{label}:</span>
-          <span style={{ fontWeight: 600 }}>{value}</span>
+          <span style={{ fontWeight: 600 }}>{STATUS_LABELS[value] || value}</span>
           <IconChevronDown size={13} style={{ color: 'var(--arsela-text-subtle)' }}/>
         </button>
         {open && (
@@ -180,7 +185,9 @@
         if (dept !== 'All' && b.dept !== dept) return false;
         if (status === 'nearing') {
           const pct = b.allocated ? (b.spent / b.allocated) * 100 : 0;
-          if (!(pct >= 80 && pct < 100)) return false;
+          if (!(b.status === 'active' && pct >= 80 && pct < 100)) return false;
+        } else if (status === 'closedOrArchived') {
+          if (b.status !== 'closed' && b.status !== 'archived') return false;
         } else if (status !== 'Any' && b.status !== status) return false;
         if (q.trim()) {
           const needle = q.trim().toLowerCase();
@@ -200,12 +207,25 @@
     const activeCount = budgets.filter(b => b.status === 'active').length;
     const nearingCount = budgets.filter(b => {
       const pct = b.allocated ? (b.spent / b.allocated) * 100 : 0;
-      return pct >= 80 && pct < 100;
+      return b.status === 'active' && pct >= 80 && pct < 100;
     }).length;
     const overCount = budgets.filter(b => b.status === 'over').length;
+    const draftCount = budgets.filter(b => b.status === 'draft').length;
+    // "Closed" here covers both 'closed' (FY Closeout lock) and 'archived'
+    // (manually archived) — both mean "no longer an open working budget".
+    const closedCount = budgets.filter(b => b.status === 'closed' || b.status === 'archived').length;
 
     const goDetail = (id) => window.Router.go('/budgets/' + id);
     const filterByStatus = (val) => { setDept('All'); setStatus(val); };
+    // A budget is visually "nearing cap" when it's still active but has
+    // burned 80-99% of allocation — surfaced as its own lifecycle badge
+    // (distinct from the plain "Active" pill) so at-risk budgets stand
+    // out in the table/card views before they actually breach 100%.
+    const displayStatus = (b) => {
+      if (b.status !== 'active') return b.status;
+      const pct = b.allocated ? (b.spent / b.allocated) * 100 : 0;
+      return (pct >= 80 && pct < 100) ? 'nearing' : 'active';
+    };
 
     return (
       <AppFrame
@@ -222,33 +242,47 @@
         }
       >
         {/* Summary strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 14, marginBottom: 20 }}>
           <div onClick={() => filterByStatus('Any')} style={{ cursor: 'pointer' }} title="Show all budgets">
             <ArsCard>
-              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>All Budgets</div>
-              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8 }}>{budgets.length}</div>
-              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Across {depts.length - 1} departments</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase' }}>All Budgets</div>
+              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8 }}>{budgets.length}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Across {depts.length - 1} departments</div>
             </ArsCard>
           </div>
           <div onClick={() => filterByStatus('active')} style={{ cursor: 'pointer' }} title="Show all active budgets">
             <ArsCard>
-              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Active</div>
-              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-success)', marginTop: 8 }}>{activeCount}</div>
-              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{Math.round(activeCount / budgets.length * 100)}% of all budgets</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase' }}>Active</div>
+              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-success)', marginTop: 8 }}>{activeCount}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{Math.round(activeCount / budgets.length * 100)}% of all budgets</div>
+            </ArsCard>
+          </div>
+          <div onClick={() => filterByStatus('draft')} style={{ cursor: 'pointer' }} title="Show draft budgets">
+            <ArsCard>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase' }}>Draft</div>
+              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: '#5B6B82', marginTop: 8 }}>{draftCount}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Not yet approved</div>
             </ArsCard>
           </div>
           <div onClick={() => filterByStatus('nearing')} style={{ cursor: 'pointer' }} title="Show budgets nearing their cap">
             <ArsCard>
-              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Nearing Cap</div>
-              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: '#B4740A', marginTop: 8 }}>{nearingCount}</div>
-              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>≥ 80% utilised</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase' }}>Nearing Cap</div>
+              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: '#B4740A', marginTop: 8 }}>{nearingCount}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>80–99% utilised</div>
             </ArsCard>
           </div>
           <div onClick={() => filterByStatus('over')} style={{ cursor: 'pointer' }} title="Show over-budget items">
             <ArsCard>
-              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Over-Budget</div>
-              <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-danger)', marginTop: 8 }}>{overCount}</div>
-              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Requires attention</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase' }}>Over-Budget</div>
+              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-danger)', marginTop: 8 }}>{overCount}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Requires attention</div>
+            </ArsCard>
+          </div>
+          <div onClick={() => filterByStatus('closedOrArchived')} style={{ cursor: 'pointer' }} title="Show closed / archived budgets">
+            <ArsCard>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase' }}>Closed</div>
+              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: '#5B21B6', marginTop: 8 }}>{closedCount}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Locked at FY closeout or archived</div>
             </ArsCard>
           </div>
         </div>
@@ -319,8 +353,8 @@
                       </td>
                       <td className="arsela-num" style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>{fmtMYR(b.allocated, { compact: true })}</td>
                       <td className="arsela-num" style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, color: 'var(--arsela-navy)' }}>{fmtMYR(b.spent, { compact: true })}</td>
-                      <td style={{ padding: '14px 16px', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); filterByStatus(b.status); }} title={`Filter by status: ${b.status}`}>
-                        <ArsLifecycle status={b.status}/>
+                      <td style={{ padding: '14px 16px', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); filterByStatus(displayStatus(b)); }} title={`Filter by status: ${displayStatus(b)}`}>
+                        <ArsLifecycle status={displayStatus(b)}/>
                       </td>
                       <td style={{ padding: '14px 16px' }} onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: 'flex', gap: 4, color: 'var(--arsela-text-subtle)' }}>
@@ -347,7 +381,7 @@
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <span className="arsela-mono" style={{ fontSize: 11, color: 'var(--arsela-text-muted)' }}>{b.id}</span>
-                      <span onClick={(e) => { e.stopPropagation(); filterByStatus(b.status); }} title={`Filter by status: ${b.status}`} style={{ cursor: 'pointer' }}><ArsLifecycle status={b.status}/></span>
+                      <span onClick={(e) => { e.stopPropagation(); filterByStatus(displayStatus(b)); }} title={`Filter by status: ${displayStatus(b)}`} style={{ cursor: 'pointer' }}><ArsLifecycle status={displayStatus(b)}/></span>
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8 }}>{b.name}</div>
                     <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{b.dept} · {b.period}</div>

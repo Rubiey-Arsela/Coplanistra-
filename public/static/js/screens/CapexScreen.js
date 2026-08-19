@@ -92,11 +92,21 @@
       [CAPEX_PROJECTS, stageFilter]
     );
 
+    // `committed` is each project's TOTAL contracted/PO value and already
+    // includes `spent` (spent is a subset of committed, not additive) —
+    // see the semantics comment above seedCapex in store.js. So total
+    // exposure against approved envelopes = sum(committed) alone.
     const totals = CAPEX_PROJECTS.reduce((a, p) => ({
       approved: a.approved + p.approved,
       committed: a.committed + p.committed,
       spent: a.spent + p.spent,
-    }), { approved: 0, committed: 0, spent: 0 });
+      openCommitments: a.openCommitments + (p.openCommitments ?? Math.max(0, p.committed - p.spent)),
+      remainingApprovedFunding: a.remainingApprovedFunding + (p.remainingApprovedFunding ?? Math.max(0, p.approved - p.committed)),
+      constructionWIP: a.constructionWIP + (p.constructionWIP || 0),
+    }), { approved: 0, committed: 0, spent: 0, openCommitments: 0, remainingApprovedFunding: 0, constructionWIP: 0 });
+
+    const latestActualsThrough = CAPEX_PROJECTS.reduce((latest, p) => (p.actualsThrough && (!latest || p.actualsThrough > latest)) ? p.actualsThrough : latest, null);
+    const unreconciledProjects = CAPEX_PROJECTS.filter((p) => !p.reconciled);
 
     const catTotals = {};
     CAPEX_PROJECTS.forEach(p => { catTotals[p.category] = (catTotals[p.category] || 0) + p.approved; });
@@ -117,35 +127,80 @@
           </div>
         }
       >
-        {/* KPIs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
+        {/* Reconciliation status banner — CAPEX actuals ("spent"/paidActuals)
+            are only real once their Xero fixed-asset postings have been
+            reconciled; this is the same build rule as Budgets/Expenses. */}
+        <div onClick={() => window.Router.go('/reconciliations')} title="Click to open the Reconciliations module" style={{
+          display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', marginBottom: 20,
+          borderRadius: 10, background: unreconciledProjects.length === 0 ? 'var(--arsela-teal-50)' : 'var(--arsela-warning-50)',
+          border: '1px solid ' + (unreconciledProjects.length === 0 ? 'var(--arsela-teal-200, #BFEFE8)' : 'var(--arsela-warning-200, #F3DBA3)'),
+          cursor: 'pointer',
+        }}>
+          <span style={{
+            width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: '#fff', color: unreconciledProjects.length === 0 ? 'var(--arsela-teal-600)' : '#B4740A',
+          }}><IconInfo size={16}/></span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>
+              Reconciliation status: {unreconciledProjects.length === 0 ? 'All CAPEX spend reconciled to Xero' : `${unreconciledProjects.length} project(s) pending reconciliation`}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>
+              Paid actuals reflect Xero fixed-asset WIP postings through {latestActualsThrough || '—'} · committed/open-commitment figures are approved-but-not-yet-paid, not actuals.
+            </div>
+          </div>
+          <ArsBadge tone={unreconciledProjects.length === 0 ? 'success' : 'warning'} dot size="sm">{unreconciledProjects.length === 0 ? 'Reconciled' : 'Review needed'}</ArsBadge>
+        </div>
+
+        {/* KPIs — basis-labeled per the build rule: approved (plan) vs
+            total exposure/committed (approved-but-not-all-paid) vs paid
+            actuals (reconciled Xero cash out) vs remaining headroom. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 14, marginBottom: 20 }}>
           <ArsCard>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Approved envelope</div>
-            <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(totals.approved, { compact: true })}</div>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 6 }}>{CAPEX_PROJECTS.length} active projects</div>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.3, textTransform: 'uppercase' }}>Approved envelope</div>
+            <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(totals.approved, { compact: true })}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>{CAPEX_PROJECTS.length} active projects</div>
           </ArsCard>
           <ArsCard>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Committed</div>
-            <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(totals.committed, { compact: true })}</div>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.3, textTransform: 'uppercase' }}>Total exposure (committed)</div>
+            <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(totals.committed, { compact: true })}</div>
             <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
-              <ArsProgress value={totals.approved ? (totals.committed / totals.approved) * 100 : 0} tone="blue" style={{ flex: 1 }}/>
+              <div style={{ flex: 1 }}><ArsProgress value={totals.approved ? (totals.committed / totals.approved) * 100 : 0} tone="blue"/></div>
               <span className="arsela-num" style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>{totals.approved ? ((totals.committed / totals.approved) * 100).toFixed(0) : 0}%</span>
             </div>
+            <div style={{ fontSize: 10.5, color: 'var(--arsela-text-subtle)', marginTop: 4 }}>Total contracted value — already includes paid actuals</div>
           </ArsCard>
           <ArsCard>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Spent to date</div>
-            <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(totals.spent, { compact: true })}</div>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.3, textTransform: 'uppercase' }}>Paid actuals (reconciled)</div>
+            <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(totals.spent, { compact: true })}</div>
             <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
-              <ArsProgress value={totals.approved ? (totals.spent / totals.approved) * 100 : 0} tone="teal" style={{ flex: 1 }}/>
+              <div style={{ flex: 1 }}><ArsProgress value={totals.approved ? (totals.spent / totals.approved) * 100 : 0} tone="teal"/></div>
               <span className="arsela-num" style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>{totals.approved ? ((totals.spent / totals.approved) * 100).toFixed(0) : 0}%</span>
             </div>
+            <div style={{ fontSize: 10.5, color: 'var(--arsela-text-subtle)', marginTop: 4 }}>Xero fixed-asset cash out to date</div>
           </ArsCard>
           <ArsCard>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Sanction pending</div>
-            <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--warning)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(pendingSanction.reduce((s, p) => s + p.approved, 0), { compact: true })}</div>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 6 }}>{pendingSanction[0] ? `${pendingSanction[0].name} — awaiting exec approval` : 'None outstanding'}</div>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.3, textTransform: 'uppercase' }}>Open commitments</div>
+            <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: '#B4740A', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(totals.openCommitments, { compact: true })}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>Contracted, not yet paid/posted</div>
+          </ArsCard>
+          <ArsCard>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.3, textTransform: 'uppercase' }}>Remaining headroom</div>
+            <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-success)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(totals.remainingApprovedFunding, { compact: true })}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>Approved but uncommitted</div>
           </ArsCard>
         </div>
+
+        {pendingSanction.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <ArsCard style={{ borderColor: '#F3DBA3', background: 'var(--arsela-warning-50)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <ArsBadge tone="warning" dot size="sm">Sanction pending</ArsBadge>
+                <div style={{ fontSize: 13, color: 'var(--arsela-navy)', fontWeight: 600 }}>{fmtMYR(pendingSanction.reduce((s, p) => s + p.approved, 0), { compact: true })} approved but under 20% committed</div>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--arsela-text-muted)' }}>{pendingSanction[0] ? `${pendingSanction[0].name} — awaiting exec approval` : 'None outstanding'}</span>
+              </div>
+            </ArsCard>
+          </div>
+        )}
 
         {/* Category donut + depreciation */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
@@ -248,9 +303,9 @@
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
               <thead>
                 <tr style={{ background: 'var(--arsela-surface-alt)', borderBottom: '1px solid var(--arsela-border)' }}>
-                  {['Project', 'Category', 'Stage', 'Owner', 'Approved', 'Committed', 'Spent', 'Utilisation', 'ETA', 'Actions'].map(h => (
+                  {['Project', 'Category', 'Stage', 'Owner', 'Approved', 'Committed', 'Open', 'Paid actual', 'Utilisation', 'ETA', 'Recon.', 'Actions'].map(h => (
                     <th key={h} style={{
-                      textAlign: ['Approved','Committed','Spent'].includes(h) ? 'right' : 'left',
+                      textAlign: ['Approved','Committed','Open','Paid actual'].includes(h) ? 'right' : 'left',
                       padding: '11px 16px', fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)',
                       letterSpacing: 0.6, textTransform: 'uppercase', whiteSpace: 'nowrap',
                     }}>{h}</th>
@@ -283,11 +338,15 @@
                       </td>
                       <td className="arsela-num" style={{ padding: '13px 16px', textAlign: 'right', fontSize: 13, color: 'var(--arsela-navy)' }}>{fmtMYR(p.approved, { compact: true })}</td>
                       <td className="arsela-num" style={{ padding: '13px 16px', textAlign: 'right', fontSize: 13, color: 'var(--arsela-navy)' }}>{fmtMYR(p.committed, { compact: true })}</td>
+                      <td className="arsela-num" style={{ padding: '13px 16px', textAlign: 'right', fontSize: 12.5, color: '#B4740A' }}>{fmtMYR(p.openCommitments ?? Math.max(0, p.committed - p.spent), { compact: true })}</td>
                       <td className="arsela-num" style={{ padding: '13px 16px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(p.spent, { compact: true })}</td>
-                      <td style={{ padding: '13px 16px', width: 160 }}>
+                      <td style={{ padding: '13px 16px', width: 150 }}>
                         <ArsProgress value={util} tone="blue" showValue/>
                       </td>
                       <td style={{ padding: '13px 16px', fontSize: 12, color: 'var(--arsela-text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>{p.eta}</td>
+                      <td style={{ padding: '13px 16px' }}>
+                        <ArsBadge tone={p.reconciled ? 'success' : 'warning'} size="sm" dot>{p.reconciled ? 'Recon.' : 'Pending'}</ArsBadge>
+                      </td>
                       <td style={{ padding: '13px 16px' }}>
                         <div style={{ display: 'flex', gap: 4, color: 'var(--arsela-text-subtle)' }}>
                           <button onClick={() => setEditProject(p)} title="Edit" style={{ width: 28, height: 28, border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}><IconEdit size={15}/></button>
