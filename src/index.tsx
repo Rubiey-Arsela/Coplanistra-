@@ -28,6 +28,7 @@ const SCRIPTS = [
   '/static/js/screens/PerformanceScreen.js',
   '/static/js/screens/ReportsScreen.js',
   '/static/js/screens/CopilotScreen.js',
+  '/static/js/screens/DataImportsScreen.js',
   '/static/js/screens/AdminScreen.js',
   '/static/js/screens/SettingsScreen.js',
   '/static/js/app.js',

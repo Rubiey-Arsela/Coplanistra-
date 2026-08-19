@@ -22,6 +22,7 @@
     'Performance': '/performance',
     'Reports': '/reports',
     'Copilot': '/copilot',
+    'Data Imports': '/dataimports',
     'Team & Access': '/admin',
     'Settings': '/settings',
   };
@@ -115,6 +116,7 @@
       showIf('Reconciliations') && <SidebarItem key="rc" icon={<IconReconcile/>} label="Reconciliations" active={active === 'Reconciliations'} onClick={() => navTo('Reconciliations')}/>,
       showIf('Cash Flow') && <SidebarItem key="cf" icon={<IconTrend/>} label="Cash Flow" active={active === 'Cash Flow'} onClick={() => navTo('Cash Flow')}/>,
       showIf('Performance') && <SidebarItem key="p" icon={<IconChart/>} label="Performance & KPIs" active={active === 'Performance'} onClick={() => navTo('Performance')}/>,
+      showIf('Data Imports') && <SidebarItem key="di" icon={<IconDownload/>} label="Data Imports" active={active === 'Data Imports'} onClick={() => navTo('Data Imports')}/>,
     ].filter(Boolean);
 
     const insItems = [

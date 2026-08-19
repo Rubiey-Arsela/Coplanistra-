@@ -23,6 +23,7 @@
     'performance': 'PerformanceScreen',
     'reports': 'ReportsScreen',
     'copilot': 'CopilotScreen',
+    'dataimports': 'DataImportsScreen',
     'admin': 'AdminScreen',
     'settings': 'SettingsScreen',
   };

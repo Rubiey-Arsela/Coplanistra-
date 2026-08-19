@@ -237,6 +237,48 @@
   ];
 
   /* ----------------------------------------------------------
+     Xero multi-report imports (2026-08-19). Coplanistra has no
+     Xero API/OAuth connection (static Cloudflare Pages hosting
+     has no backend to hold credentials) — instead, the user
+     exports each of these reports from Xero as a CSV and uploads
+     it via the "Data Imports" screen, mirroring the existing
+     Expenses "Import from Xero" pattern. Each import is stored as
+     a dated SNAPSHOT (Xero reports are always "as at" or "for
+     period" point-in-time exports), newest first. All figures are
+     stored in the report's native currency (AUD, per Arsela's
+     Xero org) exactly as imported — no FX conversion applied here.
+     XERO_REPORT_TYPES is the single source of truth for the 8
+     report types the client asked to import, consumed by the
+     Data Imports screen to render one card + CRUD per type. ---- */
+  const XERO_REPORT_TYPES = [
+    { key: 'profitAndLoss', label: 'Profit and Loss', settings: 'Current month and FY-to-date · accrual basis · monthly columns', purpose: 'Revenue, expenses and budget-versus-actual' },
+    { key: 'balanceSheet', label: 'Balance Sheet', settings: 'As at month-end · compare with previous month-end', purpose: 'Assets, liabilities, equity and solvency indicators' },
+    { key: 'cashFlowActuals', label: 'Statement of Cash Flows (Direct) / Cash Summary', settings: 'Current month and FY-to-date', purpose: 'Where cash came from and where it went' },
+    { key: 'bankReconciliation', label: 'Bank Reconciliation Report Pack', settings: 'Westpac Account #2077 · as at month-end', purpose: "Confirms Xero's bank balance and unreconciled items" },
+    { key: 'generalLedger', label: 'General Ledger Detail', settings: 'Current month · all accounts · accrual basis', purpose: 'Transaction-level matching, account mapping and duplicate checks' },
+    { key: 'trialBalance', label: 'Trial Balance', settings: 'As at month-end', purpose: 'Control check that Coplanistra totals agree with Xero' },
+    { key: 'agedReceivables', label: 'Aged Receivables Detail', settings: 'As at month-end', purpose: 'Customer amounts outstanding and expected cash receipts' },
+    { key: 'agedPayables', label: 'Aged Payables Detail', settings: 'As at month-end', purpose: 'Supplier amounts due and upcoming cash payments' },
+  ];
+  // Every seed array below starts empty ("start fresh" principle — no
+  // fabricated Xero data). The team imports real exports via the UI.
+  const seedProfitAndLoss = [];
+  const seedBalanceSheet = [];
+  const seedCashFlowActuals = [];
+  const seedBankReconciliation = [];
+  const seedGeneralLedger = [];
+  const seedTrialBalance = [];
+  const seedAgedReceivables = [];
+  const seedAgedPayables = [];
+  // "Documents outside Xero" — generic supporting-document register
+  // (bank statements, facility/loan agreements, board resolutions, audit
+  // letters, etc). Static hosting stores METADATA only (name, category,
+  // note, date, who attached it) — no backend/R2 wired up yet to persist
+  // raw file bytes, so the browser File object itself is not retained
+  // across reloads. This is disclosed in the UI upload dialog.
+  const seedSupportingDocuments = [];
+
+  /* ----------------------------------------------------------
      Multi-currency support. RM (MYR) is the base/default unit
      that every seeded figure is stored in. Rates below convert
      FROM MYR into the selected display currency — indicative
@@ -267,6 +309,16 @@
     scenarios: seedScenarios,
     cashFlowScenarios: seedCashFlowScenarios,
     kpis: seedKpis,
+    // Xero multi-report imports + supporting documents (2026-08-19)
+    profitAndLoss: seedProfitAndLoss,
+    balanceSheet: seedBalanceSheet,
+    cashFlowActuals: seedCashFlowActuals,
+    bankReconciliation: seedBankReconciliation,
+    generalLedger: seedGeneralLedger,
+    trialBalance: seedTrialBalance,
+    agedReceivables: seedAgedReceivables,
+    agedPayables: seedAgedPayables,
+    supportingDocuments: seedSupportingDocuments,
     // Arsela Resources' reporting currency is AUD; MYR remains available
     // as a display option via the currency switcher (CURRENCY_CONFIG
     // below) but is no longer the default.
@@ -301,6 +353,15 @@
   if (!state.cashFlowScenarios) state.cashFlowScenarios = seedCashFlowScenarios;
   if (!state.reconciliations) state.reconciliations = seedReconciliations;
   if (!state.kpis) state.kpis = seedKpis;
+  if (!state.profitAndLoss) state.profitAndLoss = seedProfitAndLoss;
+  if (!state.balanceSheet) state.balanceSheet = seedBalanceSheet;
+  if (!state.cashFlowActuals) state.cashFlowActuals = seedCashFlowActuals;
+  if (!state.bankReconciliation) state.bankReconciliation = seedBankReconciliation;
+  if (!state.generalLedger) state.generalLedger = seedGeneralLedger;
+  if (!state.trialBalance) state.trialBalance = seedTrialBalance;
+  if (!state.agedReceivables) state.agedReceivables = seedAgedReceivables;
+  if (!state.agedPayables) state.agedPayables = seedAgedPayables;
+  if (!state.supportingDocuments) state.supportingDocuments = seedSupportingDocuments;
   if (!state.currency) state.currency = 'AUD';
   // Force-correct the period label for any state persisted before the
   // FY-start-month fix (Arsela's FY starts 1 Jul, so 22 Jul 2026 is
@@ -558,6 +619,53 @@
           return { source, total: rows.length, resolved: rowsResolved.length, outstanding: rows.length - rowsResolved.length };
         }),
       };
+    },
+
+    // ---- Xero multi-report imports (2026-08-19) ----
+    // Config: the 8 report types the client wants to import from Xero,
+    // shared by the Data Imports screen and any contextual shortcuts.
+    xeroReportTypes() { return XERO_REPORT_TYPES; },
+    /** Generic add — stores a new dated snapshot for the given report
+     *  type (newest first). `type` is one of XERO_REPORT_TYPES[].key. */
+    addXeroImport(type, record) {
+      if (!state[type]) { console.error('Unknown Xero import type', type); return null; }
+      const id = type.toUpperCase().slice(0, 3) + '-' + Date.now();
+      const full = { id, importedAt: window.Store.today().toISOString(), ...record };
+      setState({ [type]: [full, ...state[type]] });
+      const label = (XERO_REPORT_TYPES.find((t) => t.key === type) || {}).label || type;
+      toast(`${label} imported: ${record.period || id}`, 'success');
+      return full;
+    },
+    deleteXeroImport(type, id) {
+      if (!state[type]) return;
+      setState({ [type]: state[type].filter((r) => r.id !== id) });
+      toast('Import removed', 'warning');
+    },
+    /** Most recent snapshot for a report type, or null. */
+    latestXeroImport(type) {
+      const arr = state[type];
+      return arr && arr.length ? arr[0] : null;
+    },
+    /** Snapshot immediately before the latest one (for "compare to
+     *  previous month-end" — used by Balance Sheet). */
+    priorXeroImport(type) {
+      const arr = state[type];
+      return arr && arr.length > 1 ? arr[1] : null;
+    },
+
+    // ---- supporting documents outside Xero (metadata only — see
+    // seedSupportingDocuments comment; no raw file bytes persisted) ----
+    addSupportingDocument(doc) {
+      const id = 'DOC-' + Date.now();
+      const currentUser = Store.getCurrentUser();
+      const record = { id, addedAt: window.Store.today().toISOString(), addedBy: currentUser ? currentUser.name : null, ...doc };
+      setState({ supportingDocuments: [record, ...state.supportingDocuments] });
+      toast(`Document logged: ${doc.name}`, 'success');
+      return record;
+    },
+    deleteSupportingDocument(id) {
+      setState({ supportingDocuments: state.supportingDocuments.filter((d) => d.id !== id) });
+      toast('Document removed', 'warning');
     },
 
     // ---- taxonomy management: departments / categories / budget codes ----

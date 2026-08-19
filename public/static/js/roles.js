@@ -21,7 +21,7 @@ const ROLES = {
     label: 'Manager',
     tone: 'blue',
     user: { name: 'Manager (preview)', title: 'Manager' },
-    nav: ['Dashboard', 'Budgets', 'Quarterly', 'Monthly', 'Expenses', 'Approvals', 'FY Closeout', 'CAPEX', 'Reconciliations', 'Cash Flow', 'Performance', 'Reports', 'Copilot', 'Team & Access', 'Settings'],
+    nav: ['Dashboard', 'Budgets', 'Quarterly', 'Monthly', 'Expenses', 'Approvals', 'FY Closeout', 'CAPEX', 'Reconciliations', 'Cash Flow', 'Performance', 'Reports', 'Copilot', 'Data Imports', 'Team & Access', 'Settings'],
     dashboard: ['budget-health', 'pending-approvals', 'variance-alerts', 'monthly-burn'],
   },
   approver: {
@@ -45,7 +45,7 @@ const ROLES = {
     label: 'Administrator',
     tone: 'purple',
     user: { name: 'Administrator (preview)', title: 'Workspace Admin' },
-    nav: ['Dashboard', 'Budgets', 'Quarterly', 'Monthly', 'Expenses', 'Approvals', 'FY Closeout', 'CAPEX', 'Reconciliations', 'Cash Flow', 'Performance', 'Reports', 'Copilot', 'Team & Access', 'Settings'],
+    nav: ['Dashboard', 'Budgets', 'Quarterly', 'Monthly', 'Expenses', 'Approvals', 'FY Closeout', 'CAPEX', 'Reconciliations', 'Cash Flow', 'Performance', 'Reports', 'Copilot', 'Data Imports', 'Team & Access', 'Settings'],
     dashboard: ['org-kpis', 'system-health', 'audit-events', 'user-activity'],
   },
 };
