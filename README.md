@@ -8,8 +8,9 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: https://9959c1d7.coplanistra.pages.dev)
+- **Production**: https://coplanistra.pages.dev (latest deploy: https://044421e1.coplanistra.pages.dev — 2026-08-19, includes Reconciliation module + Budgets/CAPEX standardisation)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
+- **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
 
 ## Session update (2026-08-19, part 2) — Reconciliation module shipped, financial-definition standardisation complete
 This session's 5-item priority list (period/currency → financial definitions/totals → Reconciliation module → Cash Flow calculations → Director's Report) is now **fully complete**:
