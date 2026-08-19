@@ -82,10 +82,12 @@
   );
 
   const PerformanceScreen = () => {
-    const [period, setPeriod] = React.useState('YTD Jul 2026');
+    const fyLbl = window.Store.fyLabel(window.Store.today());
+    const todayLbl = window.Store.today().toLocaleDateString('en-AU', { month: 'short', year: 'numeric' });
+    const [period, setPeriod] = React.useState(`YTD ${todayLbl}`);
     const [showPeriodMenu, setShowPeriodMenu] = React.useState(false);
     const periodRef = React.useRef(null);
-    const PERIODS = ['YTD Mar 2026', 'YTD Jun 2026', 'YTD Jul 2026', 'FY2026 (fcst)'];
+    const PERIODS = [`YTD ${todayLbl}`, 'Prior quarter', `${fyLbl} to date`, `${fyLbl} (fcst)`];
 
     React.useEffect(() => {
       const onDoc = (e) => {

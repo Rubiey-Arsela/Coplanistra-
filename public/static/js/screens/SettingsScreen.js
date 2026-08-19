@@ -1,7 +1,9 @@
 /* Settings — workspace preferences, wired to Store + localStorage */
 (function () {
 
-  const SETTINGS_LS_KEY = 'coplanistra_settings_v1';
+  // Bumped v1 -> v2: Arsela's fiscal year starts 1 July, not January —
+  // discard any stale cached settings that still carry the old default.
+  const SETTINGS_LS_KEY = 'coplanistra_settings_v2';
 
   function loadSettings() {
     try {
@@ -10,7 +12,7 @@
     } catch (e) {}
     return {
       orgName: 'Arsela Resources',
-      fiscalYearStart: 'January',
+      fiscalYearStart: 'July',
       emailDigest: true,
       approvalAlerts: true,
       budgetBreachAlerts: true,
@@ -209,8 +211,11 @@
                       onChange={(e) => patch({ fiscalYearStart: e.target.value })}
                       style={{ width: '100%', height: 40, border: '1px solid var(--arsela-border-strong)', borderRadius: 8, padding: '0 12px', fontSize: 14, fontFamily: 'inherit', outline: 'none', background: '#fff' }}
                     >
-                      {['January','April','July','October'].map(m => <option key={m} value={m}>{m}</option>)}
+                      {['July','January','April','October'].map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
+                    <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>
+                      Arsela Resources' fiscal year runs 1 July – 30 June — {window.Store.fyLabel(window.Store.today())} started 1 July {window.Store.fyYearOf(window.Store.today()) - 1}.
+                    </div>
                   </label>
                   <label style={{ display: 'block' }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Reporting currency</div>
@@ -222,7 +227,7 @@
                       {currencies.map(c => <option key={c.code} value={c.code}>{c.code} — {c.name} ({c.symbol})</option>)}
                     </select>
                     <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>
-                      All figures across Coplanistra are stored in MYR and displayed live-converted to this currency (RM is the base — 1 RM = {(currencies.find(c => c.code === 'USD') || {}).rate} USD).
+                      Arsela Resources' reporting currency is AUD (the default above). Underlying figures are held in a base unit and live-converted for display in any currency you select here.
                     </div>
                   </label>
                 </div>

@@ -119,8 +119,8 @@
       <ArsModal open onClose={onClose} title={initial ? 'Edit OPEX category' : 'Add OPEX category'} subtitle="Monthly plan vs actual burn"
         footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={save}>{initial ? 'Save changes' : 'Add category'}</ArsButton></>}>
         <ArsField label="Category name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Consulting Fees" style={arsFieldInputStyle}/></ArsField>
-        <ArsField label="Monthly plan (RM)"><input type="number" value={plan} onChange={(e) => setPlan(e.target.value)} placeholder="1000000" style={arsFieldInputStyle}/></ArsField>
-        <ArsField label="Actual MTD (RM)"><input type="number" value={actual} onChange={(e) => setActual(e.target.value)} placeholder="900000" style={arsFieldInputStyle}/></ArsField>
+        <ArsField label={`Monthly plan (${window.Store.getState().currency})`}><input type="number" value={plan} onChange={(e) => setPlan(e.target.value)} placeholder="1000000" style={arsFieldInputStyle}/></ArsField>
+        <ArsField label={`Actual MTD (${window.Store.getState().currency})`}><input type="number" value={actual} onChange={(e) => setActual(e.target.value)} placeholder="900000" style={arsFieldInputStyle}/></ArsField>
       </ArsModal>
     );
   }
@@ -165,7 +165,7 @@
     const exportMonthly = () => {
       exportRowsToCSV(
         `monthly-monitoring-${month.replace(' ', '-')}`,
-        ['Category', 'Monthly Plan (RM)', 'Actual MTD (RM)', 'Burn %', 'Variance %'],
+        ['Category', `Monthly Plan (${window.Store.getState().currency})`, `Actual MTD (${window.Store.getState().currency})`, 'Burn %', 'Variance %'],
         opex.map((c) => [c.name, c.plan, c.actual, ((c.actual / c.plan) * 100).toFixed(1), (((c.actual - c.plan) / c.plan) * 100).toFixed(1)])
       );
     };

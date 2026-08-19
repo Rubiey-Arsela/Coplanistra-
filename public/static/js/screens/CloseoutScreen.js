@@ -127,14 +127,14 @@
     };
 
     const lock = () => {
-      window.Store.toast(`FY2026 locked — ${carry.length} carried over, ${release.length} released, ${archive.length} archived`, 'success');
+      window.Store.toast(`${window.Store.fyLabel(window.Store.today())} locked — ${carry.length} carried over, ${release.length} released, ${archive.length} archived`, 'success');
       window.Router.go('/budgets');
     };
 
     const exportCloseout = () => {
       exportRowsToCSV(
-        'fy2026-closeout-report',
-        ['Budget', 'ID', 'Department', 'Allocated (RM)', 'Spent (RM)', 'Remaining (RM)', 'Decision', 'Note'],
+        `${window.Store.fyLabel(window.Store.today()).toLowerCase().replace(/\s+/g,'-')}-closeout-report`,
+        ['Budget', 'ID', 'Department', `Allocated (${window.Store.getState().currency})`, `Spent (${window.Store.getState().currency})`, `Remaining (${window.Store.getState().currency})`, 'Decision', 'Note'],
         allRows.map((b) => [b.name, b.id, b.dept, b.allocated, b.spent, b.allocated - b.spent, b.closeoutDecision, b.closeoutNote])
       );
     };
@@ -142,7 +142,7 @@
     return (
       <AppFrame
         active="FY Closeout"
-        title="Fiscal Year Closeout · FY 2026"
+        title={`Fiscal Year Closeout · ${window.Store.fyLabel(window.Store.today())}`}
         breadcrumb={['Arsela Resources', 'Plan', 'Budgets', 'FY Closeout']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
@@ -156,14 +156,14 @@
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
             <ArsCard onClick={() => setDecisionFilter('All')} title="Click to view all budgets" style={{ cursor: 'pointer' }}>
-              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>FY26 total budget</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>{window.Store.fyLabel(window.Store.today())} total budget</div>
               <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8, letterSpacing: -0.3 }}>{fmtMYR(totalBudget, { compact: true })}</div>
               <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{rows.length} active budgets to close</div>
             </ArsCard>
             <ArsCard onClick={() => setDecisionFilter('carry')} title="Click to view carry-over budgets" style={{ cursor: 'pointer', borderColor: 'rgba(26,135,84,0.24)', background: '#F6FDF8' }}>
               <div style={{ fontSize: 11.5, color: 'var(--success)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Recommended carry-over</div>
               <div className="arsela-num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--success)', marginTop: 8, letterSpacing: -0.3 }}>{fmtMYR(carrySum, { compact: true })}</div>
-              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{carry.length} budgets → FY27</div>
+              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{carry.length} budgets → {window.Store.fyLabel(new Date(window.Store.today().getFullYear() + 1, window.Store.today().getMonth(), 1))}</div>
             </ArsCard>
             <ArsCard onClick={() => setDecisionFilter('release')} title="Click to view released budgets" style={{ cursor: 'pointer' }}>
               <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Released to reserves</div>

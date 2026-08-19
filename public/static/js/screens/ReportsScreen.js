@@ -31,7 +31,13 @@
     const w = 660, h = 220, pad = { l: 44, r: 20, t: 20, b: 30 };
     const s1 = [12, 14, 15, 18, 20, 21, 24];
     const s2 = [10, 12, 14, 16, 17, 19, 22];
-    const labels = ['Jan','Feb','Mar','Apr','May','Jun','Jul'];
+    const labels = (() => {
+      const all = ['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'];
+      const idx = all.indexOf(window.Store.today().toLocaleDateString('en-AU', { month: 'short' }));
+      const end = idx === -1 ? all.length - 1 : idx;
+      const start = Math.max(0, end - 6);
+      return all.slice(start, end + 1);
+    })();
     const max = 30;
     const xFor = i => pad.l + (w - pad.l - pad.r) * (i / (labels.length - 1));
     const yFor = v => pad.t + (h - pad.t - pad.b) * (1 - v/max);
@@ -502,7 +508,14 @@
   };
 
   const REPORT_TABS = ['Director\'s report','Variance analysis','Forecast','Cash-flow','Vendor spend','Custom'];
-  const PERIODS = ['Q1 to date (Jul–' + (window.Store && window.Store.today ? window.Store.today().toLocaleDateString('en-AU', { month: 'short', year: 'numeric' }) : 'Sep 2026') + ')', 'Prior quarter', 'FY2026 (full year)', 'FY2027 (fcst)'];
+  const REPORTS_FY_LABEL = window.Store.fyLabel(window.Store.today());
+  const REPORTS_PRIOR_FY_LABEL = window.Store.fyLabel(new Date(window.Store.today().getFullYear() - 1, window.Store.today().getMonth(), 1));
+  const PERIODS = [
+    `${window.Store.fyQuarterLabel(window.Store.today())} to date (Jul–` + window.Store.today().toLocaleDateString('en-AU', { month: 'short', year: 'numeric' }) + ')',
+    'Prior quarter',
+    `${REPORTS_PRIOR_FY_LABEL} (full year)`,
+    `${REPORTS_FY_LABEL} (fcst)`,
+  ];
 
   const ReportsScreen = () => {
     const [s, setS] = React.useState(window.Store.getState());
@@ -520,7 +533,15 @@
       return () => document.removeEventListener('mousedown', onDoc);
     }, []);
 
-    const heatMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul'];
+    // Rolling 7-month window ending at the current fiscal month, in
+    // fiscal-year order (Arsela's FY runs 1 Jul \u2013 30 Jun).
+    const heatMonths = (() => {
+      const all = ['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'];
+      const idx = all.indexOf(window.Store.today().toLocaleDateString('en-AU', { month: 'short' }));
+      const end = idx === -1 ? all.length - 1 : idx;
+      const start = Math.max(0, end - 6);
+      return all.slice(start, end + 1);
+    })();
     const heatData = [
       ['Ports & Logistics', [62, 58, 65, 71, 74, 82, 88]],
       ['Operations',        [78, 82, 85, 88, 91, 93, 96]],

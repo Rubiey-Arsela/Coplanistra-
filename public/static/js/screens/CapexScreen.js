@@ -150,7 +150,7 @@
         {/* Category donut + depreciation */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
           <ArsCard>
-            <ArsSectionHeader title="Envelope by category" subtitle="Share of approved CAPEX · FY26"/>
+            <ArsSectionHeader title="Envelope by category" subtitle={`Share of approved CAPEX · ${window.Store.fyLabel(window.Store.today())}`}/>
             {catData.length === 0 ? (
               <ArsEmpty icon={<IconBuilding size={22}/>} title="No CAPEX projects yet" body="Create your first project to see the breakdown."/>
             ) : (

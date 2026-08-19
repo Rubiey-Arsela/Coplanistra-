@@ -161,7 +161,7 @@
                       </select>
                     </div>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Total budget (RM)</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Total budget ({window.Store.getState().currency})</div>
                       <input value={total} onChange={(e) => setTotal(e.target.value.replace(/[^0-9]/g, ''))} style={{
                         width: '100%', height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 13, fontFamily: 'inherit', color: 'var(--arsela-navy)', boxSizing: 'border-box',
                       }}/>

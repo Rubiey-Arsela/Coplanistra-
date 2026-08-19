@@ -282,7 +282,7 @@
 
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 20 }}>
             <ArsCard>
-              <ArsSectionHeader title="Burn-down · FY 2026" subtitle="Actual spend against planned monthly burn"/>
+              <ArsSectionHeader title={`Burn-down · ${window.Store.fyLabel(window.Store.today())}`} subtitle="Actual spend against planned monthly burn"/>
               <div style={{ display: 'flex', gap: 20, marginBottom: 6, fontSize: 12, color: 'var(--arsela-text-muted)' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 20, height: 2, borderTop: '2px dashed #B9CBFF' }}/> Planned</span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 20, height: 2, background: '#1343CB' }}/> Actual</span>

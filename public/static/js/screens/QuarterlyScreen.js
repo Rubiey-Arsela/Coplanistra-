@@ -11,7 +11,7 @@
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
           <div>
-            <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>{q} · FY 2026</div>
+            <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>{q} · {window.Store.fyLabel(window.Store.today())}</div>
             <div style={{ fontSize: 11, color: 'var(--arsela-text-subtle)', marginTop: 3 }}>{actual != null ? 'Actual' : 'Forecast'}</div>
           </div>
           {current && <ArsBadge tone="teal" size="sm">Current</ArsBadge>}
@@ -109,7 +109,7 @@
       <ArsModal open onClose={onClose} title="New scenario" subtitle="Add a full-year projection scenario"
         footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={save}>Add scenario</ArsButton></>}>
         <ArsField label="Scenario name"><input value={n} onChange={(e) => setN(e.target.value)} placeholder="e.g. Upside — new terminal" style={arsFieldInputStyle}/></ArsField>
-        <ArsField label="Full-year value (RM)"><input type="number" value={v} onChange={(e) => setV(e.target.value)} placeholder="254800000" style={arsFieldInputStyle}/></ArsField>
+        <ArsField label={`Full-year value (${window.Store.getState().currency})`}><input type="number" value={v} onChange={(e) => setV(e.target.value)} placeholder="254800000" style={arsFieldInputStyle}/></ArsField>
         <ArsField label="Description"><input value={d} onChange={(e) => setD(e.target.value)} placeholder="e.g. +2.6% vs plan" style={arsFieldInputStyle}/></ArsField>
         <ArsField label="Tone">
           <select value={c} onChange={(e) => setC(e.target.value)} style={arsFieldInputStyle}>
@@ -175,7 +175,7 @@
     const exportSubmissions = () => {
       exportRowsToCSV(
         'q3-division-submissions',
-        ['Division', 'Owner', 'Submitted', 'Prior Forecast (RM)', 'New Forecast (RM)', 'Δ %', 'Status'],
+        ['Division', 'Owner', 'Submitted', `Prior Forecast (${window.Store.getState().currency})`, `New Forecast (${window.Store.getState().currency})`, 'Δ %', 'Status'],
         submissions.map((r) => [
           r.d, r.o, r.s, r.pf * 1e6, r.nf != null ? r.nf * 1e6 : '', r.nf != null ? (((r.nf - r.pf) / r.pf) * 100).toFixed(1) : '', r.st,
         ])
@@ -206,7 +206,7 @@
         <div className="coplan-page">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
-              <div className="arsela-h1" style={{ fontSize: 22, letterSpacing: -0.3 }}>Q3 FY2026 reforecast</div>
+              <div className="arsela-h1" style={{ fontSize: 22, letterSpacing: -0.3 }}>{window.Store.fyQuarterLabel(window.Store.today())} reforecast</div>
               <div style={{ fontSize: 13, color: 'var(--arsela-text-muted)', marginTop: 4 }}>
                 Cycle closes <b style={{ color: 'var(--arsela-navy)' }}>31 July 2026</b> · {submittedCount} of {submissions.length} divisions submitted · <span style={{ color: 'var(--warning)' }}>{overdueCount} overdue</span>
               </div>

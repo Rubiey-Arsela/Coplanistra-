@@ -302,7 +302,7 @@
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: '#FAFBFD', borderBottom: '1px solid var(--arsela-border)', position: 'sticky', top: 0 }}>
-                    {['', 'Date', 'Description', 'Vendor', 'Amount (RM)', 'Department', 'Category'].map((h, i) => (
+                    {['', 'Date', 'Description', 'Vendor', `Amount (${window.Store.getState().currency})`, 'Department', 'Category'].map((h, i) => (
                       <th key={i} style={{ textAlign: 'left', padding: '8px 10px', fontSize: 10.5, fontWeight: 700, color: 'var(--arsela-text-muted)', letterSpacing: 0.5, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
@@ -526,7 +526,7 @@
             <ArsButton variant="secondary" size="md" icon={<IconFile size={15}/>} onClick={() => setImportOpen(true)}>Import from Xero</ArsButton>
             <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => exportRowsToCSV(
               'expenses',
-              ['ID', 'Description', 'Vendor', 'Category', 'Department', 'Amount (RM)', 'Status', 'Date'],
+              ['ID', 'Description', 'Vendor', 'Category', 'Department', `Amount (${window.Store.getState().currency})`, 'Status', 'Date'],
               filtered.map((e) => [e.id, e.desc, e.vendor, e.category, e.dept, e.amount, e.status, e.when])
             )}>Export</ArsButton>
             <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => document.getElementById('quick-add-desc')?.focus()}>New Expense</ArsButton>
@@ -620,7 +620,7 @@
                   </label>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <label style={{ display: 'block' }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Amount (RM)</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--arsela-navy)' }}>Amount ({window.Store.getState().currency})</div>
                       <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" style={{
                         width: '100%', height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', padding: '0 12px', fontSize: 14, fontFamily: 'inherit', color: 'var(--arsela-navy)', boxSizing: 'border-box',
                       }}/>

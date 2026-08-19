@@ -100,7 +100,7 @@
     const utilisationImpact = [
       ['Dept · Current', 48, 'blue'],
       ['Dept · After approval', Math.min(100, Math.round(48 + selected.amount / 5_000_000)), 'teal'],
-      ['Group FY26 envelope', 71, 'navy'],
+      [`Group ${window.Store.fyLabel(window.Store.today())} envelope`, 71, 'navy'],
     ];
 
     return (

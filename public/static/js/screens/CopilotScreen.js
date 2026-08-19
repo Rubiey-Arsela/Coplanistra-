@@ -103,7 +103,7 @@
       role: 'ai',
       cite: 'Monthly monitoring · Quarterly planning · 12-month rolling forecast',
       chart: true,
-      chips: ['Draft board narrative', 'Compare to Q3 FY25', 'Explain by category', 'Recommend actions'],
+      chips: ['Draft board narrative', 'Compare to prior-year quarter', 'Explain by category', 'Recommend actions'],
       body: (
         <React.Fragment>
           <div>Based on Q1–Q3 actuals plus current commitments, the model projects <b>full-year spend of {curLabel(254.8, 1)} (base case)</b>, {curLabel(6.4, 1)} above plan. The chart shows monthly cumulative burn trending back within tolerance from October onwards once the ERP migration completes.</div>
