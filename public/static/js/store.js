@@ -195,6 +195,50 @@
       openCommitments: 4.2e6, paidActuals: 0, totalExposure: 4.2e6, remainingApprovedFunding: 34.4e6, constructionWIP: 0, inServiceDate: '2027-04-01', xeroFixedAssetRef: null, reconciled: true, actualsThrough: '2026-07-18' },
   ];
 
+  /* ----------------------------------------------------------
+     Reconciliation module — tracks whether Xero has actually been
+     matched against each of Arsela's real source-of-truth ledgers.
+     This is the missing link the rest of the app's "Actual" figures
+     depend on: a budget/expense/CAPEX line can only be counted as a
+     reconciled actual once its underlying Xero transaction has been
+     matched here. Six reconciliation "lanes" per the client's real
+     process, each holding its own line items:
+       1. Xero vs Westpac Account #2077 (main operating bank account)
+       2. SFR payment schedule vs Xero
+       3. Costentra staff claims vs Xero
+       4. Expenses paid outside Westpac vs Xero
+       5. Budgeting actuals vs Xero
+       6. Intercompany items
+     statusOptions: Matched / Potential match / Missing in Xero /
+     Duplicate / Timing difference / Different entity / Awaiting
+     supporting document / Reviewed. ---------------------------- */
+  const RECON_SOURCES = [
+    'Xero vs Westpac Account #2077',
+    'SFR payment schedule vs Xero',
+    'Costentra staff claims vs Xero',
+    'Expenses paid outside Westpac vs Xero',
+    'Budgeting actuals vs Xero',
+    'Intercompany items',
+  ];
+  const RECON_STATUSES = ['Matched', 'Potential match', 'Missing in Xero', 'Duplicate', 'Timing difference', 'Different entity', 'Awaiting supporting document', 'Reviewed'];
+
+  const seedReconciliations = [
+    { id: 'RC-1001', source: 'Xero vs Westpac Account #2077', date: '2026-07-18', description: 'AWS Malaysia — Cloud hosting Q3', reference: 'XERO-BILL-88231', amount: 42_180, status: 'Matched', linkedExpenseId: 'EXP-2213', reviewer: 'Nadia Yeoh', reviewedAt: '2026-07-19', note: 'Bank line and Xero bill match exactly.' },
+    { id: 'RC-1002', source: 'Xero vs Westpac Account #2077', date: '2026-07-13', description: 'Michael Page — Recruitment fees', reference: 'XERO-BILL-88190', amount: 18_600, status: 'Matched', linkedExpenseId: 'EXP-2212', reviewer: 'Nadia Yeoh', reviewedAt: '2026-07-14', note: 'Confirmed against bank statement line 44.' },
+    { id: 'RC-1003', source: 'Xero vs Westpac Account #2077', date: '2026-07-12', description: 'Trina Solar — Solar panel spares', reference: 'XERO-BILL-88144', amount: 96_400, status: 'Timing difference', linkedExpenseId: 'EXP-2211', reviewer: null, reviewedAt: null, note: 'Posted in Xero 12 Jul but bank debit not yet cleared — expected value date 22 Jul.' },
+    { id: 'RC-1004', source: 'Xero vs Westpac Account #2077', date: '2026-07-19', description: 'Unknown outbound wire — SGD 14,200', reference: 'BANK-TXN-77021', amount: 41_600, status: 'Missing in Xero', linkedExpenseId: null, reviewer: null, reviewedAt: null, note: 'Bank line has no matching Xero bill — flagged for finance follow-up.' },
+    { id: 'RC-1005', source: 'SFR payment schedule vs Xero', date: '2026-07-01', description: 'SFR instalment 7 of 24 — LNG Storage EPC', reference: 'SFR-2026-07', amount: 13_333_333, status: 'Matched', linkedExpenseId: null, reviewer: 'Zara Mahmood', reviewedAt: '2026-07-02', note: 'Matches approved SFR schedule and Xero fixed-asset WIP posting.' },
+    { id: 'RC-1006', source: 'SFR payment schedule vs Xero', date: '2026-08-01', description: 'SFR instalment 8 of 24 — LNG Storage EPC', reference: 'SFR-2026-08', amount: 13_333_333, status: 'Awaiting supporting document', linkedExpenseId: null, reviewer: null, reviewedAt: null, note: 'Awaiting EPC contractor progress certificate before Xero posting.' },
+    { id: 'RC-1007', source: 'Costentra staff claims vs Xero', date: '2026-07-10', description: 'F. Hamzah — travel & subsistence claim', reference: 'CST-CLM-5521', amount: 2_140, status: 'Matched', linkedExpenseId: null, reviewer: 'Nadia Yeoh', reviewedAt: '2026-07-11', note: 'Reimbursement matches Costentra claim portal export.' },
+    { id: 'RC-1008', source: 'Costentra staff claims vs Xero', date: '2026-07-16', description: 'P. Nair — training course claim', reference: 'CST-CLM-5540', amount: 3_800, status: 'Potential match', linkedExpenseId: null, reviewer: null, reviewedAt: null, note: 'Amount and date close to a Xero entry but payee name differs — needs confirmation.' },
+    { id: 'RC-1009', source: 'Expenses paid outside Westpac vs Xero', date: '2026-07-15', description: 'Corporate card — site visit fuel & tolls', reference: 'CC-7743-0715', amount: 640, status: 'Matched', linkedExpenseId: null, reviewer: 'Admin Arsela', reviewedAt: '2026-07-17', note: 'Corporate card statement matches Xero spend-money entry.' },
+    { id: 'RC-1010', source: 'Expenses paid outside Westpac vs Xero', date: '2026-07-20', description: 'Petty cash — office supplies', reference: 'PC-2026-07-20', amount: 210, status: 'Reviewed', linkedExpenseId: null, reviewer: 'Admin Arsela', reviewedAt: '2026-07-21', note: 'Below materiality threshold — reviewed and closed without full Xero trace.' },
+    { id: 'RC-1011', source: 'Budgeting actuals vs Xero', date: '2026-07-18', description: 'Port Klang Terminal Ops — cumulative spend', reference: 'BUD-2601', amount: 31_640_000, status: 'Matched', linkedExpenseId: null, reviewer: 'Faris Hamzah', reviewedAt: '2026-07-19', note: 'Budget spend-to-date ties out to Xero P&L extract for the department.' },
+    { id: 'RC-1012', source: 'Budgeting actuals vs Xero', date: '2026-07-18', description: 'Fleet Maintenance & Renewal — cumulative spend', reference: 'BUD-2602', amount: 19_820_000, status: 'Matched', linkedExpenseId: null, reviewer: 'Faris Hamzah', reviewedAt: '2026-07-19', note: 'Ties to Xero; over-budget position confirmed genuine, not a data error.' },
+    { id: 'RC-1013', source: 'Intercompany items', date: '2026-07-14', description: 'Arsela Resources ⇄ Arsela Logistics — management fee', reference: 'IC-2026-Q1-04', amount: 1_250_000, status: 'Duplicate', linkedExpenseId: null, reviewer: null, reviewedAt: null, note: 'Appears posted twice across the two entities — needs one-sided reversal.' },
+    { id: 'RC-1014', source: 'Intercompany items', date: '2026-07-08', description: 'Arsela Resources ⇄ Arsela Ports Sdn Bhd — shared services recharge', reference: 'IC-2026-Q1-02', amount: 480_000, status: 'Different entity', linkedExpenseId: null, reviewer: null, reviewedAt: null, note: 'Posted against the wrong subsidiary code in Xero — needs journal correction.' },
+  ];
+
   const seedNotifications = [
     { id: 'N1', i: '✓', tone: 'success', t: 'Expense approved', d: 'EXP-2214 · Fleet servicing · RM 8,420', when: '3 min ago', unread: true },
     { id: 'N2', i: '⚠', tone: 'warning', t: 'Budget threshold breached', d: 'IT · +12.8% over July plan', when: '18 min ago', unread: true },
@@ -282,6 +326,7 @@
     approvals: seedApprovals,
     expenses: seedExpenses,
     capexProjects: seedCapex,
+    reconciliations: seedReconciliations,
     departments: seedDepartments,
     categories: seedCategories,
     opexCategories: seedOpexCategories,
@@ -320,6 +365,7 @@
   if (!state.budgetCodes) state.budgetCodes = seedBudgetCodes;
   if (!state.scenarios) state.scenarios = seedScenarios;
   if (!state.cashFlowScenarios) state.cashFlowScenarios = seedCashFlowScenarios;
+  if (!state.reconciliations) state.reconciliations = seedReconciliations;
   if (!state.currency) state.currency = 'AUD';
   // Force-correct the period label for any state persisted before the
   // FY-start-month fix (Arsela's FY starts 1 Jul, so 22 Jul 2026 is
@@ -490,6 +536,58 @@
       const b = state.budgets.find((x) => x.id === id);
       setState({ budgets: state.budgets.map((x) => (x.id === id ? { ...x, status: 'active' } : x)) });
       if (b) toast(`Budget restored to Active: ${b.name} (${id})`, 'success');
+    },
+
+    // ---- reconciliation module ----
+    reconSources() { return RECON_SOURCES; },
+    reconStatuses() { return RECON_STATUSES; },
+    addReconItem(item) {
+      const id = 'RC-' + Math.floor(2000 + Math.random() * 8000);
+      const record = { id, status: 'Potential match', linkedExpenseId: null, reviewer: null, reviewedAt: null, note: '', ...item };
+      setState({ reconciliations: [record, ...state.reconciliations] });
+      toast(`Reconciliation item added: ${id}`, 'success');
+      return record;
+    },
+    updateReconItem(id, patch) {
+      setState({ reconciliations: state.reconciliations.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
+    },
+    setReconStatus(id, status, reviewer) {
+      const item = state.reconciliations.find((r) => r.id === id);
+      const isResolved = status === 'Matched' || status === 'Reviewed';
+      setState({
+        reconciliations: state.reconciliations.map((r) => (r.id === id ? {
+          ...r, status,
+          reviewer: isResolved ? (reviewer || (window.Store.getCurrentUser() || {}).name || r.reviewer) : r.reviewer,
+          reviewedAt: isResolved ? window.Store.today().toISOString().slice(0, 10) : r.reviewedAt,
+        } : r)),
+      });
+      if (item) toast(`${item.description} → ${status}`, isResolved ? 'success' : 'info');
+    },
+    deleteReconItem(id) {
+      const item = state.reconciliations.find((r) => r.id === id);
+      setState({ reconciliations: state.reconciliations.filter((r) => r.id !== id) });
+      if (item) toast(`Reconciliation item removed: ${id}`, 'warning');
+    },
+    // Summary used by the Dashboard banner / Director's Report — a
+    // single source of truth for "is Arsela's data actually reconciled".
+    reconSummary() {
+      const items = state.reconciliations;
+      const resolved = items.filter((r) => r.status === 'Matched' || r.status === 'Reviewed');
+      const outstanding = items.filter((r) => r.status !== 'Matched' && r.status !== 'Reviewed');
+      const latestReviewed = items.reduce((latest, r) => (r.reviewedAt && (!latest || r.reviewedAt > latest)) ? r.reviewedAt : latest, null);
+      return {
+        total: items.length,
+        resolved: resolved.length,
+        outstanding: outstanding.length,
+        outstandingValue: outstanding.reduce((a, r) => a + (r.amount || 0), 0),
+        pctResolved: items.length ? (resolved.length / items.length) * 100 : 100,
+        latestReviewed,
+        bySource: RECON_SOURCES.map((source) => {
+          const rows = items.filter((r) => r.source === source);
+          const rowsResolved = rows.filter((r) => r.status === 'Matched' || r.status === 'Reviewed');
+          return { source, total: rows.length, resolved: rowsResolved.length, outstanding: rows.length - rowsResolved.length };
+        }),
+      };
     },
 
     // ---- taxonomy management: departments / categories / budget codes ----

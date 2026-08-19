@@ -48,6 +48,9 @@ const IconRefresh = (p) => <Icon {...p}><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><
 const IconArrowRight = (p) => <Icon {...p}><path d="M5 12h14M13 6l6 6-6 6"/></Icon>;
 const IconTrash = (p) => <Icon {...p}><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M10 11v6M14 11v6"/></Icon>;
 const IconArchive = (p) => <Icon {...p}><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></Icon>;
+// Two overlapping ledger columns with a matching tick — represents
+// reconciling one ledger (Xero) against another (bank / claims / etc).
+const IconReconcile = (p) => <Icon {...p}><rect x="2.5" y="4" width="9" height="16" rx="1.5"/><rect x="12.5" y="4" width="9" height="16" rx="1.5"/><path d="M5.5 9.5l1.5 1.5 2.5-3"/><path d="M15.5 13.5l1.5 1.5 2.5-3"/></Icon>;
 
 Object.assign(window, {
   IconDashboard, IconWallet, IconReceipt, IconCheck, IconApproval, IconChart,
@@ -56,5 +59,5 @@ Object.assign(window, {
   IconTrend, IconMore, IconClose, IconCalendar, IconBuilding, IconShield,
   IconTag, IconMenu, IconLock, IconMail, IconEye, IconCompass, IconInbox,
   IconFile, IconHelp, IconInfo, IconExport, IconClock, IconEdit, IconRefresh,
-  IconArrowRight, IconTrash, IconArchive
+  IconArrowRight, IconTrash, IconArchive, IconReconcile
 });

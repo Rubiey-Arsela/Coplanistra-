@@ -18,6 +18,7 @@
     'approvals': 'ApprovalsScreen',
     'closeout': 'CloseoutScreen',
     'capex': 'CapexScreen',
+    'reconciliations': 'ReconciliationScreen',
     'cashflow': 'CashFlowScreen',
     'performance': 'PerformanceScreen',
     'reports': 'ReportsScreen',

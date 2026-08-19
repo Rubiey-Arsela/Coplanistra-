@@ -17,6 +17,7 @@
     'Approvals': '/approvals',
     'FY Closeout': '/closeout',
     'CAPEX': '/capex',
+    'Reconciliations': '/reconciliations',
     'Cash Flow': '/cashflow',
     'Performance': '/performance',
     'Reports': '/reports',
@@ -111,6 +112,7 @@
 
     const finItems = [
       showIf('CAPEX') && <SidebarItem key="c" icon={<IconBuilding/>} label="CAPEX Portfolio" active={active === 'CAPEX'} onClick={() => navTo('CAPEX')}/>,
+      showIf('Reconciliations') && <SidebarItem key="rc" icon={<IconReconcile/>} label="Reconciliations" active={active === 'Reconciliations'} onClick={() => navTo('Reconciliations')}/>,
       showIf('Cash Flow') && <SidebarItem key="cf" icon={<IconTrend/>} label="Cash Flow" active={active === 'Cash Flow'} onClick={() => navTo('Cash Flow')}/>,
       showIf('Performance') && <SidebarItem key="p" icon={<IconChart/>} label="Performance & KPIs" active={active === 'Performance'} onClick={() => navTo('Performance')}/>,
     ].filter(Boolean);

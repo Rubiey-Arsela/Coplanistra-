@@ -23,6 +23,7 @@ const SCRIPTS = [
   '/static/js/screens/QuarterlyScreen.js',
   '/static/js/screens/MonthlyScreen.js',
   '/static/js/screens/CapexScreen.js',
+  '/static/js/screens/ReconciliationScreen.js',
   '/static/js/screens/CashFlowScreen.js',
   '/static/js/screens/PerformanceScreen.js',
   '/static/js/screens/ReportsScreen.js',
