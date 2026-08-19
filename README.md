@@ -8,9 +8,17 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: https://ca95ba96.coplanistra.pages.dev — 2026-08-19, includes Performance/KPI CRUD, Monthly Monitoring rewrite, Approvals audit trail)
+- **Production**: https://coplanistra.pages.dev (latest deploy: https://24727987.coplanistra.pages.dev — 2026-08-19, includes Performance/KPI CRUD, Monthly Monitoring rewrite, Approvals audit trail, Copilot dynamic-quarter fix, divide-by-zero audit)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-08-19, part 4) — Copilot dynamic quarter fix + divide-by-zero audit, redeployed
+- **AI Copilot**: the seeded conversation opener, sidebar conversation history, and the quarter-comparison fallback reply no longer show a hardcoded "Q3" — they now compute the current/prior/next quarter and date live from `Store.fyQuarterLabel()`/`fyQuarterOf()`/`today()`, so Copilot's canned demo content stays correct as the app's reference date advances.
+- **Divide-by-zero audit** (codebase-wide sweep, in preparation for an eventual empty-state/"start fresh" reset): guarded three more `NaN%` risks found in Budgets ("% of all budgets" stat), Budget Detail (utilisation %), and Quarterly Planning (submission-progress %). Combined with the guards already added to Performance and Monthly Monitoring in the previous update, all screens with percentage-of-total calculations now degrade to `0%` instead of `NaN%` when their underlying arrays are empty.
+- Fixed the `ApprovalsScreen.js` `currentUser` reference (was undeclared, would have thrown at runtime) and added a visible disabled-state + tooltip on the Reject/Request-changes buttons when the note field is empty, surfacing the "note required for audit trail" rule proactively instead of only via a toast after clicking.
+- Verified with `npm run build` (success) and a Playwright console-error sweep across all 14 app routes (authenticated) — zero errors/warnings beyond the expected Babel-standalone dev notice.
+- Committed (`8634ad8`) and redeployed to Cloudflare Pages (BYOK) — production alias confirmed serving the latest build.
+- **Still pending**: the "remove demo figures / start fresh" request remains awaiting scope confirmation from the user (see below) — no data-clearing has been performed.
 
 ## Session update (2026-08-19, part 3) — Remaining screens completed
 - **Performance & KPIs**: KPI data lifted into the central Store (15 seeded KPIs across Financial / Operational / Sustainability perspectives) with full working Add/Edit/Delete KPI modal — previously a non-functional button.
@@ -18,7 +26,6 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Approvals**: full audit trail — every approve/reject/request-changes decision now records who decided and when, sourced from the real signed-in user; Reject and Request-changes require a note (enforced in the data layer, surfaced in the UI with disabled buttons + tooltip when the note is empty).
 - Fixed several `ArsProgress` style-prop bugs and divide-by-zero (`NaN%`) bugs surfaced during this work.
 - Verified with `npm run build` (success) and a Playwright console-error sweep on `/approvals`, `/monthly`, `/performance` (authenticated) — zero errors.
-- **Not yet done**: Copilot screen's hardcoded "Q3" references (identified, low priority); the "remove demo figures / start fresh" request is still awaiting scope confirmation from the user (see below) — no data-clearing has been performed.
 
 ## Session update (2026-08-19, part 2) — Reconciliation module shipped, financial-definition standardisation complete
 This session's 5-item priority list (period/currency → financial definitions/totals → Reconciliation module → Cash Flow calculations → Director's Report) is now **fully complete**:
