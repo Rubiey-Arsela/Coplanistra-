@@ -8,9 +8,17 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: https://044421e1.coplanistra.pages.dev — 2026-08-19, includes Reconciliation module + Budgets/CAPEX standardisation)
+- **Production**: https://coplanistra.pages.dev (latest deploy: https://ca95ba96.coplanistra.pages.dev — 2026-08-19, includes Performance/KPI CRUD, Monthly Monitoring rewrite, Approvals audit trail)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-08-19, part 3) — Remaining screens completed
+- **Performance & KPIs**: KPI data lifted into the central Store (15 seeded KPIs across Financial / Operational / Sustainability perspectives) with full working Add/Edit/Delete KPI modal — previously a non-functional button.
+- **Monthly Monitoring**: calendar heatmap no longer randomises on every re-render (deterministic seeded spend), threshold alerts now derived live from real OPEX over-plan data, CAPEX "Commitments" figure now pulled from real CAPEX project data instead of a hardcoded number, month navigation is dynamic relative to today's date.
+- **Approvals**: full audit trail — every approve/reject/request-changes decision now records who decided and when, sourced from the real signed-in user; Reject and Request-changes require a note (enforced in the data layer, surfaced in the UI with disabled buttons + tooltip when the note is empty).
+- Fixed several `ArsProgress` style-prop bugs and divide-by-zero (`NaN%`) bugs surfaced during this work.
+- Verified with `npm run build` (success) and a Playwright console-error sweep on `/approvals`, `/monthly`, `/performance` (authenticated) — zero errors.
+- **Not yet done**: Copilot screen's hardcoded "Q3" references (identified, low priority); the "remove demo figures / start fresh" request is still awaiting scope confirmation from the user (see below) — no data-clearing has been performed.
 
 ## Session update (2026-08-19, part 2) — Reconciliation module shipped, financial-definition standardisation complete
 This session's 5-item priority list (period/currency → financial definitions/totals → Reconciliation module → Cash Flow calculations → Director's Report) is now **fully complete**:
