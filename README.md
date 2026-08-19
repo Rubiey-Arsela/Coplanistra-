@@ -8,9 +8,20 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: https://24727987.coplanistra.pages.dev — 2026-08-19, includes Performance/KPI CRUD, Monthly Monitoring rewrite, Approvals audit trail, Copilot dynamic-quarter fix, divide-by-zero audit)
+- **Production**: https://coplanistra.pages.dev (latest deploy: https://7f4a1e24.coplanistra.pages.dev — 2026-08-19, "start fresh" reset — all seeded demo financial data cleared, every screen now derives from live Store data with proper empty states)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-08-19, part 5) — "Start fresh": all demo/seed financial data removed, every screen now Store-derived with empty states
+Per the client's request to remove all placeholder/demo figures before real usage, this session cleared every seeded financial record (budgets, expenses, CAPEX projects, approvals, cash-flow scenarios, reconciliation ledger items, KPIs) while keeping structural config (users, departments, expense categories, reconciliation source lanes) intact, then fixed every screen that had previously displayed hardcoded/disconnected mock data so the whole app now degrades gracefully to informative empty states on a fresh workspace instead of showing fake numbers or breaking with `NaN%`/crashes:
+- **Dashboard, AI Copilot** — budget/expense/CAPEX charts and canned Copilot replies now derive entirely from live Store data with empty-state fallbacks (fixed in an earlier part of this session).
+- **Reports & Analytics** — the Trend chart, the department utilisation heat-map, the "Variance vs Plan" table and the "Key insights" panel are now all computed from live budgets (grouped into a shared `deptStats` aggregation) instead of hardcoded arrays, each with an `ArsEmpty` fallback + "New Budget" call-to-action when there's no data yet. The Director's Report's cash-flow section now correctly shows "No cash flow data yet" (rather than a false "solvent" status) when neither budgets nor CAPEX projects exist.
+- **Cash Flow** — `computeCashFlow()` was rewritten to honestly derive Operating (OPEX burn) and Investing (CAPEX burn) from live budget/CAPEX totals, spread evenly across the year since there is no month-by-month history in the data model; Financing is honestly shown as RM0 with a "no facility data tracked yet" note (Coplanistra has no loan/facility tracking yet); labels were updated app-wide (e.g. "Current cash at bank" → "Projected cash position") to make clear this is a budget-derived projection, not a live bank feed. Full empty state shown when there's no budget/CAPEX data at all.
+- **Quarterly Planning** — the "Division submissions" table now derives status per department from whether it has a budget with a final forecast set (submitted vs pending — never fabricated as "overdue" without a real due-date data source), the Q1–Q4 cards and QoQ chart now compute an even quarterly split of the live annual budget total instead of 4 hardcoded figures, and the current-quarter label is threaded live through the escalate/export/submit-reforecast actions instead of a hardcoded "Q3".
+- Fixed several latent divide-by-zero (`NaN%`) bugs surfaced by testing against a genuinely empty dataset (Reports' `VarianceBar`, Quarterly's `QuarterCard` and per-row forecast-delta calc).
+- Verified with `npm run build` (success across all three files) and a Playwright console-error check on `/`, `/quarterly`, `/cash-flow`, `/reports` against the fresh empty Store — zero console errors on any screen.
+- Committed (`a3c0560`, on top of the seed-clearing commit `4b1e280`), pushed to GitHub, and redeployed to Cloudflare Pages (BYOK) — production now fully reflects the "start fresh" reset.
+- **Known caveat**: because the data model has no month/quarter-level historical breakdown, several visualisations (Reports' Trend chart, Quarterly's per-quarter actual/forecast split) show an approximation — a flat repeated value or an even split of the annual total — rather than genuine historical progression. This is documented inline in the code and is an honest simplification, not fabricated data; a future iteration could add real time-series tracking to remove the need for it.
 
 ## Session update (2026-08-19, part 4) — Copilot dynamic quarter fix + divide-by-zero audit, redeployed
 - **AI Copilot**: the seeded conversation opener, sidebar conversation history, and the quarter-comparison fallback reply no longer show a hardcoded "Q3" — they now compute the current/prior/next quarter and date live from `Store.fyQuarterLabel()`/`fyQuarterOf()`/`today()`, so Copilot's canned demo content stays correct as the app's reference date advances.
@@ -18,7 +29,7 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - Fixed the `ApprovalsScreen.js` `currentUser` reference (was undeclared, would have thrown at runtime) and added a visible disabled-state + tooltip on the Reject/Request-changes buttons when the note field is empty, surfacing the "note required for audit trail" rule proactively instead of only via a toast after clicking.
 - Verified with `npm run build` (success) and a Playwright console-error sweep across all 14 app routes (authenticated) — zero errors/warnings beyond the expected Babel-standalone dev notice.
 - Committed (`8634ad8`) and redeployed to Cloudflare Pages (BYOK) — production alias confirmed serving the latest build.
-- **Still pending**: the "remove demo figures / start fresh" request remains awaiting scope confirmation from the user (see below) — no data-clearing has been performed.
+- ~~Still pending: the "remove demo figures / start fresh" request~~ — done, see "Session update (2026-08-19, part 5)" above.
 
 ## Session update (2026-08-19, part 3) — Remaining screens completed
 - **Performance & KPIs**: KPI data lifted into the central Store (15 seeded KPIs across Financial / Operational / Sustainability perspectives) with full working Add/Edit/Delete KPI modal — previously a non-functional button.
@@ -181,4 +192,4 @@ Includes the workspace's real members list (mirrors the client's existing user t
 - **Status**: ✅ **Live in production** at https://coplanistra.pages.dev
 - **Source control**: ✅ Connected to GitHub — https://github.com/Rubiey-Arsela/Coplanistra- (`main` branch)
 - **Tech Stack**: Hono (backend/static-serving) + React 18 (CDN) + Babel Standalone v7 (CDN, in-browser JSX transform) + vanilla CSS design tokens
-- **Last Updated**: 2026-08-04
+- **Last Updated**: 2026-08-19 (part 5 — "start fresh" reset complete)
