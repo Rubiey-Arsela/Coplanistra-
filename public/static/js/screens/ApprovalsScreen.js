@@ -36,6 +36,7 @@
     const [s, setS] = useState(window.Store.getState());
     useEffect(() => window.Store.subscribe(setS), []);
 
+    const currentUser = window.Store.getCurrentUser();
     const items = s.approvals;
     const [selectedId, setSelectedId] = useState(items[0]?.id || null);
     const [note, setNote] = useState('');
@@ -81,7 +82,11 @@
 
     const decide = (action) => {
       const map = { approve: 'approveItem', reject: 'rejectItem', changes: 'requestChanges' };
-      window.Store[map[action]](selected.id, note.trim() || undefined);
+      // Reject / request-changes require a note (audit-trail rule enforced
+      // in Store — surfaced here too so the input gets focus instead of
+      // just a toast disappearing).
+      const result = window.Store[map[action]](selected.id, note.trim() || undefined);
+      if (result && result.ok === false) return;
       setNote('');
       // move selection to next pending item
       const nextPending = items.find((it) => it.id !== selected.id && it.status === 'pending');
@@ -215,8 +220,14 @@
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                       {[
                         { name: selected.requester, role: selected.dept + ' · Requestor', status: 'Submitted', tone: 'blue', time: selected.when, tag: 'submit' },
-                        { name: 'Nadia Yeoh', role: 'Finance Partner', status: 'Endorsed', tone: 'teal', time: 'Reviewed', tag: 'ok' },
-                        { name: 'Keith Johnson', role: 'Group Finance Lead · You', status: selected.status === 'pending' ? 'Awaiting' : (selected.status === 'approved' ? 'Approved' : selected.status === 'rejected' ? 'Rejected' : 'Changes requested'), tone: selected.status === 'pending' ? 'neutral' : (selected.status === 'approved' ? 'success' : selected.status === 'rejected' ? 'danger' : 'warning'), time: selected.status === 'pending' ? '—' : 'Just now', tag: 'me' },
+                        {
+                          name: selected.status === 'pending' ? (currentUser ? currentUser.name : 'Awaiting decision') : (selected.decidedBy || 'Unknown reviewer'),
+                          role: (currentUser ? currentUser.title : 'Reviewer') + (selected.status === 'pending' ? ' · You' : ''),
+                          status: selected.status === 'pending' ? 'Awaiting' : (selected.status === 'approved' ? 'Approved' : selected.status === 'rejected' ? 'Rejected' : 'Changes requested'),
+                          tone: selected.status === 'pending' ? 'neutral' : (selected.status === 'approved' ? 'success' : selected.status === 'rejected' ? 'danger' : 'warning'),
+                          time: selected.status === 'pending' ? '—' : (selected.decidedAt ? new Date(selected.decidedAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Just now'),
+                          tag: 'me',
+                        },
                       ].map((st, i, a) => (
                         <div key={i} style={{ display: 'flex', gap: 12, paddingBottom: i < a.length - 1 ? 14 : 0, position: 'relative' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -260,10 +271,23 @@
                     width: 40, height: 40, borderRadius: 8, border: '1px solid var(--arsela-border-strong)', background: '#fff',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--arsela-danger)', flexShrink: 0,
                   }}><IconTrash size={15}/></button>
-                  <ArsButton variant="danger" icon={<IconClose size={14}/>} onClick={() => decide('reject')} style={{ opacity: selected.status !== 'pending' ? 0.5 : 1, pointerEvents: selected.status !== 'pending' ? 'none' : 'auto' }}>Reject</ArsButton>
-                  <ArsButton variant="secondary" onClick={() => decide('changes')} style={{ opacity: selected.status !== 'pending' ? 0.5 : 1, pointerEvents: selected.status !== 'pending' ? 'none' : 'auto' }}>Request changes</ArsButton>
+                  <ArsButton
+                    variant="danger" icon={<IconClose size={14}/>} onClick={() => decide('reject')}
+                    title={selected.status === 'pending' && !note.trim() ? 'Add a note before rejecting — required for the audit trail' : undefined}
+                    style={{ opacity: (selected.status !== 'pending' || !note.trim()) ? 0.5 : 1, pointerEvents: (selected.status !== 'pending' || !note.trim()) ? 'none' : 'auto' }}
+                  >Reject</ArsButton>
+                  <ArsButton
+                    variant="secondary" onClick={() => decide('changes')}
+                    title={selected.status === 'pending' && !note.trim() ? 'Add a note before requesting changes — required for the audit trail' : undefined}
+                    style={{ opacity: (selected.status !== 'pending' || !note.trim()) ? 0.5 : 1, pointerEvents: (selected.status !== 'pending' || !note.trim()) ? 'none' : 'auto' }}
+                  >Request changes</ArsButton>
                   <ArsButton variant="teal" icon={<IconCheck size={14}/>} onClick={() => decide('approve')} style={{ opacity: selected.status !== 'pending' ? 0.5 : 1, pointerEvents: selected.status !== 'pending' ? 'none' : 'auto' }}>Approve · {fmtMYR(selected.amount, { compact: true })}</ArsButton>
                 </div>
+                {selected.status === 'pending' && !note.trim() && (
+                  <div style={{ padding: '4px 24px 12px', marginTop: -4, fontSize: 11.5, color: 'var(--arsela-text-subtle)', textAlign: 'right', background: '#FAFBFD' }}>
+                    A note is required to reject or request changes (audit trail)
+                  </div>
+                )}
               </div>
             </div>
           </ArsCard>

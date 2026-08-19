@@ -280,6 +280,32 @@
     { id: 'OPX-15', name: 'Miscellaneous', plan: 0.5e6, actual: 0.4e6, archived: false },
   ];
 
+  /* Performance & KPIs balanced scorecard — was a local hardcoded
+     array with a non-functional "Add KPI" button; lifted into Store
+     so KPIs can actually be added/edited/deleted and persist like
+     every other managed list in the app. `perspective` groups KPIs
+     into the three scorecard sections (financial / operational /
+     sustainability). `invert` = true means a LOWER actual is better
+     (e.g. downtime hours, safety incidents) — used for RAG/variance
+     colour direction, matching PerformanceScreen's existing logic. */
+  const seedKpis = [
+    { id: 'KPI-1', perspective: 'financial', name: 'Revenue growth', owner: 'Group', target: 5.0, actual: 6.4, unit: '%', invert: false, trend: [3.2,4.1,4.8,5.2,5.8,6.1,6.4] },
+    { id: 'KPI-2', perspective: 'financial', name: 'Operating margin', owner: 'Group', target: 22.0, actual: 22.8, unit: '%', invert: false, trend: [20,20.4,21.2,21.8,22.1,22.5,22.8] },
+    { id: 'KPI-3', perspective: 'financial', name: 'EBITDA', owner: 'Group', target: 180, actual: 194.3, unit: 'currency_m', invert: false, trend: [140,152,163,171,180,188,194] },
+    { id: 'KPI-4', perspective: 'financial', name: 'Cash conversion', owner: 'Treasury', target: 85, actual: 78, unit: '%', invert: false, trend: [88,85,82,80,79,78,78] },
+    { id: 'KPI-5', perspective: 'financial', name: 'Return on capital', owner: 'Group', target: 14, actual: 15.2, unit: '%', invert: false, trend: [12,12.8,13.5,14.1,14.6,15.0,15.2] },
+    { id: 'KPI-6', perspective: 'operational', name: 'Port throughput', owner: 'Ports & Logistics', target: 4.2, actual: 4.4, unit: 'TEU_m', invert: false, trend: [3.6,3.8,3.9,4.1,4.2,4.3,4.4] },
+    { id: 'KPI-7', perspective: 'operational', name: 'Fleet utilisation', owner: 'Operations', target: 88, actual: 91, unit: '%', invert: false, trend: [82,84,86,87,89,90,91] },
+    { id: 'KPI-8', perspective: 'operational', name: 'Downtime hours', owner: 'Operations', target: 120, actual: 142, unit: 'number', invert: true, trend: [98,105,115,124,132,138,142] },
+    { id: 'KPI-9', perspective: 'operational', name: 'Safety incidents', owner: 'Ops HSE', target: 0, actual: 2, unit: 'number', invert: true, trend: [0,0,1,1,2,2,2] },
+    { id: 'KPI-10', perspective: 'operational', name: 'On-time delivery', owner: 'Logistics', target: 95, actual: 94.2, unit: '%', invert: false, trend: [96,95.5,95.1,94.8,94.5,94.3,94.2] },
+    { id: 'KPI-11', perspective: 'sustainability', name: 'Emissions intensity', owner: 'Sustainability', target: -8, actual: -9.4, unit: '%_yoy', invert: false, trend: [-3,-4.2,-5.5,-6.8,-7.9,-8.7,-9.4] },
+    { id: 'KPI-12', perspective: 'sustainability', name: 'Renewable share', owner: 'Energy', target: 28, actual: 31, unit: '%', invert: false, trend: [22,24,26,27,29,30,31] },
+    { id: 'KPI-13', perspective: 'sustainability', name: 'Water reuse', owner: 'Sustainability', target: 55, actual: 52, unit: '%', invert: false, trend: [45,47,48,50,51,51,52] },
+    { id: 'KPI-14', perspective: 'sustainability', name: 'CSR spend', owner: 'CSR', target: 6, actual: 6.4, unit: 'currency_m', invert: false, trend: [3.8,4.4,4.9,5.3,5.7,6.1,6.4] },
+    { id: 'KPI-15', perspective: 'sustainability', name: 'Board diversity', owner: 'Governance', target: 40, actual: 44, unit: '%', invert: false, trend: [32,35,37,40,42,43,44] },
+  ];
+
   /* Scenario comparison (Quarterly panel) — was local hardcoded
      state; lifted into Store so "New scenario" and switching the
      active scenario actually persist. */
@@ -333,6 +359,7 @@
     budgetCodes: seedBudgetCodes,
     scenarios: seedScenarios,
     cashFlowScenarios: seedCashFlowScenarios,
+    kpis: seedKpis,
     // Arsela Resources' reporting currency is AUD; MYR remains available
     // as a display option via the currency switcher (CURRENCY_CONFIG
     // below) but is no longer the default.
@@ -366,6 +393,7 @@
   if (!state.scenarios) state.scenarios = seedScenarios;
   if (!state.cashFlowScenarios) state.cashFlowScenarios = seedCashFlowScenarios;
   if (!state.reconciliations) state.reconciliations = seedReconciliations;
+  if (!state.kpis) state.kpis = seedKpis;
   if (!state.currency) state.currency = 'AUD';
   // Force-correct the period label for any state persisted before the
   // FY-start-month fix (Arsela's FY starts 1 Jul, so 22 Jul 2026 is
@@ -473,20 +501,55 @@
     pendingApprovalsCount() {
       return state.approvals.filter((a) => a.status === 'pending').length;
     },
+    /* Reject / request-changes REQUIRE a note — an audit-trail rule:
+       a decision that sends work back to the requester must explain
+       why, both for the requester and for anyone reviewing the trail
+       later. Approve does not require a note (silent approval of a
+       compliant request is a normal, auditable action on its own —
+       the decider identity + timestamp below is the audit record). */
     approveItem(id, note) {
       const item = state.approvals.find((a) => a.id === id);
-      setState({ approvals: state.approvals.map((a) => (a.id === id ? { ...a, status: 'approved', note } : a)) });
+      const decider = Store.getCurrentUser();
+      setState({ approvals: state.approvals.map((a) => (a.id === id ? {
+        ...a, status: 'approved', note,
+        decidedBy: decider ? decider.name : null,
+        decidedByEmail: decider ? decider.email : null,
+        decidedAt: new Date().toISOString(),
+      } : a)) });
       if (item) toast(`Approved: ${item.title}`, 'success');
+      return { ok: true };
     },
     rejectItem(id, note) {
+      if (!(note || '').trim()) {
+        toast('A note is required when rejecting an item — explain why for the audit trail', 'danger');
+        return { ok: false, error: 'Note required' };
+      }
       const item = state.approvals.find((a) => a.id === id);
-      setState({ approvals: state.approvals.map((a) => (a.id === id ? { ...a, status: 'rejected', note } : a)) });
+      const decider = Store.getCurrentUser();
+      setState({ approvals: state.approvals.map((a) => (a.id === id ? {
+        ...a, status: 'rejected', note,
+        decidedBy: decider ? decider.name : null,
+        decidedByEmail: decider ? decider.email : null,
+        decidedAt: new Date().toISOString(),
+      } : a)) });
       if (item) toast(`Rejected: ${item.title}`, 'danger');
+      return { ok: true };
     },
     requestChanges(id, note) {
+      if (!(note || '').trim()) {
+        toast('A note is required when requesting changes — tell the requester what to fix', 'danger');
+        return { ok: false, error: 'Note required' };
+      }
       const item = state.approvals.find((a) => a.id === id);
-      setState({ approvals: state.approvals.map((a) => (a.id === id ? { ...a, status: 'changes_requested', note } : a)) });
+      const decider = Store.getCurrentUser();
+      setState({ approvals: state.approvals.map((a) => (a.id === id ? {
+        ...a, status: 'changes_requested', note,
+        decidedBy: decider ? decider.name : null,
+        decidedByEmail: decider ? decider.email : null,
+        decidedAt: new Date().toISOString(),
+      } : a)) });
       if (item) toast(`Requested changes: ${item.title}`, 'warning');
+      return { ok: true };
     },
     deleteApproval(id) {
       const item = state.approvals.find((a) => a.id === id);
@@ -665,6 +728,35 @@
     deleteBudgetCode(prefix) {
       setState({ budgetCodes: state.budgetCodes.filter((c) => c !== prefix) });
       toast(`Budget code prefix removed: ${prefix}`, 'warning');
+    },
+
+    // ---- Performance & KPIs balanced scorecard CRUD ----
+    addKpi({ perspective, name, owner, target, actual, unit, invert }) {
+      const v = (name || '').trim();
+      if (!v) { toast('Enter a KPI name', 'danger'); return; }
+      const rec = {
+        id: 'KPI-' + Date.now(),
+        perspective: perspective || 'financial',
+        name: v,
+        owner: owner || '',
+        target: Number(target) || 0,
+        actual: Number(actual) || 0,
+        unit: unit || 'number',
+        invert: !!invert,
+        trend: [Number(actual) || 0],
+      };
+      setState({ kpis: [...state.kpis, rec] });
+      toast(`KPI added: ${v}`, 'success');
+      return rec;
+    },
+    updateKpi(id, patch) {
+      setState({ kpis: state.kpis.map((k) => (k.id === id ? { ...k, ...patch } : k)) });
+      toast('KPI updated', 'success');
+    },
+    deleteKpi(id) {
+      const k = state.kpis.find((x) => x.id === id);
+      setState({ kpis: state.kpis.filter((x) => x.id !== id) });
+      if (k) toast(`KPI removed: ${k.name}`, 'warning');
     },
 
     // ---- scenario comparison (Quarterly panel) ----

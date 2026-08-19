@@ -1,11 +1,12 @@
-/* Performance & KPIs — balanced scorecard, RAG indicators */
+/* Performance & KPIs — balanced scorecard, RAG indicators, wired to Store.kpis (add/edit/delete) */
 (function () {
 
   const Sparkline = ({ points, tone = 'blue' }) => {
     const w = 100, h = 32;
+    if (!points || points.length === 0) return <svg width={w} height={h}/>;
     const min = Math.min(...points), max = Math.max(...points);
     const rng = max - min || 1;
-    const step = w / (points.length - 1);
+    const step = points.length > 1 ? w / (points.length - 1) : 0;
     const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${i * step} ${h - ((p - min) / rng) * (h - 4) - 2}`).join(' ');
     const color = tone === 'success' ? '#1A8754' : tone === 'warning' ? '#B4740A' : tone === 'danger' ? '#D64045' : '#1343CB';
     return (
@@ -16,29 +17,38 @@
     );
   };
 
-  const KpiRow = ({ kpi, onClick }) => {
+  /* Format a raw target/actual number according to the KPI's unit type.
+     Currency-figures ("currency_m") route through fmtMYR/curLabel so
+     they stay live-currency-aware, matching the rest of the app. */
+  function formatKpiValue(value, unit) {
+    if (unit === 'currency_m') return curLabel(value, 1);
+    if (unit === '%' || unit === '%_yoy') return `${value}%${unit === '%_yoy' ? ' YoY' : ''}`;
+    if (unit === 'TEU_m') return `${value}M TEU`;
+    return `${value}`;
+  }
+
+  const KpiRow = ({ kpi, onClick, onEdit, onDelete }) => {
     const rag = kpi.invert
       ? (kpi.actual > kpi.target * 1.05 ? 'R' : kpi.actual > kpi.target ? 'A' : 'G')
       : (kpi.actual >= kpi.target ? 'G' : kpi.actual >= kpi.target * 0.9 ? 'A' : 'R');
-    const varPct = ((kpi.actual - kpi.target) / kpi.target) * 100;
+    const varPct = kpi.target ? ((kpi.actual - kpi.target) / kpi.target) * 100 : 0;
     return (
-      <div onClick={onClick} className="coplan-grid-fixed" style={{
+      <div className="coplan-grid-fixed" style={{
         display: 'grid',
-        gridTemplateColumns: '1fr 100px 100px 90px 110px 60px',
+        gridTemplateColumns: '1fr 100px 100px 90px 110px 60px 60px',
         alignItems: 'center', gap: 12,
         padding: '14px 20px',
         borderBottom: '1px solid var(--arsela-border)',
-        cursor: onClick ? 'pointer' : 'default',
-        minWidth: 640,
+        minWidth: 700,
       }}
-      onMouseEnter={e => onClick && (e.currentTarget.style.background = 'var(--arsela-surface-alt)')}
-      onMouseLeave={e => onClick && (e.currentTarget.style.background = 'transparent')}>
-        <div>
+      onMouseEnter={e => (e.currentTarget.style.background = 'var(--arsela-surface-alt)')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+        <div onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--arsela-navy)' }}>{kpi.name}</div>
           {kpi.owner && <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{kpi.owner}</div>}
         </div>
-        <div className="arsela-num" style={{ fontSize: 13, color: 'var(--arsela-text-muted)', textAlign: 'right' }}>{kpi.targetLabel}</div>
-        <div className="arsela-num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--arsela-navy)', textAlign: 'right' }}>{kpi.actualLabel}</div>
+        <div className="arsela-num" style={{ fontSize: 13, color: 'var(--arsela-text-muted)', textAlign: 'right' }}>{formatKpiValue(kpi.target, kpi.unit)}</div>
+        <div className="arsela-num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--arsela-navy)', textAlign: 'right' }}>{formatKpiValue(kpi.actual, kpi.unit)}</div>
         <div style={{ textAlign: 'right' }}>
           <ArsVariance value={varPct} invert={kpi.invert} size="sm"/>
         </div>
@@ -48,48 +58,122 @@
         <div style={{ textAlign: 'right' }}>
           <ArsRAG status={rag}/>
         </div>
+        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={onEdit} title="Edit" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-text-subtle)', display: 'flex', padding: 4 }}><IconEdit size={13}/></button>
+          <button onClick={onDelete} title="Delete" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--danger)', display: 'flex', padding: 4 }}><IconClose size={13}/></button>
+        </div>
       </div>
     );
   };
 
-  const ScorecardCard = ({ title, kpis, count, onKpiClick }) => (
+  const ScorecardCard = ({ title, perspective, kpis, onKpiClick, onEdit, onDelete }) => (
     <ArsCard padded={false}>
       <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--arsela-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)' }}>{title}</div>
-          <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{count} KPIs · YTD Jul 2026</div>
+          <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{kpis.length} KPI{kpis.length !== 1 ? 's' : ''}</div>
         </div>
-        <ArsBadge tone="navy" size="sm">{count} KPIs</ArsBadge>
+        <ArsBadge tone="navy" size="sm">{kpis.length} KPIs</ArsBadge>
       </div>
-      <div className="coplan-scrollx">
-      <div className="coplan-grid-fixed" style={{
-        display: 'grid', gridTemplateColumns: '1fr 100px 100px 90px 110px 60px', gap: 12,
-        padding: '10px 20px', background: 'var(--arsela-surface-alt)',
-        fontSize: 10, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-muted)',
-        borderBottom: '1px solid var(--arsela-border)',
-        minWidth: 640,
-      }}>
-        <span>KPI</span>
-        <span style={{ textAlign: 'right' }}>Target</span>
-        <span style={{ textAlign: 'right' }}>Actual</span>
-        <span style={{ textAlign: 'right' }}>Δ</span>
-        <span>Trend</span>
-        <span style={{ textAlign: 'right' }}>RAG</span>
-      </div>
-      {kpis.map((k, i) => <KpiRow key={i} kpi={k} onClick={onKpiClick ? () => onKpiClick(k) : undefined}/>)}
-      </div>
+      {kpis.length === 0 ? (
+        <div style={{ padding: 24 }}><ArsEmpty title="No KPIs in this perspective yet" body="Add one with the button above." /></div>
+      ) : (
+        <div className="coplan-scrollx">
+        <div className="coplan-grid-fixed" style={{
+          display: 'grid', gridTemplateColumns: '1fr 100px 100px 90px 110px 60px 60px', gap: 12,
+          padding: '10px 20px', background: 'var(--arsela-surface-alt)',
+          fontSize: 10, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-muted)',
+          borderBottom: '1px solid var(--arsela-border)',
+          minWidth: 700,
+        }}>
+          <span>KPI</span>
+          <span style={{ textAlign: 'right' }}>Target</span>
+          <span style={{ textAlign: 'right' }}>Actual</span>
+          <span style={{ textAlign: 'right' }}>Δ</span>
+          <span>Trend</span>
+          <span style={{ textAlign: 'right' }}>RAG</span>
+          <span style={{ textAlign: 'right' }}>Actions</span>
+        </div>
+        {kpis.map((k) => (
+          <KpiRow key={k.id} kpi={k}
+            onClick={onKpiClick ? () => onKpiClick(k) : undefined}
+            onEdit={() => onEdit(k)}
+            onDelete={() => onDelete(k)}
+          />
+        ))}
+        </div>
+      )}
     </ArsCard>
   );
 
+  function KpiModal({ initial, onClose }) {
+    const { useState: uS } = React;
+    const [name, setName] = uS(initial ? initial.name : '');
+    const [perspective, setPerspective] = uS(initial ? initial.perspective : 'financial');
+    const [owner, setOwner] = uS(initial ? (initial.owner || '') : '');
+    const [target, setTarget] = uS(initial ? String(initial.target) : '');
+    const [actual, setActual] = uS(initial ? String(initial.actual) : '');
+    const [unit, setUnit] = uS(initial ? (initial.unit || 'number') : '%');
+    const [invert, setInvert] = uS(initial ? !!initial.invert : false);
+    const save = () => {
+      if (!name.trim()) { window.Store.toast('Enter a KPI name', 'danger'); return; }
+      if (initial) {
+        window.Store.updateKpi(initial.id, {
+          name: name.trim(), perspective, owner: owner.trim(), unit, invert,
+          target: Number(target) || 0, actual: Number(actual) || 0,
+          trend: [...(initial.trend || []).slice(-6), Number(actual) || 0],
+        });
+      } else {
+        window.Store.addKpi({ name: name.trim(), perspective, owner: owner.trim(), target: Number(target) || 0, actual: Number(actual) || 0, unit, invert });
+      }
+      onClose();
+    };
+    return (
+      <ArsModal open onClose={onClose} title={initial ? 'Edit KPI' : 'Add KPI'} subtitle="Balanced scorecard entry — target vs actual"
+        footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={save}>{initial ? 'Save changes' : 'Add KPI'}</ArsButton></>}>
+        <ArsField label="KPI name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Customer satisfaction" style={arsFieldInputStyle}/></ArsField>
+        <ArsField label="Perspective">
+          <select value={perspective} onChange={(e) => setPerspective(e.target.value)} style={arsFieldInputStyle}>
+            <option value="financial">Financial</option>
+            <option value="operational">Operational</option>
+            <option value="sustainability">Sustainability &amp; Governance</option>
+          </select>
+        </ArsField>
+        <ArsField label="Owner"><input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="e.g. Group, Operations" style={arsFieldInputStyle}/></ArsField>
+        <ArsField label="Unit">
+          <select value={unit} onChange={(e) => setUnit(e.target.value)} style={arsFieldInputStyle}>
+            <option value="%">Percentage (%)</option>
+            <option value="%_yoy">Percentage YoY</option>
+            <option value="currency_m">Currency (millions)</option>
+            <option value="TEU_m">TEU (millions)</option>
+            <option value="number">Plain number</option>
+          </select>
+        </ArsField>
+        <ArsField label="Target"><input type="number" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="0" style={arsFieldInputStyle}/></ArsField>
+        <ArsField label="Actual"><input type="number" value={actual} onChange={(e) => setActual(e.target.value)} placeholder="0" style={arsFieldInputStyle}/></ArsField>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--arsela-navy)', marginTop: 4 }}>
+          <input type="checkbox" checked={invert} onChange={(e) => setInvert(e.target.checked)} />
+          Lower is better (e.g. downtime, incidents)
+        </label>
+      </ArsModal>
+    );
+  }
+
   const PerformanceScreen = () => {
+    const { useState, useEffect, useMemo, useRef } = React;
+    const [s, setS] = useState(window.Store.getState());
+    useEffect(() => window.Store.subscribe(setS), []);
+
     const fyLbl = window.Store.fyLabel(window.Store.today());
     const todayLbl = window.Store.today().toLocaleDateString('en-AU', { month: 'short', year: 'numeric' });
-    const [period, setPeriod] = React.useState(`YTD ${todayLbl}`);
-    const [showPeriodMenu, setShowPeriodMenu] = React.useState(false);
-    const periodRef = React.useRef(null);
+    const [period, setPeriod] = useState(`YTD ${todayLbl}`);
+    const [showPeriodMenu, setShowPeriodMenu] = useState(false);
+    const [kpiModal, setKpiModal] = useState(null); // null | 'new' | kpi record
+    const [deleteTarget, setDeleteTarget] = useState(null);
+    const periodRef = useRef(null);
     const PERIODS = [`YTD ${todayLbl}`, 'Prior quarter', `${fyLbl} to date`, `${fyLbl} (fcst)`];
 
-    React.useEffect(() => {
+    useEffect(() => {
       const onDoc = (e) => {
         if (periodRef.current && !periodRef.current.contains(e.target)) setShowPeriodMenu(false);
       };
@@ -97,33 +181,18 @@
       return () => document.removeEventListener('mousedown', onDoc);
     }, []);
 
-    const financial = [
-      { name: 'Revenue growth',       owner: 'Group', target: 5.0, actual: 6.4, targetLabel: '5.0%',    actualLabel: '+6.4%',  trend: [3.2,4.1,4.8,5.2,5.8,6.1,6.4] },
-      { name: 'Operating margin',     owner: 'Group', target: 22.0, actual: 22.8, targetLabel: '22.0%',  actualLabel: '22.8%',  trend: [20,20.4,21.2,21.8,22.1,22.5,22.8] },
-      { name: 'EBITDA',               owner: 'Group', target: 180, actual: 194.3, targetLabel: curLabel(180), actualLabel: curLabel(194.3, 1), trend: [140,152,163,171,180,188,194] },
-      { name: 'Cash conversion',      owner: 'Treasury', target: 85, actual: 78, targetLabel: '85%',     actualLabel: '78%',    trend: [88,85,82,80,79,78,78] },
-      { name: 'Return on capital',    owner: 'Group', target: 14, actual: 15.2, targetLabel: '14.0%',    actualLabel: '15.2%',   trend: [12,12.8,13.5,14.1,14.6,15.0,15.2] },
-    ];
-    const operational = [
-      { name: 'Port throughput',       owner: 'Ports & Logistics', target: 4.2, actual: 4.4, targetLabel: '4.2M TEU',  actualLabel: '4.4M TEU', trend: [3.6,3.8,3.9,4.1,4.2,4.3,4.4] },
-      { name: 'Fleet utilisation',     owner: 'Operations',        target: 88, actual: 91,   targetLabel: '88%',        actualLabel: '91%',      trend: [82,84,86,87,89,90,91] },
-      { name: 'Downtime hours',        owner: 'Operations',        target: 120, actual: 142, targetLabel: '< 120',      actualLabel: '142',      invert: true, trend: [98,105,115,124,132,138,142] },
-      { name: 'Safety incidents',      owner: 'Ops HSE',           target: 0, actual: 2,     targetLabel: '0',          actualLabel: '2',        invert: true, trend: [0,0,1,1,2,2,2] },
-      { name: 'On-time delivery',      owner: 'Logistics',         target: 95, actual: 94.2, targetLabel: '95%',        actualLabel: '94.2%',   trend: [96,95.5,95.1,94.8,94.5,94.3,94.2] },
-    ];
-    const sustainability = [
-      { name: 'Emissions intensity',   owner: 'Sustainability', target: -8, actual: -9.4, targetLabel: '−8% YoY', actualLabel: '−9.4% YoY', trend: [-3,-4.2,-5.5,-6.8,-7.9,-8.7,-9.4] },
-      { name: 'Renewable share',       owner: 'Energy',        target: 28, actual: 31,   targetLabel: '28%',    actualLabel: '31%',      trend: [22,24,26,27,29,30,31] },
-      { name: 'Water reuse',           owner: 'Sustainability', target: 55, actual: 52, targetLabel: '55%',    actualLabel: '52%',      trend: [45,47,48,50,51,51,52] },
-      { name: 'CSR spend',             owner: 'CSR',           target: 6, actual: 6.4,   targetLabel: curLabel(6, 1), actualLabel: curLabel(6.4, 1), trend: [3.8,4.4,4.9,5.3,5.7,6.1,6.4] },
-      { name: 'Board diversity',       owner: 'Governance',    target: 40, actual: 44,   targetLabel: '40%',    actualLabel: '44%',      trend: [32,35,37,40,42,43,44] },
-    ];
+    const allKpis = s.kpis || [];
+    const financial = allKpis.filter(k => k.perspective === 'financial');
+    const operational = allKpis.filter(k => k.perspective === 'operational');
+    const sustainability = allKpis.filter(k => k.perspective === 'sustainability');
+    const perspectiveCount = [financial, operational, sustainability].filter(g => g.length > 0).length;
 
-    const allKpis = [...financial, ...operational, ...sustainability];
+    const ragOf = (kpi) => kpi.invert
+      ? (kpi.actual > kpi.target * 1.05 ? 'R' : kpi.actual > kpi.target ? 'A' : 'G')
+      : (kpi.actual >= kpi.target ? 'G' : kpi.actual >= kpi.target * 0.9 ? 'A' : 'R');
+
     const ragCounts = allKpis.reduce((acc, kpi) => {
-      const rag = kpi.invert
-        ? (kpi.actual > kpi.target * 1.05 ? 'R' : kpi.actual > kpi.target ? 'A' : 'G')
-        : (kpi.actual >= kpi.target ? 'G' : kpi.actual >= kpi.target * 0.9 ? 'A' : 'R');
+      const rag = ragOf(kpi);
       acc[rag] = (acc[rag] || 0) + 1;
       return acc;
     }, {});
@@ -131,10 +200,21 @@
     const onTrack = ragCounts.G || 0, atRisk = ragCounts.A || 0, offTrack = ragCounts.R || 0;
 
     const onKpiClick = (kpi) => {
-      const rag = kpi.invert
-        ? (kpi.actual > kpi.target * 1.05 ? 'Off track' : kpi.actual > kpi.target ? 'At risk' : 'On track')
-        : (kpi.actual >= kpi.target ? 'On track' : kpi.actual >= kpi.target * 0.9 ? 'At risk' : 'Off track');
-      window.Store.toast(`${kpi.name} (${kpi.owner || 'Group'}): target ${kpi.targetLabel}, actual ${kpi.actualLabel} — ${rag}`, rag === 'On track' ? 'success' : rag === 'At risk' ? 'warning' : 'danger');
+      const rag = ragOf(kpi);
+      const ragLabel = rag === 'G' ? 'On track' : rag === 'A' ? 'At risk' : 'Off track';
+      window.Store.toast(`${kpi.name} (${kpi.owner || 'Group'}): target ${formatKpiValue(kpi.target, kpi.unit)}, actual ${formatKpiValue(kpi.actual, kpi.unit)} — ${ragLabel}`, rag === 'G' ? 'success' : rag === 'A' ? 'warning' : 'danger');
+    };
+
+    const exportScorecard = () => {
+      exportRowsToCSV(
+        `performance-scorecard-${period.replace(/\s+/g, '-')}`,
+        ['Perspective', 'KPI', 'Owner', 'Target', 'Actual', 'Variance %', 'RAG'],
+        allKpis.map((k) => [
+          k.perspective, k.name, k.owner || '', k.target, k.actual,
+          k.target ? (((k.actual - k.target) / k.target) * 100).toFixed(1) : '0.0',
+          ragOf(k) === 'G' ? 'On track' : ragOf(k) === 'A' ? 'At risk' : 'Off track',
+        ])
+      );
     };
 
     return (
@@ -161,8 +241,8 @@
                 ))}
               </div>
             )}
-            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={() => window.Store.toast(`Exporting balanced scorecard — ${period}…`, 'info')}>Export scorecard</ArsButton>
-            <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => window.Store.toast('Add KPI — coming soon', 'info')}>Add KPI</ArsButton>
+            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={exportScorecard}>Export scorecard</ArsButton>
+            <ArsButton size="md" icon={<IconPlus size={15}/>} onClick={() => setKpiModal('new')}>Add KPI</ArsButton>
           </div>
         }
       >
@@ -171,43 +251,59 @@
           <ArsCard>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Total KPIs tracked</div>
             <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{total}</div>
-            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 6 }}>Across 3 perspectives</div>
+            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 6 }}>Across {perspectiveCount} perspective{perspectiveCount !== 1 ? 's' : ''}</div>
           </ArsCard>
           <ArsCard>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>On track</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 10 }}>
               <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--success)', letterSpacing: -0.4 }}>{onTrack}</div>
-              <span style={{ fontSize: 13, color: 'var(--arsela-text-muted)' }}>· {Math.round(onTrack/total*100)}%</span>
+              <span style={{ fontSize: 13, color: 'var(--arsela-text-muted)' }}>· {total ? Math.round(onTrack/total*100) : 0}%</span>
             </div>
-            <ArsProgress value={Math.round(onTrack/total*100)} tone="success" style={{ marginTop: 8 }}/>
+            <div style={{ marginTop: 8 }}><ArsProgress value={total ? Math.round(onTrack/total*100) : 0} tone="success"/></div>
           </ArsCard>
           <ArsCard>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>At risk</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 10 }}>
               <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--warning)', letterSpacing: -0.4 }}>{atRisk}</div>
-              <span style={{ fontSize: 13, color: 'var(--arsela-text-muted)' }}>· {Math.round(atRisk/total*100)}%</span>
+              <span style={{ fontSize: 13, color: 'var(--arsela-text-muted)' }}>· {total ? Math.round(atRisk/total*100) : 0}%</span>
             </div>
-            <ArsProgress value={Math.round(atRisk/total*100)} tone="warning" style={{ marginTop: 8 }}/>
+            <div style={{ marginTop: 8 }}><ArsProgress value={total ? Math.round(atRisk/total*100) : 0} tone="warning"/></div>
           </ArsCard>
           <ArsCard>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Off track</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 10 }}>
               <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--danger)', letterSpacing: -0.4 }}>{offTrack}</div>
-              <span style={{ fontSize: 13, color: 'var(--arsela-text-muted)' }}>· {Math.round(offTrack/total*100)}%</span>
+              <span style={{ fontSize: 13, color: 'var(--arsela-text-muted)' }}>· {total ? Math.round(offTrack/total*100) : 0}%</span>
             </div>
-            <ArsProgress value={Math.round(offTrack/total*100)} tone="danger" style={{ marginTop: 8 }}/>
+            <div style={{ marginTop: 8 }}><ArsProgress value={total ? Math.round(offTrack/total*100) : 0} tone="danger"/></div>
           </ArsCard>
         </div>
 
         {/* Scorecards */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <ScorecardCard title="Financial perspective"        count={financial.length}      kpis={financial}      onKpiClick={onKpiClick}/>
-          <ScorecardCard title="Operational perspective"      count={operational.length}    kpis={operational}    onKpiClick={onKpiClick}/>
-          <ScorecardCard title="Sustainability & Governance"  count={sustainability.length} kpis={sustainability} onKpiClick={onKpiClick}/>
-        </div>
+        {total === 0 ? (
+          <ArsCard>
+            <ArsEmpty title="No KPIs tracked yet" body="Add your first KPI with the button above to start building the balanced scorecard." />
+          </ArsCard>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <ScorecardCard title="Financial perspective"        perspective="financial"      kpis={financial}      onKpiClick={onKpiClick} onEdit={setKpiModal} onDelete={setDeleteTarget}/>
+            <ScorecardCard title="Operational perspective"      perspective="operational"    kpis={operational}    onKpiClick={onKpiClick} onEdit={setKpiModal} onDelete={setDeleteTarget}/>
+            <ScorecardCard title="Sustainability & Governance"  perspective="sustainability" kpis={sustainability} onKpiClick={onKpiClick} onEdit={setKpiModal} onDelete={setDeleteTarget}/>
+          </div>
+        )}
+
+        {kpiModal && <KpiModal initial={kpiModal === 'new' ? null : kpiModal} onClose={() => setKpiModal(null)}/>}
+        <ArsConfirmDialog
+          open={!!deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={() => { if (deleteTarget) window.Store.deleteKpi(deleteTarget.id); }}
+          title="Delete KPI?"
+          message={deleteTarget ? `This will permanently remove "${deleteTarget.name}" from the scorecard. This cannot be undone.` : ''}
+          confirmLabel="Delete"
+        />
       </AppFrame>
     );
   };
 
-  Object.assign(window, { PerformanceScreen, KpiRow, ScorecardCard, Sparkline });
+  Object.assign(window, { PerformanceScreen, KpiRow, ScorecardCard, Sparkline, formatKpiValue });
 })();

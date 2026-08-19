@@ -1,22 +1,41 @@
-/* Monthly Monitoring — calendar/period spend tracking with threshold alerts (wired) */
+/* Monthly Monitoring — calendar/period spend tracking with threshold alerts (wired to Store) */
 (function () {
-  const MonthlyCalendar = () => {
-    const days = Array.from({ length: 31 }, (_, i) => i + 1);
-    const today = 22;
-    // Fake daily spend: heavier weekdays, light weekends
-    const daily = days.map((d) => {
-      const dow = (d + 2) % 7; // arbitrary starting weekday
-      if (dow === 0 || dow === 6) return Math.random() * 40000 + 20000;
-      return Math.random() * 220000 + 140000;
-    });
-    const maxD = Math.max(...daily);
+  /* Deterministic pseudo-random daily spend generator, seeded by
+     (year, month, day) so the calendar doesn't re-randomise on every
+     re-render (was Math.random() called fresh each render, which
+     also meant clicking a day showed a DIFFERENT figure than the
+     cell that rendered). Purely a display heuristic — there is no
+     real daily transaction feed wired in yet. */
+  function seededDailySpend(year, month, day, monthlyPlanTotal) {
+    const seed = year * 10000 + month * 100 + day;
+    let x = Math.sin(seed) * 10000;
+    x = x - Math.floor(x);
+    const dow = new Date(year, month, day).getDay(); // 0 = Sun, 6 = Sat
+    const isWeekend = dow === 0 || dow === 6;
+    const dailyBudget = monthlyPlanTotal / 30.4;
+    if (isWeekend) return x * dailyBudget * 0.35;
+    return dailyBudget * (0.55 + x * 0.9);
+  }
+
+  const MonthlyCalendar = ({ monthDate, monthlyPlanTotal, breachDays, onDayClick }) => {
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+    const today = window.Store.today();
+    const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+    const todayDate = isCurrentMonth ? today.getDate() : null;
+    const monthLabel = monthDate.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+
+    const daily = days.map((d) => seededDailySpend(year, month, d, monthlyPlanTotal));
+    const maxD = Math.max(...daily, 1);
     const cellSize = 18;
     const cellGap = 3;
 
     return (
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>July 2026</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)' }}>{monthLabel}</div>
           <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--arsela-text-muted)' }}>
             {[['#EEF1F6', 'No spend'], ['#B9CBFF', 'Low'], ['#5B9EFF', 'Medium'], ['#1343CB', 'High'], ['#D64045', 'Threshold breach']].map(([c, l]) => (
               <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -26,34 +45,34 @@
           </div>
         </div>
         <div className="coplan-scrollx">
-        <div className="coplan-grid-fixed" style={{ display: 'grid', gridTemplateColumns: `repeat(31, ${cellSize}px)`, gap: cellGap }}>
+        <div className="coplan-grid-fixed" style={{ display: 'grid', gridTemplateColumns: `repeat(${daysInMonth}, ${cellSize}px)`, gap: cellGap }}>
           {daily.map((v, i) => {
             const day = i + 1;
-            const isBreach = day === 8 || day === 15 || day === 21;
+            const isBreach = breachDays.includes(day);
             const bg = isBreach
               ? '#D64045'
-              : v < 40000
+              : v < maxD * 0.15
               ? '#EEF1F6'
               : v < maxD * 0.4
               ? '#B9CBFF'
               : v < maxD * 0.75
               ? '#5B9EFF'
               : '#1343CB';
-            const isFuture = day > today;
+            const isFuture = isCurrentMonth ? day > todayDate : monthDate > today;
             return (
               <div
                 key={i}
-                onClick={() => window.Store.toast(`${day} Jul · ${fmtMYR(v, { compact: true })} spend`, isBreach ? 'danger' : 'info')}
+                onClick={() => onDayClick && onDayClick(day, v, isBreach)}
                 style={{
                   width: cellSize,
                   height: cellSize,
                   borderRadius: 3,
                   background: isFuture ? '#F8F9FC' : bg,
-                  border: day === today ? '2px solid #001F3D' : isFuture ? '1px dashed #E2E6F0' : 'none',
+                  border: day === todayDate ? '2px solid #001F3D' : isFuture ? '1px dashed #E2E6F0' : 'none',
                   position: 'relative',
                   cursor: 'pointer',
                 }}
-                title={`${day} Jul · ${fmtMYR(v, { compact: true })}`}
+                title={`${day} ${monthDate.toLocaleDateString('en-AU', { month: 'short' })} · ${fmtMYR(v, { compact: true })}`}
               />
             );
           })}
@@ -61,16 +80,16 @@
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 10, color: 'var(--arsela-text-subtle)' }}>
           <span>1</span>
-          <span>Today · 22 Jul</span>
-          <span>31</span>
+          {isCurrentMonth ? <span>Today · {todayDate} {monthDate.toLocaleDateString('en-AU', { month: 'short' })}</span> : <span>&nbsp;</span>}
+          <span>{daysInMonth}</span>
         </div>
       </div>
     );
   };
 
   const CategoryBurn = ({ name, plan, actual, onClick, onEdit, onArchive, onDelete, archived }) => {
-    const burn = (actual / plan) * 100;
-    const varPct = ((actual - plan) / plan) * 100;
+    const burn = plan ? (actual / plan) * 100 : 0;
+    const varPct = plan ? ((actual - plan) / plan) * 100 : 0;
     const status = burn > 108 ? 'danger' : burn > 100 ? 'warning' : burn > 85 ? 'blue' : 'success';
     return (
       <tr onClick={onClick} style={{ cursor: 'pointer', opacity: archived ? 0.5 : 1 }}>
@@ -133,12 +152,13 @@
     const [catFilter, setCatFilter] = useState('all');
     const [opexModal, setOpexModal] = useState(null); // null | 'new' | category record
 
+    const today = window.Store.today();
     const opex = (s.opexCategories || []).filter((c) => !c.archived);
 
     const filteredOpex = useMemo(() => {
       if (catFilter === 'all') return opex;
       return opex.filter((c) => {
-        const burn = (c.actual / c.plan) * 100;
+        const burn = c.plan ? (c.actual / c.plan) * 100 : 0;
         if (catFilter === 'over') return burn > 100;
         if (catFilter === 'under') return burn <= 100;
         return true;
@@ -148,25 +168,61 @@
     const monthlyPlanTotal = opex.reduce((sum, c) => sum + c.plan, 0);
     const actualToDateTotal = opex.reduce((sum, c) => sum + c.actual, 0);
 
-    const alerts = [
-      { c: 'Information Technology', d: '+12.8% over monthly plan · vendor overrun on ERP migration', when: 'Jul 21', lvl: 'R' },
-      { c: 'Software Licences', d: '+9.4% over monthly plan · additional Copilot seats', when: 'Jul 20', lvl: 'A' },
-      { c: 'Maintenance', d: '+8.7% over monthly plan · fleet servicing pulled forward', when: 'Jul 19', lvl: 'A' },
-    ];
+    // Threshold alerts derived live from real OPEX category burn — no
+    // longer a hardcoded fake list. Any category over 100% of its
+    // monthly plan surfaces here, worst offenders first.
+    const alerts = useMemo(() => {
+      return opex
+        .filter((c) => c.plan > 0 && c.actual > c.plan)
+        .map((c) => {
+          const overPct = ((c.actual - c.plan) / c.plan) * 100;
+          return {
+            c: c.name,
+            d: `+${overPct.toFixed(1)}% over monthly plan · ${fmtMYR(c.actual - c.plan, { compact: true })} above budget`,
+            lvl: overPct > 8 ? 'R' : 'A',
+            overPct,
+          };
+        })
+        .sort((a, b) => b.overPct - a.overPct);
+    }, [opex]);
 
     const criticalCount = alerts.filter((a) => a.lvl === 'R').length;
     const warningCount = alerts.filter((a) => a.lvl === 'A').length;
 
+    // Open CAPEX commitments (POs & contracts not yet invoiced) — pulled
+    // live from the CAPEX module instead of a hardcoded RM 5.8M figure
+    // that never matched the actual CAPEX portfolio.
+    const capexProjects = s.capexProjects || [];
+    const openCommitments = capexProjects.reduce((sum, p) => sum + (p.openCommitments ?? Math.max(0, p.committed - p.spent)), 0);
+
+    const [monthOffset, setMonthOffset] = useState(0); // 0 = current fiscal-today month
     const [monthOpen, setMonthOpen] = useState(false);
-    const [month, setMonth] = useState('Jul 2026');
-    const months = ['Jan 2026', 'Feb 2026', 'Mar 2026', 'Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026', 'Nov 2026', 'Dec 2026'];
-    const chooseMonth = (m) => { setMonth(m); setMonthOpen(false); window.Store.setPeriod(m); };
+    const monthDate = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
+    const monthLabel = monthDate.toLocaleDateString('en-AU', { month: 'short', year: 'numeric' });
+    const monthOptions = Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(today.getFullYear(), today.getMonth() - 6 + i, 1);
+      return { offset: i - 6, label: d.toLocaleDateString('en-AU', { month: 'short', year: 'numeric' }), short: d.toLocaleDateString('en-AU', { month: 'short' }) };
+    });
+    const chooseMonth = (offset, label) => { setMonthOffset(offset); setMonthOpen(false); window.Store.setPeriod(label); };
+
+    const isCurrentMonth = monthOffset === 0;
+    const dayOfMonth = today.getDate();
+    const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+    const dayProgressLabel = isCurrentMonth ? `day ${dayOfMonth}/${daysInMonth}` : monthOffset < 0 ? 'month closed' : 'upcoming month';
+
+    // Breach days: derive from actual threshold-alert categories, mapped
+    // onto a few representative days in the displayed month (illustrative
+    // until a real daily transaction feed exists).
+    const breachDays = useMemo(() => {
+      if (!isCurrentMonth || alerts.length === 0) return [];
+      return alerts.slice(0, 3).map((_, i) => Math.max(1, dayOfMonth - (i + 1) * 2)).filter((d) => d <= daysInMonth);
+    }, [alerts, isCurrentMonth, dayOfMonth, daysInMonth]);
 
     const exportMonthly = () => {
       exportRowsToCSV(
-        `monthly-monitoring-${month.replace(' ', '-')}`,
+        `monthly-monitoring-${monthLabel.replace(' ', '-')}`,
         ['Category', `Monthly Plan (${window.Store.getState().currency})`, `Actual MTD (${window.Store.getState().currency})`, 'Burn %', 'Variance %'],
-        opex.map((c) => [c.name, c.plan, c.actual, ((c.actual / c.plan) * 100).toFixed(1), (((c.actual - c.plan) / c.plan) * 100).toFixed(1)])
+        opex.map((c) => [c.name, c.plan, c.actual, (c.plan ? (c.actual / c.plan) * 100 : 0).toFixed(1), (c.plan ? ((c.actual - c.plan) / c.plan) * 100 : 0).toFixed(1)])
       );
     };
 
@@ -184,7 +240,7 @@
                 icon={<IconCalendar size={15} />}
                 onClick={() => setMonthOpen((v) => !v)}
               >
-                {month}
+                {monthLabel}
               </ArsButton>
               {monthOpen && (
                 <div style={{
@@ -192,11 +248,11 @@
                   border: '1px solid var(--arsela-border)', borderRadius: 10, boxShadow: 'var(--arsela-shadow-elevated)',
                   zIndex: 60, padding: 8, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 4,
                 }}>
-                  {months.map((m) => (
-                    <button key={m} onClick={() => chooseMonth(m)} style={{
+                  {monthOptions.map((m) => (
+                    <button key={m.offset} onClick={() => chooseMonth(m.offset, m.label)} style={{
                       padding: '6px 4px', fontSize: 11.5, fontWeight: 600, borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
-                      background: m === month ? 'var(--arsela-blue-50)' : 'transparent', color: m === month ? 'var(--arsela-blue)' : 'var(--arsela-navy)', border: 'none',
-                    }}>{m.split(' ')[0]}</button>
+                      background: m.offset === monthOffset ? 'var(--arsela-blue-50)' : 'transparent', color: m.offset === monthOffset ? 'var(--arsela-blue)' : 'var(--arsela-navy)', border: 'none',
+                    }}>{m.short}</button>
                   ))}
                 </div>
               )}
@@ -219,26 +275,26 @@
               title="Click to view all OPEX categories" style={{ cursor: 'pointer' }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Monthly plan</div>
               <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(monthlyPlanTotal, { compact: true })}</div>
-              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 6 }}>{month} allocation</div>
+              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 6 }}>{monthLabel} allocation</div>
             </ArsCard>
             <ArsCard onClick={() => { setCatFilter('all'); document.getElementById('opex-categories') && document.getElementById('opex-categories').scrollIntoView({ behavior: 'smooth' }); }}
               title="Click to view actual spend breakdown" style={{ cursor: 'pointer' }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Actual to date</div>
               <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(actualToDateTotal, { compact: true })}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
-                <ArsProgress value={Math.round((actualToDateTotal / monthlyPlanTotal) * 100)} tone="blue" style={{ flex: 1 }} />
-                <span className="arsela-num" style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>{Math.round((actualToDateTotal / monthlyPlanTotal) * 100)}% · day 22/31</span>
+                <div style={{ flex: 1 }}><ArsProgress value={monthlyPlanTotal ? Math.round((actualToDateTotal / monthlyPlanTotal) * 100) : 0} tone="blue" /></div>
+                <span className="arsela-num" style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600 }}>{monthlyPlanTotal ? Math.round((actualToDateTotal / monthlyPlanTotal) * 100) : 0}% · {dayProgressLabel}</span>
               </div>
             </ArsCard>
             <ArsCard onClick={() => window.Router.go('/capex')} title="Click to view CAPEX & commitments" style={{ cursor: 'pointer' }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Commitments</div>
-              <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(5_800_000, { compact: true })}</div>
+              <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.4 }}>{fmtMYR(openCommitments, { compact: true })}</div>
               <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 6 }}>POs & contracts, not invoiced</div>
             </ArsCard>
             <ArsCard onClick={() => setCatFilter('over')} title="Click to view categories over plan" style={{ cursor: 'pointer' }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--arsela-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Threshold breaches</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 10 }}>
-                <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: 'var(--danger)', letterSpacing: -0.4 }}>{alerts.length}</div>
+                <div className="arsela-num" style={{ fontSize: 26, fontWeight: 700, color: alerts.length ? 'var(--danger)' : 'var(--success)', letterSpacing: -0.4 }}>{alerts.length}</div>
                 <span style={{ fontSize: 13, color: 'var(--arsela-text-muted)' }}>this month</span>
               </div>
               <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
@@ -251,33 +307,41 @@
           {/* Calendar + alerts */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 20 }}>
             <ArsCard>
-              <ArsSectionHeader title="Daily spend calendar" subtitle="Heat map of daily burn · weekends muted · today outlined · click a day for detail" />
-              <MonthlyCalendar />
+              <ArsSectionHeader title="Daily spend calendar" subtitle="Illustrative heat map of daily burn (no live daily feed yet) · weekends muted · today outlined · click a day for detail" />
+              <MonthlyCalendar
+                monthDate={monthDate}
+                monthlyPlanTotal={monthlyPlanTotal}
+                breachDays={breachDays}
+                onDayClick={(day, v, isBreach) => window.Store.toast(`${day} ${monthDate.toLocaleDateString('en-AU', { month: 'short' })} · ${fmtMYR(v, { compact: true })} spend`, isBreach ? 'danger' : 'info')}
+              />
             </ArsCard>
             <ArsCard>
               <ArsSectionHeader title="Threshold alerts" subtitle="Auto-triggered when > 100% of monthly plan" />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {alerts.map((a, i) => (
-                  <div
-                    key={i}
-                    onClick={() => setCatFilter(catFilter === 'over' ? 'all' : 'over')}
-                    style={{
-                      padding: 12,
-                      borderRadius: 8,
-                      cursor: 'pointer',
-                      background: a.lvl === 'R' ? 'var(--danger-50)' : 'var(--warning-50)',
-                      borderLeft: '3px solid ' + (a.lvl === 'R' ? 'var(--danger)' : 'var(--warning)'),
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>{a.c}</span>
-                      <ArsRAG status={a.lvl} />
+              {alerts.length === 0 ? (
+                <ArsEmpty title="No threshold breaches" body="All OPEX categories are within their monthly plan." />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {alerts.map((a, i) => (
+                    <div
+                      key={i}
+                      onClick={() => setCatFilter(catFilter === 'over' ? 'all' : 'over')}
+                      style={{
+                        padding: 12,
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        background: a.lvl === 'R' ? 'var(--danger-50)' : 'var(--warning-50)',
+                        borderLeft: '3px solid ' + (a.lvl === 'R' ? 'var(--danger)' : 'var(--warning)'),
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>{a.c}</span>
+                        <ArsRAG status={a.lvl} />
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', lineHeight: 1.5 }}>{a.d}</div>
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', lineHeight: 1.5 }}>{a.d}</div>
-                    <div style={{ fontSize: 11, color: 'var(--arsela-text-subtle)', marginTop: 6 }}>Triggered {a.when}</div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </ArsCard>
           </div>
 
