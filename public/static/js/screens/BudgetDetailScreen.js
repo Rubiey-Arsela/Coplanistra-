@@ -149,7 +149,7 @@
     const committedRatio = budget.status === 'draft' ? 0 : 0.7;
     const committed = Math.round(budget.allocated * committedRatio);
     const remaining = Math.max(0, budget.allocated - budget.spent);
-    const utilisation = Math.round((budget.spent / budget.allocated) * 100);
+    const utilisation = budget.allocated ? Math.round((budget.spent / budget.allocated) * 100) : 0;
 
     const allLineItems = useMemo(() => {
       const base = demoLineItemTemplate.map((t) => {

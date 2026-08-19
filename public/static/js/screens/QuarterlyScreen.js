@@ -213,8 +213,8 @@
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 160 }}><ArsProgress value={Math.round((submittedCount / submissions.length) * 100)} tone="teal" height={8}/></div>
-                <span className="arsela-num" style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-navy)' }}>{Math.round((submittedCount / submissions.length) * 100)}%</span>
+                <div style={{ width: 160 }}><ArsProgress value={submissions.length ? Math.round((submittedCount / submissions.length) * 100) : 0} tone="teal" height={8}/></div>
+                <span className="arsela-num" style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-navy)' }}>{submissions.length ? Math.round((submittedCount / submissions.length) * 100) : 0}%</span>
               </div>
             </div>
           </div>

@@ -82,45 +82,64 @@
     );
   };
 
-  const INITIAL_MESSAGES = [
-    { role: 'user', text: 'Why is Q3 tracking behind plan, and which divisions are driving it?' },
-    {
-      role: 'ai',
-      cite: 'Q3 reforecast · Monthly monitoring · 6 division submissions',
-      body: (
-        <React.Fragment>
-          <div>Q3 is tracking <b>{curLabel(20)} behind plan</b> ({curLabel(43)} actual vs {curLabel(63)} planned through 22 July). Three factors explain most of the shortfall:</div>
-          <ul style={{ marginTop: 10, marginBottom: 0, paddingLeft: 20, lineHeight: 1.7 }}>
-            <li><b style={{ color: 'var(--danger)' }}>IT overspend ({curLabel(5.6, 1)})</b> — vendor overrun on ERP migration; classified as non-recurring.</li>
-            <li><b style={{ color: 'var(--warning)' }}>Property & Aviation overdue submissions</b> — {curLabel(15.3, 1)} of forecast still uncommitted.</li>
-            <li><b style={{ color: 'var(--success)' }}>Solar rollout delayed</b> — freed {curLabel(3.2, 1)} vs plan; recommend reallocation to LNG Phase I.</li>
-          </ul>
-        </React.Fragment>
-      ),
-    },
-    { role: 'user', text: 'Show me the trend and forecast for the rest of the year.' },
-    {
-      role: 'ai',
-      cite: 'Monthly monitoring · Quarterly planning · 12-month rolling forecast',
-      chart: true,
-      chips: ['Draft board narrative', 'Compare to prior-year quarter', 'Explain by category', 'Recommend actions'],
-      body: (
-        <React.Fragment>
-          <div>Based on Q1–Q3 actuals plus current commitments, the model projects <b>full-year spend of {curLabel(254.8, 1)} (base case)</b>, {curLabel(6.4, 1)} above plan. The chart shows monthly cumulative burn trending back within tolerance from October onwards once the ERP migration completes.</div>
-          <div style={{ marginTop: 10 }}>Confidence: <b>78%</b> based on 3 comparable quarters. Suggested next steps below.</div>
-        </React.Fragment>
-      ),
-    },
-  ];
+  // Current quarter/date context, computed live from Store's fiscal-year
+  // helpers so the seeded conversation never shows a stale hardcoded
+  // quarter (e.g. "Q3") once APP_TODAY advances or the app is redeployed.
+  function currentFyContext() {
+    const today = window.Store.today();
+    const qLabel = window.Store.fyQuarterLabel(today); // e.g. "Q1 FY2027"
+    const qShort = 'Q' + window.Store.fyQuarterOf(today); // e.g. "Q1"
+    const dateLabel = today.toLocaleDateString('en-AU', { day: 'numeric', month: 'long' });
+    const priorQShort = 'Q' + (window.Store.fyQuarterOf(today) === 1 ? 4 : window.Store.fyQuarterOf(today) - 1);
+    const nextQShort = 'Q' + (window.Store.fyQuarterOf(today) === 4 ? 1 : window.Store.fyQuarterOf(today) + 1);
+    return { qLabel, qShort, dateLabel, priorQShort, nextQShort };
+  }
 
-  const CONVERSATIONS = [
-    { t: 'Q3 variance explanation', when: 'Just now', active: true },
-    { t: 'Draft board narrative — H1', when: 'Yesterday' },
-    { t: 'CAPEX runway scenarios',    when: '2 days ago' },
-    { t: 'IT overspend root cause',   when: '3 days ago' },
-    { t: 'Reforecast Q4 impact',      when: 'Last week' },
-    { t: 'Payroll uplift modelling',  when: 'Last week' },
-  ];
+  function getInitialMessages() {
+    const { qLabel, qShort, dateLabel, nextQShort } = currentFyContext();
+    return [
+      { role: 'user', text: `Why is ${qShort} tracking behind plan, and which divisions are driving it?` },
+      {
+        role: 'ai',
+        cite: `${qShort} reforecast · Monthly monitoring · 6 division submissions`,
+        body: (
+          <React.Fragment>
+            <div>{qLabel} is tracking <b>{curLabel(20)} behind plan</b> ({curLabel(43)} actual vs {curLabel(63)} planned through {dateLabel}). Three factors explain most of the shortfall:</div>
+            <ul style={{ marginTop: 10, marginBottom: 0, paddingLeft: 20, lineHeight: 1.7 }}>
+              <li><b style={{ color: 'var(--danger)' }}>IT overspend ({curLabel(5.6, 1)})</b> — vendor overrun on ERP migration; classified as non-recurring.</li>
+              <li><b style={{ color: 'var(--warning)' }}>Property & Aviation overdue submissions</b> — {curLabel(15.3, 1)} of forecast still uncommitted.</li>
+              <li><b style={{ color: 'var(--success)' }}>Solar rollout delayed</b> — freed {curLabel(3.2, 1)} vs plan; recommend reallocation to LNG Phase I.</li>
+            </ul>
+          </React.Fragment>
+        ),
+      },
+      { role: 'user', text: 'Show me the trend and forecast for the rest of the year.' },
+      {
+        role: 'ai',
+        cite: 'Monthly monitoring · Quarterly planning · 12-month rolling forecast',
+        chart: true,
+        chips: ['Draft board narrative', 'Compare to prior-year quarter', 'Explain by category', 'Recommend actions'],
+        body: (
+          <React.Fragment>
+            <div>Based on actuals to date plus current commitments, the model projects <b>full-year spend of {curLabel(254.8, 1)} (base case)</b>, {curLabel(6.4, 1)} above plan. The chart shows monthly cumulative burn trending back within tolerance from {nextQShort} onwards once the ERP migration completes.</div>
+            <div style={{ marginTop: 10 }}>Confidence: <b>78%</b> based on 3 comparable quarters. Suggested next steps below.</div>
+          </React.Fragment>
+        ),
+      },
+    ];
+  }
+
+  function getInitialConversations() {
+    const { qShort } = currentFyContext();
+    return [
+      { t: `${qShort} variance explanation`, when: 'Just now', active: true },
+      { t: 'Draft board narrative — H1', when: 'Yesterday' },
+      { t: 'CAPEX runway scenarios',    when: '2 days ago' },
+      { t: 'IT overspend root cause',   when: '3 days ago' },
+      { t: 'Reforecast impact',         when: 'Last week' },
+      { t: 'Payroll uplift modelling',  when: 'Last week' },
+    ];
+  }
 
   const CAPABILITIES = [
     { i: '✎', t: 'Executive commentary',   d: 'Draft board & audit narratives from live data' },
@@ -198,10 +217,11 @@
       };
     }
     if (q.includes('quarter')) {
+      const { qShort, priorQShort } = currentFyContext();
       return {
         cite: 'Quarterly planning · division submissions',
         chart: true,
-        body: <div>Comparing quarter-over-quarter, Q3 divisional submissions show broadly stable performance versus Q2, with Ports & Logistics and Operations tracking ahead of plan while People & Culture and Aviation remain the two divisions to watch.</div>,
+        body: <div>Comparing quarter-over-quarter, {qShort} divisional submissions show broadly stable performance versus {priorQShort}, with Ports & Logistics and Operations tracking ahead of plan while People & Culture and Aviation remain the two divisions to watch.</div>,
       };
     }
     // Generic fallback grounded in current data
@@ -220,8 +240,8 @@
   }
 
   const CopilotScreen = () => {
-    const [conversations, setConversations] = React.useState(CONVERSATIONS);
-    const [messages, setMessages] = React.useState(INITIAL_MESSAGES);
+    const [conversations, setConversations] = React.useState(getInitialConversations);
+    const [messages, setMessages] = React.useState(getInitialMessages);
     const [draft, setDraft] = React.useState('');
     const [thinking, setThinking] = React.useState(false);
     const scrollRef = React.useRef(null);

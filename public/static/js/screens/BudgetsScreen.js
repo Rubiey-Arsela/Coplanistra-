@@ -254,7 +254,7 @@
             <ArsCard>
               <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase' }}>Active</div>
               <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-success)', marginTop: 8 }}>{activeCount}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{Math.round(activeCount / budgets.length * 100)}% of all budgets</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{budgets.length ? Math.round(activeCount / budgets.length * 100) : 0}% of all budgets</div>
             </ArsCard>
           </div>
           <div onClick={() => filterByStatus('draft')} style={{ cursor: 'pointer' }} title="Show draft budgets">
