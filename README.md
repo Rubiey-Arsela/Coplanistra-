@@ -11,6 +11,18 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Production**: https://coplanistra.pages.dev (latest deploy: https://9959c1d7.coplanistra.pages.dev)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 
+## Session update (2026-08-19, part 2) — Reconciliation module shipped, financial-definition standardisation complete
+This session's 5-item priority list (period/currency → financial definitions/totals → Reconciliation module → Cash Flow calculations → Director's Report) is now **fully complete**:
+- **NEW: Reconciliation module** (`/reconciliations`) — the module flagged as "still pending" below is now built and live. Six reconciliation lanes are tracked: Xero vs Westpac Account #2077, SFR payment schedule vs Xero, Costentra staff claims vs Xero, Expenses paid outside Westpac vs Xero, Budgeting actuals vs Xero, and Intercompany items. Each ledger item carries one of 8 statuses (Matched, Potential match, Missing in Xero, Duplicate, Timing difference, Different entity, Awaiting supporting document, Reviewed). The screen shows a summary strip (% resolved, outstanding count/value, latest reviewed date), a clickable by-source breakdown grid, and a filterable split-pane ledger with a detail panel to add items, change status (auto-stamping reviewer/reviewed-at), or delete. Seeded with 14 realistic items. Reachable from the sidebar (Finance Manager / Administrator roles) between CAPEX and Cash Flow, and from the reconciliation-status banners already present on the Dashboard, CAPEX, and Reports screens (which previously linked to a 404).
+- **Financial-definition standardisation completed on Budgets and CAPEX**:
+  - **Budgets** — new "Draft" and "Closed" summary tiles (alongside existing All/Active/Nearing-Cap/Over-Budget), each clickable and filtering the list; a **"Closed"** tile groups both `closed` and `archived` statuses. Budgets at 80–99% utilisation now show a distinct **"Nearing Cap"** lifecycle badge (a derived, visual-only status — not a new database value) instead of a plain "Active" badge, so at-risk budgets are visible before they actually breach 100%.
+  - **CAPEX Portfolio** — the exposure/commitment fields added to the data model in the previous update are now fully surfaced in the UI: KPI grid expanded to 5 cards — Approved envelope, **Total exposure (committed)** (labelled "already includes paid actuals" to remove the additive-confusion risk), **Paid actuals (reconciled)**, **Open commitments** (contracted, not yet paid/posted), and **Remaining headroom** (approved but uncommitted). A reconciliation-status banner now sits above the KPIs (mirroring the Dashboard's pattern, linking to the new Reconciliation module), "Sanction pending" moved out of the KPI grid into its own warning card, and the projects table gained "Open" and "Recon." (per-project reconciliation badge) columns.
+- Verified via `npm run build` and two full Playwright sweeps (all 14 app routes, zero console/page errors) before committing. Pushed to GitHub (`da9a50a`).
+
+### Still pending (tracked for a future session)
+- Per-screen enhancements from the original critique not yet started: Monthly Monitoring, Expenses (4-way status split UI), Approvals (precision/audit rules beyond the FY-label fix), Performance/KPIs (beyond the PERIODS fix), AI Copilot deeper enhancements.
+- Redeploy to Cloudflare Pages pending (code is committed/pushed to GitHub; production URL below may be behind the latest commit until the next deploy).
+
 ## Session update (2026-08-19) — FY/currency correctness, reconciliation-aware financials, Cash Flow & Director's Report rebuild, ArsProgress bug fix
 Responding to a full production-readiness critique for Al Bukhary Group / Arsela Resources, this session made the following **verified and deployed** changes:
 - **Fiscal year corrected app-wide**: Arsela's FY starts 1 July, not 1 January. `store.js` now exposes `Store.fyLabel()/fyQuarterLabel()/fyYearOf()/fyProgressPct()/today()` etc., and every screen (Dashboard, Login, shell org badge, Cash Flow, Budgets detail, Approvals, Quarterly, Closeout, CAPEX, Performance, Copilot, Reports — both the Director's Report and the Variance-analysis tab) now computes its FY/quarter/month labels from these helpers instead of hardcoded "FY26"/"FY 2026"/"Jan-Dec" strings. Settings' `fiscalYearStart` default was also corrected from "January" to "July" (was silently contradicting the rest of the app).
@@ -21,10 +33,10 @@ Responding to a full production-readiness critique for Al Bukhary Group / Arsela
 - **ArsProgress bug fixed**: budget utilisation bars/labels were clamped to a flat "100%" even when a budget was over its cap (e.g. Fleet Maintenance & Renewal at 107.1%). The bar width still caps visually at 100%, but the numeric label now always shows the true value.
 - Verified via `npm run build` and Playwright across all 13 app routes with zero console errors before each commit; pushed to GitHub (`fbc1b61`) and deployed to Cloudflare Pages.
 
-### Still pending (tracked for a future session)
-- **New Reconciliation module**: not yet built (no screen, no data model, no nav entry) — this was the 3rd item in the user's stated priority order and is the largest remaining piece of work.
-- **CapexScreen.js UI**: the new exposure/commitment data fields (openCommitments, totalExposure, remainingApprovedFunding, constructionWIP, etc.) added to the CAPEX data model are not yet surfaced in the CAPEX screen's cards/table.
-- **BudgetsScreen.js**: Draft/Closed status summary cards and a "Nearing cap" lifecycle badge are not yet added (draft/over/active/nearing counts exist, draft/closed do not have their own summary tiles).
+### Still pending as of this update (all resolved later the same day — see "Session update (2026-08-19, part 2)" above)
+- ~~New Reconciliation module~~ — done, see part 2 above.
+- ~~CapexScreen.js exposure-field UI~~ — done, see part 2 above.
+- ~~BudgetsScreen.js Draft/Closed/Nearing-cap tiles~~ — done, see part 2 above.
 - Per-screen enhancements from the original critique not yet started: Monthly Monitoring, Expenses (4-way status split UI), Approvals (precision/audit rules), Performance/KPIs, AI Copilot.
 - (Sandbox preview URLs are temporary; the pages.dev link above is the permanent, short URL for the client.)
 
@@ -78,7 +90,8 @@ All items from the client's live-testing feedback were addressed and redeployed:
 - **Approvals** — approve / reject / request-changes on pending items; approving instantly reduces the pending count everywhere it's shown (sidebar badge, Dashboard widget, Approvals list).
 
 ### Financials module
-- **CAPEX Portfolio** — project table with stage filter dropdown, category donut, depreciation schedule.
+- **CAPEX Portfolio** — project table with stage filter dropdown, category donut, depreciation schedule. KPI grid distinguishes Approved envelope / Total exposure (committed) / Paid actuals (reconciled) / Open commitments / Remaining headroom, with a reconciliation-status banner and per-project reconciliation badges.
+- **Reconciliation** (`/reconciliations`, Finance Manager / Administrator) — tracks 6 source lanes (Xero vs Westpac, SFR payment schedule, Costentra staff claims, expenses paid outside Westpac, budgeting actuals, intercompany items) against 8 statuses (Matched, Potential match, Missing in Xero, Duplicate, Timing difference, Different entity, Awaiting supporting document, Reviewed). Summary strip + by-source breakdown + filterable ledger with add/status-change/delete actions. Enforces the build rule that only reconciled Xero amounts are classified as actuals.
 - **Cash Flow** — period selector (FY24/25/26/27-fcst) rescales the operating/investing/financing chart and runway projection live; clicking a chart bar shows that month's breakdown.
 - **Performance & KPIs** — financial / operational / sustainability scorecards with dynamically computed RAG (Red/Amber/Green) counts — not hardcoded — and a period selector.
 
