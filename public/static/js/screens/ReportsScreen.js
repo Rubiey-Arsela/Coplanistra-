@@ -3,7 +3,7 @@
 
   const VarianceBar = ({ label, planned, actual, onClick }) => {
     const variance = actual - planned;
-    const pct = ((variance/planned)*100).toFixed(1);
+    const pct = planned ? ((variance/planned)*100).toFixed(1) : '0.0';
     const over = variance > 0;
     const maxSpan = 40;
     const barPct = Math.min(maxSpan, Math.abs(parseFloat(pct)));
@@ -27,10 +27,8 @@
     );
   };
 
-  const TrendChart = () => {
+  const TrendChart = ({ budgets }) => {
     const w = 660, h = 220, pad = { l: 44, r: 20, t: 20, b: 30 };
-    const s1 = [12, 14, 15, 18, 20, 21, 24];
-    const s2 = [10, 12, 14, 16, 17, 19, 22];
     const labels = (() => {
       const all = ['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'];
       const idx = all.indexOf(window.Store.today().toLocaleDateString('en-AU', { month: 'short' }));
@@ -38,7 +36,24 @@
       const start = Math.max(0, end - 6);
       return all.slice(start, end + 1);
     })();
-    const max = 30;
+    if (!budgets || budgets.length === 0) {
+      return (
+        <div style={{ height: h, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <ArsEmpty icon={<IconChart size={22}/>} title="No spend data yet" body="Add budgets to see the actual vs forecast trend here." action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>}/>
+        </div>
+      );
+    }
+    // No month-by-month history exists in the data model yet, so the
+    // trend is shown as a flat line at the current live total — it will
+    // start showing real month-to-month movement once actuals accrue
+    // across multiple periods.
+    const totalAllocatedM = budgets.reduce((a, b) => a + (b.allocated || 0), 0) / 1e6;
+    const totalSpentM = budgets.reduce((a, b) => a + (b.reconciled ? (b.spent || 0) : 0), 0) / 1e6;
+    const totalForecastM = budgets.reduce((a, b) => a + (b.forecastFinal || b.spent || 0), 0) / 1e6;
+    const s1 = labels.map(() => totalSpentM);
+    const s2 = labels.map(() => totalForecastM || totalAllocatedM);
+    const max = Math.max(10, Math.max(totalAllocatedM, totalForecastM, totalSpentM) * 1.3);
+    const ticks = [0, max / 3, (max * 2) / 3, max];
     const xFor = i => pad.l + (w - pad.l - pad.r) * (i / (labels.length - 1));
     const yFor = v => pad.t + (h - pad.t - pad.b) * (1 - v/max);
     const line = pts => pts.map((v,i)=>`${i===0?'M':'L'} ${xFor(i)} ${yFor(v)}`).join(' ');
@@ -49,7 +64,7 @@
           <linearGradient id="tealArea" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#00A896" stopOpacity="0.22"/><stop offset="1" stopColor="#00A896" stopOpacity="0"/></linearGradient>
           <linearGradient id="blueArea" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#1343CB" stopOpacity="0.22"/><stop offset="1" stopColor="#1343CB" stopOpacity="0"/></linearGradient>
         </defs>
-        {[0,10,20,30].map(v=>(
+        {ticks.map(v=>(
           <g key={v}>
             <line x1={pad.l} x2={w-pad.r} y1={yFor(v)} y2={yFor(v)} stroke="#EEF1F6"/>
             <text x={pad.l-8} y={yFor(v)+4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">{curLabel(v)}</text>
@@ -123,13 +138,13 @@
     const capexSpent = capexProjects.reduce((a, c) => a + (c.paidActuals != null ? c.paidActuals : c.spent), 0);
 
     const FY_PERIOD_LABEL = window.Store.fyLabel(window.Store.today());
-    const cf = window.computeCashFlow ? window.computeCashFlow(FY_PERIOD_LABEL, activeScenario) : null;
+    const cf = window.computeCashFlow ? window.computeCashFlow(FY_PERIOD_LABEL, activeScenario, budgets, capexProjects) : null;
     // 13-week (~3 month) look-ahead cash view, built from the same
     // computeCashFlow series so it never drifts from the Cash Flow screen.
     const next13WeekOutflow = cf ? Math.abs(cf.investing.slice(1, 4).reduce((a, v) => a + Math.min(0, v), 0)) : 0;
     const next13WeekInflow = cf ? cf.operating.slice(1, 4).reduce((a, v) => a + Math.max(0, v), 0) : 0;
-    const solvent = cf ? cf.minCash > 0 : true;
-    const withinRunwayThreshold = cf ? cf.minCash >= 60 : true;
+    const solvent = cf && cf.hasData ? cf.minCash > 0 : true;
+    const withinRunwayThreshold = cf && cf.hasData ? cf.minCash >= 60 : true;
 
     // Department rollup — carries ALL bases (actual/committed/forecast)
     // so a near-zero-spend department against a large allocation is never
@@ -408,7 +423,7 @@
 
           <ArsCard onClick={() => window.Router.go('/cashflow')} style={{ cursor: 'pointer' }} title="Click to open Cash Flow Planning">
             <ArsSectionHeader title="Cash flow position" subtitle={`${FY_PERIOD_LABEL} · ${activeScenario.n || 'Base case'}`}/>
-            {cf ? (
+            {cf && cf.hasData ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Closing cash</div>
@@ -438,7 +453,7 @@
                   <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', lineHeight: 1.45, paddingTop: 10, borderTop: '1px solid var(--arsela-border)' }}>{activeScenario.note}</div>
                 )}
               </div>
-            ) : <ArsEmpty icon={<IconChart size={20}/>} title="Cash flow module loading…" body=""/>}
+            ) : <ArsEmpty icon={<IconChart size={20}/>} title="No cash flow data yet" body="Add budgets or CAPEX projects to see a cash flow projection here."/>}
           </ArsCard>
         </div>
 
@@ -542,28 +557,49 @@
       const start = Math.max(0, end - 6);
       return all.slice(start, end + 1);
     })();
-    const heatData = [
-      ['Ports & Logistics', [62, 58, 65, 71, 74, 82, 88]],
-      ['Operations',        [78, 82, 85, 88, 91, 93, 96]],
-      ['Digital & Data',    [22, 30, 34, 38, 42, 45, 45]],
-      ['People & Culture',  [65, 71, 78, 85, 91, 95, 102]],
-      ['Energy & Assets',   [15, 18, 22, 26, 30, 32, 33]],
-      ['Property',          [42, 48, 50, 52, 55, 58, 61]],
-      ['Aviation',          [72, 80, 85, 92, 96, 102, 106]],
-    ];
+    // Department rollup — no month-by-month history exists in the data
+    // model yet, so the heat-map shows a flat row (current live
+    // utilisation % repeated across the window) rather than a fabricated
+    // trend; the "Variance vs Plan" list uses the live totals directly.
+    const deptStats = (() => {
+      const byDept = {};
+      (s.budgets || []).forEach((b) => {
+        if (!byDept[b.dept]) byDept[b.dept] = { dept: b.dept, allocated: 0, spent: 0 };
+        byDept[b.dept].allocated += (b.allocated || 0);
+        byDept[b.dept].spent += (b.reconciled ? (b.spent || 0) : 0);
+      });
+      return Object.values(byDept)
+        .map((d) => ({ ...d, pct: d.allocated ? Math.round((d.spent / d.allocated) * 100) : 0, variance: d.spent - d.allocated }))
+        .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
+    })();
 
-    const varianceRows = [
-      ['Ports & Logistics', 41_200_000, 39_800_000],
-      ['Operations', 44_800_000, 46_100_000],
-      ['Digital & Data', 12_600_000, 11_400_000],
-      ['People & Culture', 18_900_000, 20_600_000],
-      ['Energy & Assets', 19_200_000, 18_400_000],
-      ['Aviation', 8_900_000, 10_400_000],
-    ];
+    const heatData = deptStats.map((d) => [d.dept, heatMonths.map(() => d.pct)]);
+
+    const varianceRows = deptStats.map((d) => [d.dept, d.allocated, d.spent]);
+
+    const insights = (() => {
+      if (deptStats.length === 0) return [];
+      const overBudget = deptStats.filter((d) => d.pct >= 100).sort((a, b) => b.pct - a.pct);
+      const underBudget = deptStats.filter((d) => d.pct < 100).sort((a, b) => a.pct - b.pct);
+      const list = [];
+      overBudget.slice(0, 2).forEach((d) => list.push({
+        tone: d.pct >= 110 ? 'danger' : 'warning',
+        h: `${d.dept} trending ${d.pct}% of plan`,
+        b: `${fmtMYR(Math.abs(d.variance), { compact: true })} over allocation — review for top-up or reallocation.`,
+        route: '/budgets',
+      }));
+      underBudget.slice(0, 2).forEach((d) => list.push({
+        tone: d.pct <= 50 ? 'success' : 'blue',
+        h: `${d.dept} at ${d.pct}% of plan`,
+        b: `${fmtMYR(Math.abs(d.variance), { compact: true })} of headroom remaining this year.`,
+        route: '/budgets',
+      }));
+      return list.slice(0, 4);
+    })();
 
     const onVarianceClick = (label, planned, actual) => {
       const variance = actual - planned;
-      const pct = ((variance/planned)*100).toFixed(1);
+      const pct = planned ? ((variance/planned)*100).toFixed(1) : '0.0';
       window.Store.toast(`${label}: ${fmtMYR(actual, {compact:true})} actual vs ${fmtMYR(planned, {compact:true})} planned (${variance > 0 ? '+' : ''}${pct}%)`, variance > 0 ? 'warning' : 'success');
     };
 
@@ -640,16 +676,20 @@
                     </div>
                   }
                 />
-                <TrendChart/>
+                <TrendChart budgets={s.budgets}/>
               </ArsCard>
 
               <ArsCard>
                 <ArsSectionHeader title="Variance vs Plan" subtitle="Departments · YTD · click for detail"/>
+                {varianceRows.length === 0 ? (
+                  <ArsEmpty icon={<IconChart size={20}/>} title="No budgets yet" body="Variance vs plan will appear once budgets are added." action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>}/>
+                ) : (
                 <div>
                   {varianceRows.map(([l,p,a])=>
                     <VarianceBar key={l} label={l} planned={p} actual={a} onClick={() => onVarianceClick(l, p, a)}/>
                   )}
                 </div>
+                )}
               </ArsCard>
             </div>
 
@@ -660,6 +700,10 @@
                   title="Utilisation heat-map"
                   subtitle="Monthly % of plan spent · red = over-budget · click a cell for detail"
                 />
+                {heatData.length === 0 ? (
+                  <ArsEmpty icon={<IconChart size={20}/>} title="No budgets yet" body="The utilisation heat-map will populate once budgets are added." action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>}/>
+                ) : (
+                <>
                 <div className="coplan-scrollx">
                 <div className="coplan-grid-fixed" style={{ display: 'grid', gridTemplateColumns: '170px repeat(7, 1fr)', gap: 4, alignItems: 'center', minWidth: 560 }}>
                   <div/>
@@ -680,18 +724,18 @@
                     </span>
                   ))}
                 </div>
+                </>
+                )}
               </ArsCard>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <ArsCard>
                   <ArsSectionHeader title="Key insights"/>
+                  {insights.length === 0 ? (
+                    <ArsEmpty icon={<IconInfo size={20}/>} title="No insights yet" body="Automated insights appear once budgets have plan and actual figures to compare." action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>}/>
+                  ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {[
-                      { tone: 'danger',  h: 'Aviation MRO trending 6% over',   b: 'Line-check volumes exceeded plan; recommend Q4 top-up or vendor renegotiation.', route: '/monthly' },
-                      { tone: 'warning', h: 'People & Culture at 102% YTD',    b: `Training pull-forward. Move ${fmtMYR(900000, { compact: true })} from FY27 or cap remaining spend.`, route: '/budgets' },
-                      { tone: 'success', h: 'Energy & Assets 41% under plan',  b: `Solar rollout delayed to Q4; free capacity of ${fmtMYR(15300000, { compact: true })} to reallocate.`, route: '/budgets' },
-                      { tone: 'blue',    h: 'Digital & Data healthy at 45%',   b: 'DC top-up in pipeline; watch for reallocation once approved.', route: '/capex' },
-                    ].map((n,i)=>(
+                    {insights.map((n,i)=>(
                       <div key={i} onClick={() => window.Router.go(n.route)} style={{
                         padding: 12, borderRadius: 8, cursor: 'pointer',
                         background: n.tone==='danger'?'var(--arsela-danger-50)':n.tone==='warning'?'var(--arsela-warning-50)':n.tone==='success'?'var(--arsela-success-50)':'var(--arsela-blue-50)',
@@ -702,6 +746,7 @@
                       </div>
                     ))}
                   </div>
+                  )}
                 </ArsCard>
               </div>
             </div>

@@ -1,8 +1,8 @@
 /* Quarterly Planning — reforecast cycle, quarter-over-quarter comparison (wired) */
 (function () {
   const QuarterCard = ({ q, plan, actual, forecast, status, current }) => {
-    const attain = actual != null ? (actual / plan) * 100 : null;
-    const varPct = actual != null ? ((actual - plan) / plan) * 100 : ((forecast - plan) / plan) * 100;
+    const attain = actual != null ? (plan ? (actual / plan) * 100 : 0) : null;
+    const varPct = actual != null ? (plan ? ((actual - plan) / plan) * 100 : 0) : (plan ? ((forecast - plan) / plan) * 100 : 0);
     return (
       <ArsCard onClick={() => window.Router.go('/quarterly?q=' + encodeURIComponent(q))} title={`View ${q} detail`} style={{
         borderColor: current ? 'var(--teal-brand)' : 'var(--arsela-border)',
@@ -30,17 +30,18 @@
     );
   };
 
-  const QoQChart = () => {
+  const QoQChart = ({ quarters }) => {
     const { useState } = React;
     const [hover, setHover] = useState(null); // { i, kind }
-    const quarters = [
-      { q: 'Q1', plan: 60, actual: 62 },
-      { q: 'Q2', plan: 62, actual: 64 },
-      { q: 'Q3', plan: 63, actual: 43, forecast: 66 },
-      { q: 'Q4', plan: 63, forecast: 66 },
-    ];
+    if (!quarters || quarters.every((q) => !q.plan && !q.actual && !q.forecast)) {
+      return (
+        <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <ArsEmpty icon={<IconChart size={22}/>} title="No budgets yet" body="Quarterly plan vs actual will appear once budgets are added." action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>}/>
+        </div>
+      );
+    }
     const w = 660, h = 260, pad = { l: 44, r: 20, t: 20, b: 30 };
-    const max = 80;
+    const max = Math.max(10, Math.max(...quarters.map((q) => Math.max(q.plan || 0, q.actual || 0, q.forecast || 0))) * 1.3);
     const groupW = (w - pad.l - pad.r) / quarters.length;
     const barW = 22;
     const yFor = (v) => pad.t + (h - pad.t - pad.b) * (1 - v / max);
@@ -53,7 +54,7 @@
           <linearGradient id="qActual" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#1E52DA"/><stop offset="1" stopColor="#1343CB"/></linearGradient>
           <linearGradient id="qForecast" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#00A896" opacity="0.75"/><stop offset="1" stopColor="#00A896" opacity="0.35"/></linearGradient>
         </defs>
-        {[0, 20, 40, 60, 80].map((v) => (
+        {[0, max / 4, max / 2, (max * 3) / 4, max].map((v) => (
           <g key={v}>
             <line x1={pad.l} x2={w - pad.r} y1={yFor(v)} y2={yFor(v)} stroke="#EEF1F6"/>
             <text x={pad.l - 8} y={yFor(v) + 4} fontSize="10" fill="#8492A6" textAnchor="end" fontWeight="600">{curLabel(v)}</text>
@@ -127,19 +128,28 @@
     const scenarios = s.scenarios || [];
     const [addScenarioOpen, setAddScenarioOpen] = useState(false);
 
-    const [submissions, setSubmissions] = useState([
-      { d: 'Ports & Logistics', o: 'Faris Hamzah', s: '18 Jul', pf: 32.0, nf: 32.5, st: 'submitted' },
-      { d: 'Operations', o: 'Aisha Rashid', s: '19 Jul', pf: 27.0, nf: 28.2, st: 'submitted' },
-      { d: 'Digital & Data', o: 'Marcus Lim', s: '20 Jul', pf: 9.3, nf: 9.7, st: 'submitted' },
-      { d: 'Agri & Food', o: 'Nurul Aini', s: '20 Jul', pf: 13.1, nf: 12.6, st: 'submitted' },
-      { d: 'Property', o: 'Adib Rahman', s: '—', pf: 9.8, nf: null, st: 'overdue' },
-      { d: 'Aviation', o: 'Iman Salleh', s: '—', pf: 5.5, nf: null, st: 'overdue' },
-      { d: 'Energy & Assets', o: 'Zara Mahmood', s: '15 Jul', pf: 12.6, nf: 13.4, st: 'submitted' },
-      { d: 'People & Culture', o: 'Priya Nair', s: '17 Jul', pf: 5.8, nf: 6.1, st: 'submitted' },
-    ]);
+    // "Submissions" was previously a hardcoded local list of fake
+    // division reforecasts. There is no real quarterly-submission-status
+    // data model in Store yet, so this is derived honestly from what DOES
+    // exist: the configured department list, cross-referenced with
+    // whether each department has any live budget entered (allocated
+    // total = "prior forecast", forecastFinal total = "new forecast").
+    // A department is "submitted" once it has at least one budget line
+    // with a forecastFinal figure; otherwise "pending" (there is no real
+    // deadline-tracking yet, so this deliberately avoids labelling
+    // anything "overdue" without a real due-date data source).
+    const submissions = (s.departments || []).map((dept) => {
+      const deptBudgets = (s.budgets || []).filter((b) => b.dept === dept);
+      const pf = deptBudgets.reduce((a, b) => a + (b.allocated || 0), 0) / 1e6;
+      const hasForecast = deptBudgets.some((b) => b.forecastFinal != null);
+      const nf = hasForecast ? deptBudgets.reduce((a, b) => a + (b.forecastFinal || b.spent || 0), 0) / 1e6 : null;
+      const owner = (deptBudgets.find((b) => b.owner) || {}).owner || '—';
+      return { d: dept, o: owner, s: hasForecast ? 'Live' : '—', pf, nf, st: hasForecast ? 'submitted' : 'pending' };
+    });
 
     const submittedCount = submissions.filter((s) => s.st === 'submitted').length;
-    const overdueCount = submissions.length - submittedCount;
+    const overdueCount = submissions.filter((s) => s.st === 'overdue').length;
+    const pendingCount = submissions.length - submittedCount - overdueCount;
 
     const routeQ = window.Router.current().params.q;
     useEffect(() => {
@@ -156,6 +166,8 @@
       return unsub;
     }, []);
 
+    const currentQLabel = window.Store.fyQuarterLabel(window.Store.today());
+
     const escalate = () => {
       const overdue = submissions.filter((r) => r.st === 'overdue');
       if (overdue.length === 0) {
@@ -166,7 +178,7 @@
         window.Store.addNotification({
           icon: '⏰', tone: 'danger',
           title: `Escalation — ${r.d} reforecast overdue`,
-          detail: `${r.o} has not submitted the Q3 reforecast. Reminder escalated to division owner.`,
+          detail: `${r.o} has not submitted the ${currentQLabel} reforecast. Reminder escalated to division owner.`,
         });
       });
       window.Store.toast(`Escalation sent to ${overdue.length} overdue division(s)`, 'warning');
@@ -174,22 +186,49 @@
 
     const exportSubmissions = () => {
       exportRowsToCSV(
-        'q3-division-submissions',
+        `${currentQLabel.toLowerCase().replace(/\s+/g, '-')}-division-submissions`,
         ['Division', 'Owner', 'Submitted', `Prior Forecast (${window.Store.getState().currency})`, `New Forecast (${window.Store.getState().currency})`, 'Δ %', 'Status'],
         submissions.map((r) => [
-          r.d, r.o, r.s, r.pf * 1e6, r.nf != null ? r.nf * 1e6 : '', r.nf != null ? (((r.nf - r.pf) / r.pf) * 100).toFixed(1) : '', r.st,
+          r.d, r.o, r.s, r.pf * 1e6, r.nf != null ? r.nf * 1e6 : '', (r.nf != null && r.pf) ? (((r.nf - r.pf) / r.pf) * 100).toFixed(1) : '', r.st,
         ])
       );
     };
 
     const submitReforecast = () => {
+      if (submissions.length === 0) { window.Store.toast('Add budgets first — there is nothing to reforecast yet', 'warning'); return; }
       window.Store.addNotification({
         icon: '✓', tone: 'success',
-        title: 'Q3 reforecast submitted',
-        detail: `Group consolidated Q3 reforecast (${submittedCount}/${submissions.length} divisions) sent for approval.`,
+        title: `${currentQLabel} reforecast submitted`,
+        detail: `Group consolidated ${currentQLabel} reforecast (${submittedCount}/${submissions.length} divisions) sent for approval.`,
       });
-      window.Store.toast('Q3 reforecast submitted for approval', 'success');
+      window.Store.toast(`${currentQLabel} reforecast submitted for approval`, 'success');
     };
+
+    // Quarterly plan/actual/forecast — there is no per-quarter actuals
+    // breakdown in the data model yet (Store only holds one live pool of
+    // budgets for the current fiscal year), so the annual totals are
+    // split evenly across the 4 fiscal quarters: elapsed quarters show
+    // actual = total reconciled spend to date ÷ elapsed quarters,
+    // remaining quarters show forecast = total forecast-final ÷
+    // remaining quarters. This is an even-split approximation, not a
+    // real quarter-by-quarter history — it will read as more accurate
+    // once quarterly actuals are tracked directly.
+    const currentQNum = window.Store.fyQuarterOf(window.Store.today());
+    const qTotalAllocated = (s.budgets || []).reduce((a, b) => a + (b.allocated || 0), 0) / 1e6;
+    const qTotalSpent = (s.budgets || []).reduce((a, b) => a + (b.reconciled ? (b.spent || 0) : 0), 0) / 1e6;
+    const qTotalForecast = (s.budgets || []).reduce((a, b) => a + (b.forecastFinal || b.spent || 0), 0) / 1e6;
+    const qPlanEach = qTotalAllocated / 4;
+    const qActualEach = currentQNum > 0 ? qTotalSpent / currentQNum : 0;
+    const remainingQuarters = 4 - currentQNum;
+    const qForecastEach = remainingQuarters > 0 ? qTotalForecast / remainingQuarters : 0;
+    const quarterData = [1, 2, 3, 4].map((n) => ({
+      q: `Q${n}`,
+      plan: qPlanEach,
+      actual: n <= currentQNum ? qActualEach : null,
+      forecast: n > currentQNum ? qForecastEach : undefined,
+      status: n < currentQNum ? (qActualEach >= qPlanEach ? 'success' : 'warning') : n === currentQNum ? 'warning' : 'blue',
+      current: n === currentQNum,
+    }));
 
     return (
       <AppFrame
@@ -198,17 +237,17 @@
         breadcrumb={['Arsela Resources', 'Plan', 'Quarterly']}
         topActions={
           <div style={{ display: 'flex', gap: 8 }}>
-            <ArsButton variant="secondary" size="md" icon={<IconRefresh size={15}/>} onClick={() => window.Store.toast('Copied figures from Q2', 'info')}>Copy from Q2</ArsButton>
-            <ArsButton size="md" icon={<IconCheck size={15}/>} onClick={submitReforecast}>Submit Q3 reforecast</ArsButton>
+            <ArsButton variant="secondary" size="md" icon={<IconRefresh size={15}/>} onClick={() => window.Store.toast('Copied figures from prior quarter', 'info')}>Copy from prior quarter</ArsButton>
+            <ArsButton size="md" icon={<IconCheck size={15}/>} onClick={submitReforecast}>Submit {currentQLabel} reforecast</ArsButton>
           </div>
         }
       >
         <div className="coplan-page">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
-              <div className="arsela-h1" style={{ fontSize: 22, letterSpacing: -0.3 }}>{window.Store.fyQuarterLabel(window.Store.today())} reforecast</div>
+              <div className="arsela-h1" style={{ fontSize: 22, letterSpacing: -0.3 }}>{currentQLabel} reforecast</div>
               <div style={{ fontSize: 13, color: 'var(--arsela-text-muted)', marginTop: 4 }}>
-                Cycle closes <b style={{ color: 'var(--arsela-navy)' }}>31 July 2026</b> · {submittedCount} of {submissions.length} divisions submitted · <span style={{ color: 'var(--warning)' }}>{overdueCount} overdue</span>
+                {submittedCount} of {submissions.length} divisions have live budget data{overdueCount > 0 ? <> · <span style={{ color: 'var(--warning)' }}>{overdueCount} overdue</span></> : pendingCount > 0 ? <> · <span style={{ color: 'var(--arsela-text-subtle)' }}>{pendingCount} pending</span></> : null}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -220,10 +259,7 @@
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 20 }}>
-            <QuarterCard q="Q1" plan={60} actual={62} status="success"/>
-            <QuarterCard q="Q2" plan={62} actual={64} status="success"/>
-            <QuarterCard q="Q3" plan={63} actual={43} forecast={66} status="warning" current/>
-            <QuarterCard q="Q4" plan={63} forecast={66} status="blue"/>
+            {quarterData.map((q) => <QuarterCard key={q.q} {...q}/>)}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 20 }}>
@@ -239,7 +275,7 @@
                   </div>
                 }
               />
-              <QoQChart/>
+              <QoQChart quarters={quarterData}/>
             </ArsCard>
 
             <ArsCard>
@@ -269,8 +305,8 @@
           <ArsCard padded={false} id="division-submissions">
             <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--arsela-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)' }}>Division submissions · Q3 reforecast</div>
-                <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{submittedCount} of {submissions.length} submitted · escalation sent to {overdueCount} overdue</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)' }}>Division submissions · {currentQLabel} reforecast</div>
+                <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{submittedCount} of {submissions.length} submitted{overdueCount > 0 ? ` · ${overdueCount} overdue` : pendingCount > 0 ? ` · ${pendingCount} pending` : ''}</div>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <ArsButton variant="secondary" size="sm" icon={<IconMail size={13}/>} onClick={escalate}>Escalate overdue</ArsButton>
@@ -291,7 +327,7 @@
               </thead>
               <tbody>
                 {submissions.map((r, i) => {
-                  const diff = r.nf != null ? ((r.nf - r.pf) / r.pf) * 100 : null;
+                  const diff = r.nf != null ? (r.pf ? ((r.nf - r.pf) / r.pf) * 100 : 0) : null;
                   return (
                     <tr key={r.d} onClick={() => window.Router.go('/budgets?dept=' + encodeURIComponent(r.d))}
                       title={`Click to view ${r.d} budgets & projects`}
@@ -305,12 +341,12 @@
                           <ArsAvatar name={r.o} size={22} tone="blue"/>{r.o}
                         </div>
                       </td>
-                      <td style={{ padding: '13px 20px', fontSize: 13, color: r.s === '—' ? 'var(--danger)' : 'var(--arsela-text-muted)' }}>{r.s}</td>
+                      <td style={{ padding: '13px 20px', fontSize: 13, color: r.st === 'overdue' ? 'var(--danger)' : 'var(--arsela-text-muted)' }}>{r.s}</td>
                       <td className="arsela-num" style={{ padding: '13px 20px', textAlign: 'right', fontSize: 13, color: 'var(--arsela-navy)' }}>{fmtMYR(r.pf * 1e6, { compact: true })}</td>
                       <td className="arsela-num" style={{ padding: '13px 20px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>{r.nf != null ? fmtMYR(r.nf * 1e6, { compact: true }) : '—'}</td>
                       <td style={{ padding: '13px 20px', textAlign: 'right' }}>{diff != null ? <ArsVariance value={diff} size="sm"/> : <span style={{ color: 'var(--arsela-text-subtle)' }}>—</span>}</td>
                       <td style={{ padding: '13px 20px' }}>
-                        <ArsBadge tone={r.st === 'submitted' ? 'success' : 'danger'} dot size="sm">{r.st === 'submitted' ? 'Submitted' : 'Overdue'}</ArsBadge>
+                        <ArsBadge tone={r.st === 'submitted' ? 'success' : r.st === 'overdue' ? 'danger' : 'neutral'} dot size="sm">{r.st === 'submitted' ? 'Submitted' : r.st === 'overdue' ? 'Overdue' : 'Pending'}</ArsBadge>
                       </td>
                     </tr>
                   );

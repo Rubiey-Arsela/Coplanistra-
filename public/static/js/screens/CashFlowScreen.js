@@ -149,46 +149,82 @@
 
   /* Pure computation shared with ReportsScreen's Director's Report, so the
      cash flow figures quoted there always match what Cash Flow Planning
-     shows for the same period/scenario — single source of truth. */
-  function computeCashFlow(period, activeScenario) {
+     shows for the same period/scenario — single source of truth.
+
+     Rewritten for "start fresh" (2026-08-19): this used to be entirely
+     synthetic hardcoded monthly arrays with no connection to Store. It
+     now derives from live budgets/CAPEX:
+       - Operating = OPEX burn against the approved budget envelope
+         (forecast full-year cost, or allocated if no forecast yet),
+         spread evenly across 12 months — there is no per-month actuals
+         breakdown in the data model yet, so this is a flat run-rate,
+         not a real month-by-month history.
+       - Investing = CAPEX burn against the approved CAPEX envelope
+         (committed, or approved if nothing committed yet), same flat
+         monthly spread.
+       - Financing = 0 for every month — Coplanistra does not track
+         loan/facility drawdowns or repayments yet, so this is left
+         honestly at zero instead of fabricated.
+       - Opening balance = total approved funding envelope for the year
+         (budget allocated + CAPEX approved). There is no live
+         bank-feed integration, so this is a BUDGET-DERIVED runway view
+         (how fast the approved spending authority depletes at the
+         current plan), not an external cash-at-bank figure.
+     `hasData` tells the render layer whether there is any live budget/
+     CAPEX data at all, so a genuinely empty Store can show an empty
+     state instead of a misleading all-zero "at risk" chart. */
+  function computeCashFlow(period, activeScenario, budgets, capexProjects) {
     activeScenario = activeScenario || {};
-    const revenueMult = 1 + (activeScenario.revenueDeltaPct || 0) / 100;
+    budgets = budgets || [];
+    capexProjects = capexProjects || [];
     const expenseMult = 1 - (activeScenario.expenseDeltaPct || 0) / 100;
     const budgetMult = 1 + (activeScenario.budgetDeltaPct || 0) / 100;
-    const financingMult = 1 + (activeScenario.budgetDeltaPct || 0) / 200;
 
-    const scale = period === 'FY2025' ? 0.72 : period === 'FY2026' ? 0.86 : period === 'FY2028 (fcst)' ? 1.12 : 1; // FY2027 (current) = 1
-    const baseOperating = [42, 48, 51, 46, 52, 58, 61, 55, 62, 67, 71, 74].map(v => Math.round(v * scale));
-    const baseInvesting = [-28, -32, -35, -30, -38, -42, -48, -44, -52, -55, -58, -62].map(v => Math.round(v * scale));
-    const baseFinancing = [8, -4, -6, 12, -8, -6, -4, 14, -6, -8, -4, -12].map(v => Math.round(v * scale));
+    // No multi-year archive exists in the data model yet — Store only
+    // holds the current live budget/CAPEX pool. Other periods in the
+    // picker are shown as a scaled ESTIMATE of the live current-year
+    // totals for illustrative year-over-year comparison; they are NOT
+    // real archived figures. Once multi-year actuals exist this should
+    // read a real per-FY dataset instead of scaling.
+    const scale = period === 'FY2025' ? 0.72 : period === 'FY2026' ? 0.86 : period === 'FY2028 (fcst)' ? 1.12 : 1; // current FY = 1
 
-    const operating = baseOperating.map(v => Math.round(v * revenueMult * expenseMult));
-    const investing = baseInvesting.map(v => Math.round(v * budgetMult));
-    const financing = baseFinancing.map(v => Math.round(v * financingMult));
-    const opening = Math.round(98 * scale);
+    const totalAllocated = budgets.reduce((a, b) => a + (b.allocated || 0), 0);
+    const totalForecastFinal = budgets.reduce((a, b) => a + (b.forecastFinal || b.spent || 0), 0);
+    const capexApproved = capexProjects.reduce((a, c) => a + (c.approved || 0), 0);
+    const capexCommitted = capexProjects.reduce((a, c) => a + (c.committed || 0), 0);
+    const hasData = totalAllocated > 0 || capexApproved > 0;
+
+    const monthlyOpexM = ((totalForecastFinal || totalAllocated) / 12 / 1e6) * scale;
+    const monthlyCapexM = ((capexCommitted || capexApproved) / 12 / 1e6) * scale;
+
+    const operating = Array(12).fill(0).map(() => Math.round(-monthlyOpexM * expenseMult * 10) / 10);
+    const investing = Array(12).fill(0).map(() => Math.round(-monthlyCapexM * budgetMult * 10) / 10);
+    const financing = Array(12).fill(0);
+
+    const opening = Math.round(((totalAllocated + capexApproved) / 1e6) * scale * 10) / 10;
     const cash = [];
     let running = opening;
     for (let i = 0; i < CF_MONTHS.length; i++) {
       running += operating[i] + investing[i] + financing[i];
-      cash.push(Math.max(0, running));
+      cash.push(Math.max(0, Math.round(running * 10) / 10));
     }
 
-    const opTotal = operating.reduce((a, b) => a + b, 0);
-    const invTotal = investing.reduce((a, b) => a + b, 0);
-    const finTotal = financing.reduce((a, b) => a + b, 0);
+    const opTotal = Math.round(operating.reduce((a, b) => a + b, 0) * 10) / 10;
+    const invTotal = Math.round(investing.reduce((a, b) => a + b, 0) * 10) / 10;
+    const finTotal = 0;
     const closingCash = cash[cash.length - 1];
-    const netChange = closingCash - opening;
+    const netChange = Math.round((closingCash - opening) * 10) / 10;
     const netChangePct = opening > 0 ? (netChange / opening) * 100 : 0;
-    const monthlyBurn = Math.abs(Math.round(investing.reduce((a, b) => a + Math.min(0, b), 0) / 12));
+    const monthlyBurn = Math.round(Math.abs(monthlyOpexM * expenseMult + monthlyCapexM * budgetMult) * 10) / 10;
     const runwayMonths = monthlyBurn > 0 ? (closingCash / monthlyBurn).toFixed(1) : null;
-    const minCash = Math.min(...cash);
+    const minCash = cash.length ? Math.min(...cash) : 0;
     const minCashMonthIdx = cash.indexOf(minCash);
 
     // opening is now returned so the render layer can compute a REAL
     // closing-vs-opening variance instead of a hardcoded badge value —
     // this was the exact source of the Operating/Investing/Financing vs
     // "Net change" vs "+9.4% vs Jan opening" inconsistency reported.
-    return { operating, investing, financing, cash, opening, opTotal, invTotal, finTotal, closingCash, netChange, netChangePct, monthlyBurn, runwayMonths, minCash, minCashMonthIdx };
+    return { operating, investing, financing, cash, opening, opTotal, invTotal, finTotal, closingCash, netChange, netChangePct, monthlyBurn, runwayMonths, minCash, minCashMonthIdx, hasData };
   }
 
   const ScenarioDeltaPill = ({ label, pct }) => {
@@ -227,8 +263,8 @@
     // follows the budget delta at half weight (deferring CAPEX typically
     // eases financing draw-down too). See computeCashFlow() above — shared
     // with the Director's Report so figures never drift between screens.
-    const { operating, investing, financing, cash, opening, opTotal, invTotal, finTotal, closingCash, netChange, netChangePct, monthlyBurn, runwayMonths: runwayMonthsRaw, minCash, minCashMonthIdx } =
-      computeCashFlow(period, activeScenario);
+    const { operating, investing, financing, cash, opening, opTotal, invTotal, finTotal, closingCash, netChange, netChangePct, monthlyBurn, runwayMonths: runwayMonthsRaw, minCash, minCashMonthIdx, hasData } =
+      computeCashFlow(period, activeScenario, s.budgets, s.capexProjects);
     const runwayMonths = runwayMonthsRaw || '—';
 
     // How many months of the selected period are RECONCILED ACTUALS vs
@@ -240,14 +276,18 @@
     const isFullyActual = actualMonths >= 12;
     const isFullyForecast = actualMonths <= 0;
 
-    // Indicative demo balances for the fields the user asked to see
-    // alongside the projection — "book balance" (Xero ledger) can lag
-    // "cash at bank" (live bank feed) briefly around timing differences,
-    // which is itself a reconciliation signal.
-    const cashAtBank = Math.round(cash[Math.min(actualMonths, cash.length - 1)] * 1.006);
+    // "Book balance" is the budget-derived projected balance from
+    // computeCashFlow. There is no live bank-feed integration yet, so
+    // "cash at bank" cannot be independently sourced — it is shown
+    // equal to book balance rather than a fabricated variance, until a
+    // real bank feed is wired up (at which point a genuine difference
+    // here would be a real reconciliation signal).
     const bookBalance = cash[Math.min(actualMonths, cash.length - 1)];
-    const undrawnFacilities = 45; // RM/AUD M — revolving facility headroom, demo figure
-    const fundingGapExists = minCash < 60; // below the runway threshold line
+    const cashAtBank = bookBalance;
+    // No facility/loan data model exists yet in Store, so undrawn
+    // facilities is honestly 0 rather than a fabricated headroom figure.
+    const undrawnFacilities = 0;
+    const fundingGapExists = hasData && minCash < 60; // below the runway threshold line
     const fundingGapAmount = fundingGapExists ? Math.round(60 - minCash) : 0;
 
     const onBarClick = (month) => {
@@ -321,6 +361,17 @@
           </span>
         </div>
 
+        {!hasData ? (
+          <ArsCard style={{ marginBottom: 20 }}>
+            <ArsEmpty
+              icon={<IconChart size={22}/>}
+              title="No cash flow data yet"
+              body="This projection is derived from live budgets and CAPEX projects. Add a budget or CAPEX project to see closing cash, runway and monthly burn here."
+              action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => window.Router.go('/budgets/new')}>New Budget</ArsButton>}
+            />
+          </ArsCard>
+        ) : (
+        <>
         {/* Runway hero */}
         <ArsCard style={{ padding: 0, marginBottom: 20, overflow: 'hidden' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', background: 'linear-gradient(180deg, #FAFBFD, #fff)' }}>
@@ -340,10 +391,7 @@
             <div style={{ padding: '24px 24px', borderRight: '1px solid var(--arsela-border)' }}>
               <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Monthly burn</div>
               <div className="arsela-num" style={{ fontSize: 32, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 10, letterSpacing: -0.5 }}>{curLabel(monthlyBurn)}</div>
-              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <ArsVariance value={-3.2} invert/>
-                <span style={{ fontSize: 12, color: 'var(--arsela-text-muted)' }}>vs 6-mo avg</span>
-              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--arsela-text-muted)' }}>Budget + CAPEX plan spread evenly across the year</div>
             </div>
             <div style={{ padding: '24px 24px' }}>
               <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Net change · {period}</div>
@@ -353,20 +401,21 @@
           </div>
         </ArsCard>
 
-        {/* Liquidity position — cash at bank, book balance, funding gap,
-            undrawn facilities. Cash at bank and Book balance are shown
-            separately because a difference between them is itself a
-            reconciliation signal (outstanding/uncleared items). */}
+        {/* Liquidity position — projected balance, funding gap. There is
+            no live bank-feed integration yet, so "cash at bank" cannot be
+            independently verified against a "book balance" — both are
+            shown as the same budget-derived projected balance, honestly
+            labelled, rather than fabricating a reconciliation variance. */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
           <ArsCard>
-            <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Current cash at bank</div>
+            <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Projected cash position</div>
             <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8 }}>{curLabel(cashAtBank)}</div>
-            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 3 }}>Live bank feed balance</div>
+            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 3 }}>Derived from budget/CAPEX plan — no live bank feed connected</div>
           </ArsCard>
           <ArsCard>
             <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Book balance</div>
             <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 8 }}>{curLabel(bookBalance)}</div>
-            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 3 }}>{cashAtBank !== bookBalance ? `${curLabel(Math.abs(cashAtBank - bookBalance))} unreconciled — see Reconciliations` : 'Matches Xero ledger'}</div>
+            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 3 }}>See Reconciliations for actual Xero/bank matching</div>
           </ArsCard>
           <ArsCard>
             <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--arsela-text-muted)', fontWeight: 700 }}>Min. projected balance</div>
@@ -378,7 +427,7 @@
             <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: fundingGapExists ? 'var(--danger)' : 'var(--success)', marginTop: 8 }}>
               {fundingGapExists ? `Gap ${curLabel(fundingGapAmount)}` : 'No gap'}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 3 }}>{curLabel(undrawnFacilities)} undrawn facility headroom</div>
+            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 3 }}>No facility data tracked yet</div>
           </ArsCard>
         </div>
 
@@ -386,7 +435,7 @@
         <ArsCard style={{ marginBottom: 20 }}>
           <ArsSectionHeader
             title={`Cash flow model — ${period}`}
-            subtitle="Monthly Operating · Investing · Financing · solid = actual, faded/dashed = forecast · click a month for detail"
+            subtitle="Monthly Operating (opex) · Investing (CAPEX) · Financing · evenly spread from the live plan · click a month for detail"
             action={
               <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--arsela-text-muted)', flexWrap: 'wrap' }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 12, background: '#1A8754', borderRadius: 2 }}/>Operating</span>
@@ -399,9 +448,9 @@
           <CashFlowChart operating={operating} investing={investing} financing={financing} onBarClick={onBarClick} actualMonths={actualMonths}/>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--arsela-border)' }}>
             {[
-              { l: `Operating cash · ${period}`, v: opTotal, tone: 'success', d: 'Strong operating performance' },
+              { l: `Operating cash · ${period}`, v: opTotal, tone: 'success', d: 'OPEX burn vs budget plan' },
               { l: `Investing cash · ${period}`, v: invTotal, tone: 'danger',  d: 'CAPEX-driven outflows' },
-              { l: `Financing cash · ${period}`, v: finTotal, tone: 'blue',    d: 'Net loan repayments' },
+              { l: `Financing cash · ${period}`, v: finTotal, tone: 'blue',    d: 'No facility data tracked yet' },
             ].map(m => (
               <div key={m.l}>
                 <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>{m.l}</div>
@@ -413,6 +462,8 @@
             ))}
           </div>
         </ArsCard>
+        </>
+        )}
 
         {/* Scenario planning — click a scenario to switch; the hero, chart,
             runway and export above all recompute from whichever is active. */}
@@ -455,6 +506,7 @@
         </ArsCard>
 
         {/* Cash position over time */}
+        {hasData && (
         <ArsCard>
           <ArsSectionHeader
             title="Closing cash position · projection"
@@ -462,6 +514,7 @@
           />
           <RunwayChart cash={cash} actualMonths={actualMonths}/>
         </ArsCard>
+        )}
       </AppFrame>
     );
   };
