@@ -80,8 +80,8 @@
           </ArsField></div>
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
-          <div style={{ flex: 1 }}><ArsField label="Allocated (RM)"><input type="number" value={form.allocated} onChange={set('allocated')} style={arsFieldInputStyle}/></ArsField></div>
-          <div style={{ flex: 1 }}><ArsField label="Spent (RM)"><input type="number" value={form.spent} onChange={set('spent')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label={`Allocated (${window.Store.getState().currency})`}><input type="number" value={form.allocated} onChange={set('allocated')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label={`Spent (${window.Store.getState().currency})`}><input type="number" value={form.spent} onChange={set('spent')} style={arsFieldInputStyle}/></ArsField></div>
         </div>
       </ArsModal>
     );
@@ -108,9 +108,9 @@
         <ArsField label="Category name"><input value={form.cat} onChange={set('cat')} style={arsFieldInputStyle} placeholder="e.g. Site security"/></ArsField>
         <ArsField label="Vendor"><input value={form.vendor} onChange={set('vendor')} style={arsFieldInputStyle} placeholder="e.g. Internal"/></ArsField>
         <div style={{ display: 'flex', gap: 12 }}>
-          <div style={{ flex: 1 }}><ArsField label="Planned (RM)"><input type="number" value={form.planned} onChange={set('planned')} style={arsFieldInputStyle}/></ArsField></div>
-          <div style={{ flex: 1 }}><ArsField label="Committed (RM)"><input type="number" value={form.committed} onChange={set('committed')} style={arsFieldInputStyle}/></ArsField></div>
-          <div style={{ flex: 1 }}><ArsField label="Actual (RM)"><input type="number" value={form.actual} onChange={set('actual')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label={`Planned (${window.Store.getState().currency})`}><input type="number" value={form.planned} onChange={set('planned')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label={`Committed (${window.Store.getState().currency})`}><input type="number" value={form.committed} onChange={set('committed')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label={`Actual (${window.Store.getState().currency})`}><input type="number" value={form.actual} onChange={set('actual')} style={arsFieldInputStyle}/></ArsField></div>
         </div>
       </ArsModal>
     );

@@ -140,8 +140,8 @@
           </ArsField></div>
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
-          <div style={{ flex: 1 }}><ArsField label="Allocated (RM)"><input type="number" value={form.allocated} onChange={set('allocated')} style={arsFieldInputStyle}/></ArsField></div>
-          <div style={{ flex: 1 }}><ArsField label="Spent (RM)"><input type="number" value={form.spent} onChange={set('spent')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label={`Allocated (${window.Store.getState().currency})`}><input type="number" value={form.allocated} onChange={set('allocated')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label={`Spent (${window.Store.getState().currency})`}><input type="number" value={form.spent} onChange={set('spent')} style={arsFieldInputStyle}/></ArsField></div>
         </div>
       </ArsModal>
     );

@@ -58,9 +58,9 @@
           <div style={{ flex: 1 }}><ArsField label="Target ETA"><input value={form.eta} onChange={set('eta')} placeholder="e.g. Q4 2027" style={arsFieldInputStyle}/></ArsField></div>
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
-          <div style={{ flex: 1 }}><ArsField label="Approved (RM)"><input type="number" value={form.approved} onChange={set('approved')} style={arsFieldInputStyle}/></ArsField></div>
-          <div style={{ flex: 1 }}><ArsField label="Committed (RM)"><input type="number" value={form.committed} onChange={set('committed')} style={arsFieldInputStyle}/></ArsField></div>
-          <div style={{ flex: 1 }}><ArsField label="Spent (RM)"><input type="number" value={form.spent} onChange={set('spent')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label={`Approved (${window.Store.getState().currency})`}><input type="number" value={form.approved} onChange={set('approved')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label={`Committed (${window.Store.getState().currency})`}><input type="number" value={form.committed} onChange={set('committed')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label={`Spent (${window.Store.getState().currency})`}><input type="number" value={form.spent} onChange={set('spent')} style={arsFieldInputStyle}/></ArsField></div>
         </div>
       </ArsModal>
     );

@@ -375,7 +375,7 @@
           </ArsField></div>
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
-          <div style={{ flex: 1 }}><ArsField label="Amount (RM)"><input type="number" value={form.amount} onChange={set('amount')} style={arsFieldInputStyle}/></ArsField></div>
+          <div style={{ flex: 1 }}><ArsField label="Amount (AUD)"><input type="number" value={form.amount} onChange={set('amount')} style={arsFieldInputStyle}/></ArsField></div>
           <div style={{ flex: 1 }}><ArsField label="Status">
             <select value={form.status} onChange={set('status')} style={arsFieldInputStyle}>
               {EXPENSE_STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
