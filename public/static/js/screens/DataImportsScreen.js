@@ -346,14 +346,19 @@
         setParsing(false);
         try {
           if (parsed.length < 2) { setError(`No data rows found in this ${fileKindLabel(file.name)}.`); setRows(null); return; }
-          const header = parsed[0];
-          const cols = detectColumns(header, schema.fields);
-          if (cols[schema.requiredKey] === -1) {
+          // Excel/PDF exports from Xero often have a title block (company
+          // name, report title, date range, blank rows) above the real
+          // header row, unlike the CSV export which starts at row 0 —
+          // scan for it instead of assuming row 0 is the header.
+          const headerIdx = findHeaderRowIndex(parsed, schema.fields, schema.requiredKey, 25);
+          if (headerIdx === -1) {
             setError(`Could not find a "${schema.fields.find((f) => f.key === schema.requiredKey).label}" column in this ${fileKindLabel(file.name)}. Check you exported the right Xero report${/\.pdf$/i.test(file.name) ? ', or try a CSV/Excel export instead \u2014 PDF table layouts vary and are not always detected cleanly' : ''}.`);
             setRows(null);
             return;
           }
-          const dataRows = parsed.slice(1);
+          const header = parsed[headerIdx];
+          const cols = detectColumns(header, schema.fields);
+          const dataRows = parsed.slice(headerIdx + 1);
           const built = dataRows.map((r) => {
             const row = {};
             schema.fields.forEach((f) => {

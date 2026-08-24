@@ -483,6 +483,41 @@ function parseCSVText(text) {
    Returns a Promise<string[][]> — callers should always .catch() and
    surface e.message to the user (all rejection paths set a human-readable
    message). ---- */
+/* ---- header-row detection ------------------------------------------
+   Xero's CSV export is a bare data table (header on row 0), but its
+   Excel and PDF exports include a title block above the table — company
+   name, report title, date range, blank spacer rows — so the real
+   header row can be several rows down. scoreHeaderRow/findHeaderRowIndex
+   scan the first N rows and pick the one that best matches the expected
+   column aliases (falls back to row 0 if nothing scores). Both Data
+   Imports and Expenses "Import from Xero" use this before calling their
+   own column-detection so CSV/Excel/PDF all locate the header correctly. ---- */
+function scoreHeaderRow(row, fields, requiredKey) {
+  const norm = (row || []).map((h) => String(h || '').trim().toLowerCase());
+  let requiredFound = false;
+  let score = 0;
+  (fields || []).forEach((f) => {
+    if (!f.aliases || f.aliases.length === 0) return;
+    let idx = norm.findIndex((h) => f.aliases.includes(h));
+    if (idx === -1) idx = norm.findIndex((h) => h && f.aliases.some((a) => h.includes(a)));
+    if (idx !== -1) {
+      score++;
+      if (f.key === requiredKey) requiredFound = true;
+    }
+  });
+  return requiredFound ? score : -1;
+}
+function findHeaderRowIndex(rows, fields, requiredKey, maxScan) {
+  const scanLimit = Math.min(rows.length, maxScan || 25);
+  let bestIdx = -1;
+  let bestScore = -1;
+  for (let i = 0; i < scanLimit; i++) {
+    const s = scoreHeaderRow(rows[i], fields, requiredKey);
+    if (s > bestScore) { bestScore = s; bestIdx = i; }
+  }
+  return bestIdx; // -1 if the required column wasn't found in any scanned row
+}
+
 function parseImportFile(file) {
   return new Promise((resolve, reject) => {
     const name = String(file.name || '').toLowerCase();
@@ -586,5 +621,5 @@ Object.assign(window, {
   ArsCard, ArsButton, ArsBadge, ArsInput, ArsProgress, ArsAvatar, ArsSectionHeader,
   ArsVariance, ArsFigure, ArsTabs, ArsSkeleton, ArsEmpty, ArsRAG, ArsLifecycle,
   fmtMYR, fmtPct, curLabel, ArsModal, ArsConfirmDialog, ArsField, arsFieldInputStyle,
-  exportRowsToCSV, parseCSVText, parseImportFile,
+  exportRowsToCSV, parseCSVText, parseImportFile, findHeaderRowIndex,
 });

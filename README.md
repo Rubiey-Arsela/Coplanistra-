@@ -8,9 +8,16 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: https://beb57f0f.coplanistra.pages.dev — 2026-08-24 — Xero imports now accept CSV, Excel and PDF)
+- **Production**: https://coplanistra.pages.dev (latest deploy: see below — 2026-08-24, part 2 — fix: Excel/PDF header-row detection)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-08-24, part 2) — Fix: Excel/PDF Xero exports with a title block above the header row now import correctly
+Bug reported by the client: uploading a real Xero **Excel** or **PDF** export failed with *"Could not find a 'Account' column in this Excel file."* even though the report clearly had an Account column. Root cause: Xero's CSV export is a bare data table (header on row 1), but its **Excel and PDF exports include a title block above the table** — company name, report name, date range, a blank spacer row — so the real header row is several rows down. The importer assumed row 1 was always the header, which is correct for CSV but wrong for Excel/PDF.
+
+**Fix**: added `findHeaderRowIndex()` (`public/static/js/primitives.js`) which scans the first 25 rows of the parsed file and picks whichever row best matches the report's expected column names (e.g. Account, Classification, Date, Gross), instead of assuming row 1. Wired into both `DataImportsScreen.js` (all 8 report types) and `ExpensesScreen.js`'s "Import from Xero" modal. CSV behaviour is unchanged (header is still found on row 1 as before); Excel/PDF now correctly skip past any title block to find the real header.
+
+**Verification**: built realistic Excel and PDF fixtures with a 4-line Xero-style title block ("Arsela Resources Sdn Bhd" / "Profit and Loss" / "For the month ended..." / blank) above the Account/Classification/... header, then ran scripted Playwright browser tests uploading them through the live app — both now correctly report "4 rows found" and preview identical, correct data (previously this failed with the "Could not find a column" error). Also verified the same fix on the Expenses screen's Xero import with a title-blocked Excel transactions export ("3 rows found"). Zero console errors on `/dataimports` and `/expenses` after the fix.
 
 ## Session update (2026-08-24) — Xero imports now accept CSV, Excel and PDF (not just CSV)
 Client request: *"make sure data imports from xero allow us to import not only csv, but also pdf and excel format. apply for all data import."* Applied to **every** Xero-import entry point in the app:

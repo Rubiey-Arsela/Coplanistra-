@@ -128,6 +128,9 @@
     vendor: ['contact', 'payee', 'supplier', 'contact name', 'vendor'],
     amount: ['gross', 'amount', 'total', 'amount (myr)', 'debit', 'gross amount'],
   };
+  // Same shape findHeaderRowIndex (primitives.js) expects, so Excel/PDF
+  // exports with a title block above the real header row still locate it.
+  const XERO_HEADER_FIELDS = Object.keys(XERO_HEADER_MAP).map((key) => ({ key, aliases: XERO_HEADER_MAP[key] }));
   function detectXeroColumns(headerRow) {
     const norm = headerRow.map((h) => String(h || '').trim().toLowerCase());
     const findCol = (aliases) => {
@@ -201,14 +204,19 @@
         setParsing(false);
         try {
           if (parsed.length < 2) { setError(`No data rows found in this ${fileKind(file.name)}.`); setRows(null); return; }
-          const header = parsed[0];
-          const cols = detectXeroColumns(header);
-          if (cols.amount === -1) {
+          // Excel/PDF exports from Xero often have a title block (company
+          // name, report title, date range, blank rows) above the real
+          // header row, unlike the CSV export which starts at row 0 —
+          // scan for it instead of assuming row 0 is the header.
+          const headerIdx = findHeaderRowIndex(parsed, XERO_HEADER_FIELDS, 'amount', 25);
+          if (headerIdx === -1) {
             setError(`Could not find an amount column in this ${fileKind(file.name)}. Expected a Xero export with columns like Date, Description/Reference, Contact, and Gross/Amount/Total.${/\.pdf$/i.test(file.name) ? ' PDF table layouts vary \u2014 try a CSV/Excel export of the same report if this keeps happening.' : ''}`);
             setRows(null);
             return;
           }
-          const dataRows = parsed.slice(1);
+          const header = parsed[headerIdx];
+          const cols = detectXeroColumns(header);
+          const dataRows = parsed.slice(headerIdx + 1);
           const built = dataRows.map((r) => {
             const amount = Math.abs(parseAmountCell(cols.amount !== -1 ? r[cols.amount] : ''));
             const desc = cols.desc !== -1 ? String(r[cols.desc] || '').trim() : '';
