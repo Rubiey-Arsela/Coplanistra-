@@ -461,9 +461,130 @@ function parseCSVText(text) {
   return rows.filter((r) => r.some((v) => String(v || '').trim() !== ''));
 }
 
+/* ---- Multi-format import parser — accepts CSV, Excel (.xlsx/.xls) and
+   PDF exports from Xero (or any similarly-shaped report) and normalises
+   them all to the same shape parseCSVText already returns: an array of
+   row-arrays, first row usually the header row. Every existing per-report
+   column-detection/preview/import pipeline (Data Imports hub, Expenses
+   "Import from Xero") is written against that shape, so this is the only
+   place that needs to know about file *format* — callers stay unchanged
+   beyond swapping their FileReader/parseCSVText call for this.
+     - CSV/TXT: reuses parseCSVText.
+     - Excel: parsed client-side with SheetJS (CDN, window.XLSX), first
+       sheet only, formatted-text mode so numbers/dates come through as
+       strings the same way a CSV export would.
+     - PDF: parsed client-side with pdf.js (CDN, window.pdfjsLib). Text
+       items are re-assembled into rows by clustering on Y position (same
+       line) then split into cells on horizontal gaps (column boundaries).
+       This is a best-effort heuristic — it works well for the simple,
+       left-aligned tabular reports Xero exports, but is not a general
+       PDF-table parser; scanned/image-only PDFs have no text layer at
+       all and will report a clear error asking for CSV/Excel instead.
+   Returns a Promise<string[][]> — callers should always .catch() and
+   surface e.message to the user (all rejection paths set a human-readable
+   message). ---- */
+function parseImportFile(file) {
+  return new Promise((resolve, reject) => {
+    const name = String(file.name || '').toLowerCase();
+    if (/\.(xlsx|xls)$/.test(name)) {
+      if (!window.XLSX) { reject(new Error('Excel parser did not load — check your connection and try again, or use a CSV/PDF export instead.')); return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = new Uint8Array(reader.result);
+          const wb = window.XLSX.read(data, { type: 'array' });
+          const sheetName = wb.SheetNames[0];
+          if (!sheetName) { reject(new Error('This Excel file has no sheets.')); return; }
+          const sheet = wb.Sheets[sheetName];
+          const rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+          const cleaned = rows
+            .map((r) => r.map((c) => (c == null ? '' : String(c))))
+            .filter((r) => r.some((v) => v.trim() !== ''));
+          if (cleaned.length === 0) { reject(new Error('No data found on the first sheet of this Excel file.')); return; }
+          resolve(cleaned);
+        } catch (e) {
+          reject(new Error('Could not read this Excel file. Please check it is a valid .xlsx/.xls export and try again.'));
+        }
+      };
+      reader.onerror = () => reject(new Error('Could not read this file.'));
+      reader.readAsArrayBuffer(file);
+    } else if (/\.pdf$/.test(name)) {
+      if (!window.pdfjsLib) { reject(new Error('PDF parser did not load — check your connection and try again, or use a CSV/Excel export instead.')); return; }
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const data = new Uint8Array(reader.result);
+          const pdf = await window.pdfjsLib.getDocument({ data }).promise;
+          const rows = [];
+          const Y_TOLERANCE = 3;   // px — items within this are treated as the same line
+          const GAP_THRESHOLD = 8; // px — a horizontal gap bigger than this starts a new cell/column
+          for (let p = 1; p <= pdf.numPages; p++) {
+            const page = await pdf.getPage(p);
+            const content = await page.getTextContent();
+            const items = content.items
+              .filter((it) => it.str && it.str.trim() !== '')
+              .map((it) => ({ x: it.transform[4], y: it.transform[5], str: it.str, width: it.width || 0 }));
+            // cluster into lines by Y (pdf.js returns items roughly in
+            // reading order for simple single-column report layouts)
+            const lines = [];
+            let current = null;
+            items.forEach((it) => {
+              if (!current || Math.abs(it.y - current.y) > Y_TOLERANCE) {
+                current = { y: it.y, items: [] };
+                lines.push(current);
+              }
+              current.items.push(it);
+            });
+            // sort top-to-bottom (PDF y grows upward) then left-to-right within a line
+            lines.sort((a, b) => b.y - a.y);
+            lines.forEach((line) => {
+              line.items.sort((a, b) => a.x - b.x);
+              const cells = [];
+              let cur = '';
+              let prevEndX = null;
+              line.items.forEach((it) => {
+                if (prevEndX !== null && it.x - prevEndX > GAP_THRESHOLD) {
+                  cells.push(cur.trim());
+                  cur = it.str;
+                } else {
+                  cur += (cur ? ' ' : '') + it.str;
+                }
+                prevEndX = it.x + it.width;
+              });
+              if (cur.trim() !== '') cells.push(cur.trim());
+              if (cells.some((c) => c !== '')) rows.push(cells);
+            });
+          }
+          if (rows.length === 0) {
+            reject(new Error('No readable text found in this PDF. If it\u2019s a scanned/image PDF, please export a CSV or Excel version from Xero instead.'));
+            return;
+          }
+          resolve(rows);
+        } catch (e) {
+          reject(new Error('Could not read this PDF. Please check it is a text-based Xero export (not a scanned image) and try again.'));
+        }
+      };
+      reader.onerror = () => reject(new Error('Could not read this file.'));
+      reader.readAsArrayBuffer(file);
+    } else {
+      // CSV / plain text
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          resolve(parseCSVText(String(reader.result || '')));
+        } catch (e) {
+          reject(new Error('Could not read this file as CSV.'));
+        }
+      };
+      reader.onerror = () => reject(new Error('Could not read this file.'));
+      reader.readAsText(file);
+    }
+  });
+}
+
 Object.assign(window, {
   ArsCard, ArsButton, ArsBadge, ArsInput, ArsProgress, ArsAvatar, ArsSectionHeader,
   ArsVariance, ArsFigure, ArsTabs, ArsSkeleton, ArsEmpty, ArsRAG, ArsLifecycle,
   fmtMYR, fmtPct, curLabel, ArsModal, ArsConfirmDialog, ArsField, arsFieldInputStyle,
-  exportRowsToCSV, parseCSVText,
+  exportRowsToCSV, parseCSVText, parseImportFile,
 });

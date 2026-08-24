@@ -47,6 +47,12 @@
     if (!d || isNaN(d.getTime())) return s;
     return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
   }
+  function fileKindLabel(fileName) {
+    const n = String(fileName || '').toLowerCase();
+    if (/\.pdf$/.test(n)) return 'PDF';
+    if (/\.(xlsx|xls)$/.test(n)) return 'Excel file';
+    return 'CSV';
+  }
   function detectColumns(headerRow, fields) {
     const norm = headerRow.map((h) => String(h || '').trim().toLowerCase());
     const result = {};
@@ -332,17 +338,18 @@
     const [importing, setImporting] = useState(false);
     const fileRef = useRef(null);
 
+    const [parsing, setParsing] = useState(false);
+
     const handleFile = (file) => {
-      setError(''); setFileName(file.name);
-      const reader = new FileReader();
-      reader.onload = () => {
+      setError(''); setFileName(file.name); setParsing(true);
+      parseImportFile(file).then((parsed) => {
+        setParsing(false);
         try {
-          const parsed = parseCSVText(String(reader.result || ''));
-          if (parsed.length < 2) { setError('No data rows found in this CSV.'); setRows(null); return; }
+          if (parsed.length < 2) { setError(`No data rows found in this ${fileKindLabel(file.name)}.`); setRows(null); return; }
           const header = parsed[0];
           const cols = detectColumns(header, schema.fields);
           if (cols[schema.requiredKey] === -1) {
-            setError(`Could not find a "${schema.fields.find((f) => f.key === schema.requiredKey).label}" column in this CSV. Check you exported the right Xero report.`);
+            setError(`Could not find a "${schema.fields.find((f) => f.key === schema.requiredKey).label}" column in this ${fileKindLabel(file.name)}. Check you exported the right Xero report${/\.pdf$/i.test(file.name) ? ', or try a CSV/Excel export instead \u2014 PDF table layouts vary and are not always detected cleanly' : ''}.`);
             setRows(null);
             return;
           }
@@ -368,21 +375,23 @@
             const hasNumber = schema.fields.some((f) => f.type === 'number' && Number(r[f.key]) !== 0);
             return nameVal.length > 0 || hasNumber;
           });
-          if (built.length === 0) { setError('No usable rows found in this CSV.'); setRows(null); return; }
+          if (built.length === 0) { setError(`No usable rows found in this ${fileKindLabel(file.name)}.`); setRows(null); return; }
           setRows(built);
         } catch (e) {
-          setError('Could not read this file as CSV. Please export a CSV (not XLSX/PDF) from Xero and try again.');
+          setError(`Could not read this ${fileKindLabel(file.name)}. Please check it's a genuine Xero export and try again.`);
           setRows(null);
         }
-      };
-      reader.onerror = () => setError('Could not read this file.');
-      reader.readAsText(file);
+      }).catch((e) => {
+        setParsing(false);
+        setError(e.message || 'Could not read this file.');
+        setRows(null);
+      });
     };
 
     const onFileChange = (e) => {
       const f = e.target.files && e.target.files[0];
       if (!f) return;
-      if (!/\.csv$/i.test(f.name)) { setError('Please choose a .csv file exported from Xero.'); return; }
+      if (!/\.(csv|xlsx|xls|pdf)$/i.test(f.name)) { setError('Please choose a .csv, .xlsx, .xls or .pdf file exported from Xero.'); return; }
       handleFile(f);
     };
 
@@ -409,7 +418,7 @@
     };
 
     return (
-      <ArsModal open onClose={onClose} title={`Import ${meta.label} from Xero`} subtitle="No Xero login needed \u2014 export a CSV from Xero and upload it here" width={rows ? 820 : 480}
+      <ArsModal open onClose={onClose} title={`Import ${meta.label} from Xero`} subtitle="No Xero login needed \u2014 export from Xero as CSV, Excel or PDF and upload it here" width={rows ? 820 : 480}
         footer={rows ? (
           <>
             <ArsButton variant="secondary" onClick={reset}>Choose a different file</ArsButton>
@@ -433,13 +442,16 @@
                 <input type={f.type === 'number' ? 'number' : 'text'} value={metaValues[f.key]} onChange={(e) => setMetaValues((m) => ({ ...m, [f.key]: e.target.value }))} style={arsFieldInputStyle}/>
               </ArsField>
             ))}
-            <input ref={fileRef} type="file" accept=".csv" onChange={onFileChange} style={{ display: 'none' }}/>
-            <div style={{ border: '1.5px dashed var(--arsela-border-strong)', borderRadius: 8, padding: 24, textAlign: 'center', background: '#FAFBFD', cursor: 'pointer', marginTop: 6 }} onClick={() => fileRef.current && fileRef.current.click()}>
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.pdf" onChange={onFileChange} style={{ display: 'none' }}/>
+            <div style={{ border: '1.5px dashed var(--arsela-border-strong)', borderRadius: 8, padding: 24, textAlign: 'center', background: '#FAFBFD', cursor: parsing ? 'default' : 'pointer', marginTop: 6, opacity: parsing ? 0.7 : 1 }} onClick={() => !parsing && fileRef.current && fileRef.current.click()}>
               <div style={{ width: 40, height: 40, borderRadius: 8, background: 'var(--arsela-blue-50)', color: 'var(--arsela-blue)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
                 <IconFile size={20}/>
               </div>
-              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--arsela-navy)' }}>Click to attach Xero CSV export</div>
-              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 3 }}>.csv only \u2014 {meta.label}</div>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--arsela-navy)' }}>{parsing ? 'Reading file\u2026' : `Click to attach ${fileName || 'Xero export'}`}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 3 }}>CSV, Excel (.xlsx/.xls) or PDF \u2014 {meta.label}</div>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.4 }}>
+              CSV/Excel give the most reliable column detection. PDF works for simple text-based Xero exports \u2014 if columns aren\u2019t detected correctly, try a CSV/Excel export of the same report instead.
             </div>
             {error && <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--arsela-danger)', fontWeight: 600 }}>{error}</div>}
           </>

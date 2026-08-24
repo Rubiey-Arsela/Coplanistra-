@@ -12,6 +12,16 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
 
+## Session update (2026-08-24) — Xero imports now accept CSV, Excel and PDF (not just CSV)
+Client request: *"make sure data imports from xero allow us to import not only csv, but also pdf and excel format. apply for all data import."* Applied to **every** Xero-import entry point in the app:
+- **Data Imports hub** (`/dataimports`) — all 8 Xero report types (Profit & Loss, Balance Sheet, Statement of Cash Flows, Bank Reconciliation Report Pack, General Ledger Detail, Trial Balance, Aged Receivables Detail, Aged Payables Detail) via the shared Import modal.
+- **Expenses screen** ("Import from Xero" — transactions / expense claims / bills).
+- Not changed (by design): the Supporting Documents "outside Xero" register file picker (metadata-only, doesn't parse tabular data), and Reconciliation/Cash Flow screens (they only link out to `/dataimports`, no file logic of their own).
+
+**How it works**: a new shared `parseImportFile(file)` helper (`public/static/js/primitives.js`) normalises CSV, Excel (`.xlsx`/`.xls`, via SheetJS/`xlsx` loaded from CDN), and PDF (via `pdf.js`/`pdfjs-dist` loaded from CDN) into the exact same row-array shape the app's existing column-detection/preview/totals logic already expected — so no downstream report logic had to change, only the file-reading layer. PDF parsing reconstructs rows/columns from text position (Y-clustering + X-gap column splitting): a best-effort heuristic that works well for simple text-based Xero exports but not for scanned/image-only PDFs (which show a clear error asking for a CSV/Excel export instead). CSV and Excel remain the most reliable formats; PDF is a convenience fallback.
+
+**Verification**: (1) a standalone Node.js script re-ran the identical parsing algorithm against hand-built CSV/XLSX/PDF fixtures of the same Profit & Loss data and confirmed byte-identical header/row extraction across all three formats; (2) a scripted Playwright browser test logged in, uploaded each of the three file formats through the real running app, and confirmed the Import modal correctly previewed "4 rows found" with matching classifications and totals for all three, with zero console errors; screenshots confirmed the PDF- and Excel-sourced preview tables were visually identical.
+
 ## Session update (2026-08-19, part 6) — Xero multi-report Data Imports hub (8 report types) + Director's Report "three questions" upgrade
 Client request: *"make sure all panel include import from Xero"* for 8 named Xero report types, support for logging documents outside Xero, and a Director's Report that explicitly answers **where is the money coming from, do we have enough to cover our expenses, and are we solvent**. Full scope approved by the client ("yes for all") and delivered:
 - **NEW: Data Imports hub** (`/dataimports`, Finance Manager / Administrator, sidebar between CAPEX/Reconciliation-area and Cash Flow) — one screen to import all 8 requested Xero reports, each as its own dated-snapshot history:
@@ -221,4 +231,4 @@ Includes the workspace's real members list (mirrors the client's existing user t
 - **Status**: ✅ **Live in production** at https://coplanistra.pages.dev
 - **Source control**: ✅ Connected to GitHub — https://github.com/Rubiey-Arsela/Coplanistra- (`main` branch)
 - **Tech Stack**: Hono (backend/static-serving) + React 18 (CDN) + Babel Standalone v7 (CDN, in-browser JSX transform) + vanilla CSS design tokens
-- **Last Updated**: 2026-08-19 (part 6 — Xero multi-report Data Imports hub + Director's Report "three questions" upgrade)
+- **Last Updated**: 2026-08-24 (Xero imports now accept CSV, Excel and PDF, applied across all import entry points)
