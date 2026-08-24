@@ -8,7 +8,7 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: see below — 2026-08-24, part 2 — fix: Excel/PDF header-row detection)
+- **Production**: https://coplanistra.pages.dev (latest deploy: https://e7850476.coplanistra.pages.dev — 2026-08-24, part 2 — fix: Excel/PDF header-row detection)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
 
@@ -238,4 +238,4 @@ Includes the workspace's real members list (mirrors the client's existing user t
 - **Status**: ✅ **Live in production** at https://coplanistra.pages.dev
 - **Source control**: ✅ Connected to GitHub — https://github.com/Rubiey-Arsela/Coplanistra- (`main` branch)
 - **Tech Stack**: Hono (backend/static-serving) + React 18 (CDN) + Babel Standalone v7 (CDN, in-browser JSX transform) + vanilla CSS design tokens
-- **Last Updated**: 2026-08-24 (Xero imports now accept CSV, Excel and PDF, applied across all import entry points)
+- **Last Updated**: 2026-08-24, part 2 (fix: Excel/PDF Xero exports with a title block above the header row now import correctly, across all import entry points)
