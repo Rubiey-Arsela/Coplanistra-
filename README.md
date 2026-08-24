@@ -8,7 +8,7 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy: https://182705a8.coplanistra.pages.dev — 2026-08-19, part 6 — Xero multi-report Data Imports hub + Director's Report 3-question upgrade)
+- **Production**: https://coplanistra.pages.dev (latest deploy: https://beb57f0f.coplanistra.pages.dev — 2026-08-24 — Xero imports now accept CSV, Excel and PDF)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
 
