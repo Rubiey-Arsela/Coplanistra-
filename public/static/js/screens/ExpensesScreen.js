@@ -209,15 +209,7 @@
           // header row, unlike the CSV export which starts at row 0 —
           // scan for it instead of assuming row 0 is the header.
           const headerIdx = findHeaderRowIndex(parsed, XERO_HEADER_FIELDS, 'amount', 25);
-          if (headerIdx === -1) {
-            setError(`Could not find an amount column in this ${fileKind(file.name)}. Expected a Xero export with columns like Date, Description/Reference, Contact, and Gross/Amount/Total.${/\.pdf$/i.test(file.name) ? ' PDF table layouts vary \u2014 try a CSV/Excel export of the same report if this keeps happening.' : ''}`);
-            setRows(null);
-            return;
-          }
-          const header = parsed[headerIdx];
-          const cols = detectXeroColumns(header);
-          const dataRows = parsed.slice(headerIdx + 1);
-          const built = dataRows.map((r) => {
+          const buildFromCols = (cols, dataRows) => dataRows.map((r) => {
             const amount = Math.abs(parseAmountCell(cols.amount !== -1 ? r[cols.amount] : ''));
             const desc = cols.desc !== -1 ? String(r[cols.desc] || '').trim() : '';
             const vendor = cols.vendor !== -1 ? String(r[cols.vendor] || '').trim() : '';
@@ -232,6 +224,29 @@
               category: cats[0],
             };
           }).filter((r) => r.amount > 0 || r.desc !== 'Imported expense');
+          let built;
+          if (headerIdx !== -1) {
+            const header = parsed[headerIdx];
+            const cols = detectXeroColumns(header);
+            built = buildFromCols(cols, parsed.slice(headerIdx + 1));
+          } else {
+            // No literal header row found — fall back to a positional
+            // label+amount reconstruction (same shape used for Xero's
+            // headerless Balance Sheet/Trial Balance PDF exports) in case
+            // this is a simple two-column PDF export without headings.
+            const headerless = buildHeaderlessRows(parsed, [{ key: 'desc', type: 'text' }, { key: 'amount', type: 'number' }], 'desc', (classified) => ({
+              desc: classified.label, vendor: '', date: '', amount: classified.numbers[0],
+            }));
+            built = headerless ? headerless.map((r) => {
+              const amount = Math.abs(parseAmountCell(r.amount));
+              return { include: amount > 0, desc: r.desc || 'Imported expense', vendor: 'Unspecified', amount, when: parseDateCell(''), dept: depts[0], category: cats[0] };
+            }).filter((r) => r.amount > 0) : null;
+            if (!built || built.length === 0) {
+              setError(`Could not find an amount column in this ${fileKind(file.name)}. Expected a Xero export with columns like Date, Description/Reference, Contact, and Gross/Amount/Total.${/\.pdf$/i.test(file.name) ? ' PDF table layouts vary \u2014 try a CSV/Excel export of the same report if this keeps happening.' : ''}`);
+              setRows(null);
+              return;
+            }
+          }
           if (built.length === 0) { setError(`No usable rows found \u2014 check the ${fileKind(file.name)} has an amount column with values.`); setRows(null); return; }
           setRows(built);
         } catch (e) {

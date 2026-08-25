@@ -117,7 +117,17 @@
         { key: 'prior', label: 'Prior month-end', type: 'number', aliases: ['prior', 'previous month', 'last month'] },
       ],
       requiredKey: 'account',
+      // Xero's Balance Sheet export groups rows under literal section
+      // headers ("Assets", "Liabilities", "Equity" — a standalone line
+      // with no figure). Confirmed against the user's real export that
+      // these headers, tracked in order via deriveSectionOverrides, are
+      // the reliable source of truth for classification — per-account
+      // keyword guessing below is kept ONLY as a fallback for the rare
+      // case a section header isn't detected (row.classification stays
+      // '' from column-mapping, so guessSelect still fires for it).
+      sectionHeaderMap: { assets: 'Asset', liabilities: 'Liability', equity: 'Equity' },
       guessSelect: { classification: (row) => {
+        if (row.classification) return row.classification; // keep a section-derived value
         const a = (row.account || '').toLowerCase();
         if (/(liab|payable|loan|borrowing|creditor)/.test(a)) return 'Liability';
         if (/(equity|retained earnings|capital|share)/.test(a)) return 'Equity';
@@ -313,7 +323,7 @@
           <div key={i}>
             <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3 }}>{it.label}</div>
             <div className="arsela-num" style={{ fontSize: 15, fontWeight: 700, color: TONE_COLOR[it.tone] || 'var(--arsela-navy)', marginTop: 3 }}>
-              {it.money ? fmtMYR(it.value, { compact: true }) : it.value}
+              {it.money ? fmtAUD(it.value, { compact: true }) : it.value}
             </div>
           </div>
         ))}
@@ -340,6 +350,24 @@
 
     const [parsing, setParsing] = useState(false);
 
+    // Shared row-finalizer used by both the normal (header-found) path
+    // and the headerless-PDF fallback path below — fills select/guess
+    // fields and computes the default include/exclude flag the same way
+    // regardless of how the raw cell values were located.
+    const finalizeRow = (row) => {
+      if (schema.guessSelect) {
+        Object.keys(schema.guessSelect).forEach((k) => { row[k] = schema.guessSelect[k](row); });
+      }
+      const nameVal = row[schema.requiredKey] || '';
+      row.include = nameVal.length > 0 && !/^total\b|^grand total|^net (profit|income|assets|liabilities)/i.test(nameVal.trim());
+      return row;
+    };
+    const rowHasContent = (r) => {
+      const nameVal = r[schema.requiredKey] || '';
+      const hasNumber = schema.fields.some((f) => f.type === 'number' && Number(r[f.key]) !== 0);
+      return nameVal.length > 0 || hasNumber;
+    };
+
     const handleFile = (file) => {
       setError(''); setFileName(file.name); setParsing(true);
       parseImportFile(file).then((parsed) => {
@@ -351,35 +379,64 @@
           // header row, unlike the CSV export which starts at row 0 —
           // scan for it instead of assuming row 0 is the header.
           const headerIdx = findHeaderRowIndex(parsed, schema.fields, schema.requiredKey, 25);
-          if (headerIdx === -1) {
-            setError(`Could not find a "${schema.fields.find((f) => f.key === schema.requiredKey).label}" column in this ${fileKindLabel(file.name)}. Check you exported the right Xero report${/\.pdf$/i.test(file.name) ? ', or try a CSV/Excel export instead \u2014 PDF table layouts vary and are not always detected cleanly' : ''}.`);
-            setRows(null);
-            return;
-          }
-          const header = parsed[headerIdx];
-          const cols = detectColumns(header, schema.fields);
-          const dataRows = parsed.slice(headerIdx + 1);
-          const built = dataRows.map((r) => {
-            const row = {};
-            schema.fields.forEach((f) => {
-              const idx = cols[f.key];
-              const raw = idx !== -1 ? r[idx] : '';
-              if (f.type === 'number') row[f.key] = parseAmountCell(raw);
-              else if (f.type === 'date') row[f.key] = parseDateCell(raw) || period;
-              else if (f.type === 'select') row[f.key] = ''; // filled by guessSelect below
-              else row[f.key] = String(raw || '').trim();
-            });
-            if (schema.guessSelect) {
-              Object.keys(schema.guessSelect).forEach((k) => { row[k] = schema.guessSelect[k](row); });
+          let built;
+          if (headerIdx !== -1) {
+            const header = parsed[headerIdx];
+            // Some Xero point-in-time reports (Balance Sheet, Trial
+            // Balance) label their one figure column with a literal date
+            // ("31 Aug 2026") rather than a generic word, so alias
+            // matching finds "Account" but misses the amount column —
+            // the fallback claims the next unclaimed column for any
+            // number field that alias-matching couldn't find.
+            const cols = detectColumnsWithFallback(header, schema.fields, detectColumns);
+            const dataRows = parsed.slice(headerIdx + 1);
+            // Section headers ("Assets"/"Liabilities"/"Equity") live in
+            // column 0 while the account name lives in a different
+            // column — must be derived from the RAW rows (before mapping
+            // picks out just the account/amount cells), or the header
+            // line collapses to a blank account and vanishes silently.
+            const { sections, skipIndexes } = deriveSectionOverrides(dataRows, schema.sectionHeaderMap);
+            built = dataRows.map((r, i) => {
+              if (skipIndexes.has(i)) return null; // the section-header row itself carries no data
+              const row = {};
+              schema.fields.forEach((f) => {
+                const idx = cols[f.key];
+                const raw = idx !== -1 ? r[idx] : '';
+                if (f.type === 'number') row[f.key] = parseAmountCell(raw);
+                else if (f.type === 'date') row[f.key] = parseDateCell(raw) || period;
+                else if (f.type === 'select') row[f.key] = sections[i] || ''; // section wins; guessSelect below is the fallback
+                else row[f.key] = String(raw || '').trim();
+              });
+              return finalizeRow(row);
+            }).filter(Boolean).filter(rowHasContent);
+          } else {
+            // No header row found anywhere — this is normal for Xero's
+            // PDF Balance Sheet / Trial Balance / P&L exports, which have
+            // NO literal header at all (just "Label ... Amount" lines).
+            // Try reconstructing rows directly from that label+numbers
+            // shape before giving up with an error.
+            built = buildHeaderlessRows(parsed, schema.fields, schema.requiredKey, (classified, fields, requiredKey, numberFields, section) => {
+              const row = {};
+              fields.forEach((f) => {
+                if (f.key === requiredKey) { row[f.key] = classified.label; return; }
+                if (f.type === 'select') { row[f.key] = section || ''; return; }
+                if (f.type === 'date') { row[f.key] = period; return; }
+                if (f.type === 'number') {
+                  const numIdx = numberFields.indexOf(f);
+                  row[f.key] = numIdx !== -1 && numIdx < classified.numbers.length ? parseAmountCell(classified.numbers[numIdx]) : 0;
+                  return;
+                }
+                row[f.key] = '';
+              });
+              return finalizeRow(row);
+            }, schema.sectionHeaderMap);
+            if (built) built = built.filter(rowHasContent);
+            if (!built || built.length === 0) {
+              setError(`Could not find a "${schema.fields.find((f) => f.key === schema.requiredKey).label}" column in this ${fileKindLabel(file.name)}. Check you exported the right Xero report${/\.pdf$/i.test(file.name) ? ', or try a CSV/Excel export instead \u2014 PDF table layouts vary and are not always detected cleanly' : ''}.`);
+              setRows(null);
+              return;
             }
-            const nameVal = row[schema.requiredKey] || '';
-            row.include = nameVal.length > 0 && !/^total\b|^grand total|^net (profit|income)/i.test(nameVal.trim());
-            return row;
-          }).filter((r) => {
-            const nameVal = r[schema.requiredKey] || '';
-            const hasNumber = schema.fields.some((f) => f.type === 'number' && Number(r[f.key]) !== 0);
-            return nameVal.length > 0 || hasNumber;
-          });
+          }
           if (built.length === 0) { setError(`No usable rows found in this ${fileKindLabel(file.name)}.`); setRows(null); return; }
           setRows(built);
         } catch (e) {
@@ -556,7 +613,7 @@
                               <tr key={i} style={{ borderBottom: '1px solid var(--arsela-border)' }}>
                                 {schema.fields.map((f) => (
                                   <td key={f.key} style={{ padding: '5px 10px', fontSize: 12, color: 'var(--arsela-navy)' }} className={f.type === 'number' ? 'arsela-num' : ''}>
-                                    {f.type === 'number' ? fmtMYR(r[f.key], { compact: true }) : r[f.key]}
+                                    {f.type === 'number' ? fmtAUD(r[f.key], { compact: true }) : r[f.key]}
                                   </td>
                                 ))}
                               </tr>

@@ -31,3 +31,8 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+
+# client real financial documents (test uploads) — never commit real
+# client data to git/GitHub; these are for local manual testing only
+public/static/ARSELA_RESOURCES_PTY_LTD*
+uploaded_files/

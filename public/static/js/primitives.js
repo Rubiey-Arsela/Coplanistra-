@@ -172,6 +172,23 @@ const fmtMYR = (n, opts = {}) => {
   if (compact && Math.abs(amount) >= 1_000) return `${sym} ${(amount / 1_000).toFixed(1)}K`;
   return `${sym} ${amount.toLocaleString('en-MY', { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
 };
+/* Format an amount that is ALREADY denominated in AUD and must be shown
+   as-is — used for Xero-imported report figures (Data Imports screen).
+   Xero exports (Balance Sheet, P&L, etc.) are Arsela Resources' real-world
+   AUD reporting-currency figures, NOT app-internal MYR base-currency
+   amounts, so they must NEVER be routed through fmtMYR/store.convert()
+   (which assumes its input is MYR and multiplies by the target currency's
+   rate — that would silently shrink every Xero total by the MYR→AUD rate,
+   e.g. 35,295.54 → 11,471.05). fmtAUD always renders with the "A$" symbol
+   and never converts, regardless of the app-wide currency switcher. */
+const fmtAUD = (n, opts = {}) => {
+  const { compact = false, decimals = 0 } = opts;
+  const amount = Number(n) || 0;
+  const sym = 'A$';
+  if (compact && Math.abs(amount) >= 1_000_000) return `${sym} ${(amount / 1_000_000).toFixed(2)}M`;
+  if (compact && Math.abs(amount) >= 1_000) return `${sym} ${(amount / 1_000).toFixed(1)}K`;
+  return `${sym} ${amount.toLocaleString('en-AU', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+};
 const fmtPct = (n, opts = {}) => {
   const { showSign = true, decimals = 1 } = opts;
   const s = n.toFixed(decimals);
@@ -518,6 +535,125 @@ function findHeaderRowIndex(rows, fields, requiredKey, maxScan) {
   return bestIdx; // -1 if the required column wasn't found in any scanned row
 }
 
+/* ---- amount-column fallback: Xero's Excel/PDF exports for
+   point-in-time reports (Balance Sheet, Trial Balance) label their
+   one figure column with a literal date ("31 Aug 2026") rather than a
+   generic word like "current" or "balance" — so alias matching alone
+   can find the label/text column but miss the number column entirely,
+   silently defaulting every amount to 0. detectColumnsWithFallback
+   does the normal alias-based match first, then — for any *unmatched*
+   numeric field only — claims the next unclaimed column left-to-right
+   (skipping columns already claimed by another field). This never
+   overrides a real alias match, so a report with proper column names
+   is unaffected. ---- */
+function detectColumnsWithFallback(headerRow, fields, detectColumnsFn) {
+  const result = detectColumnsFn(headerRow, fields);
+  const norm = (headerRow || []).map((h) => String(h || '').trim().toLowerCase());
+  const used = new Set(Object.values(result).filter((i) => i !== -1 && i !== undefined));
+  const unclaimed = norm.map((h, i) => i).filter((i) => norm[i] !== '' && !used.has(i));
+  let ptr = 0;
+  fields.forEach((f) => {
+    if (f.type !== 'number' || result[f.key] !== -1) return;
+    while (ptr < unclaimed.length && used.has(unclaimed[ptr])) ptr++;
+    if (ptr < unclaimed.length) { result[f.key] = unclaimed[ptr]; used.add(unclaimed[ptr]); ptr++; }
+  });
+  return result;
+}
+
+/* ---- headerless-table fallback: Xero's PDF exports for reports like
+   Balance Sheet / Trial Balance / P&L have NO literal header row at
+   all — just a label in the left column and one or more numbers in
+   the right column(s) (see classifyHeaderlessRow). When
+   findHeaderRowIndex can't find a header anywhere in the first N rows
+   (headerIdx === -1), buildHeaderlessRows reconstructs rows directly
+   from this label+numbers shape instead of giving up: the required
+   text field gets the label, and number fields are filled left-to-
+   right from however many trailing numeric cells the row has (so a
+   report with only 1 number column per row still works even though
+   the schema defines 2, e.g. "current"+"prior" \u2014 the 2nd is just
+   left at 0 rather than erroring). Returns null (not []) if the shape
+   doesn't look like a plausible label+numbers table at all, so callers
+   can fall back to the normal "could not find a column" error. ---- */
+const ARS_NUMERIC_CELL_RE = /^\(?-?\$?\s?[\d,]+(\.\d+)?\)?$/;
+function arsIsNumericCell(v) {
+  const s = String(v || '').trim();
+  return s !== '' && ARS_NUMERIC_CELL_RE.test(s);
+}
+function classifyHeaderlessRow(cells) {
+  if (!cells || cells.length < 2) return null;
+  let i = cells.length - 1;
+  const numbers = [];
+  while (i >= 0 && arsIsNumericCell(cells[i])) { numbers.unshift(cells[i]); i--; }
+  if (numbers.length === 0) return null;
+  const labelCells = cells.slice(0, i + 1).map((c) => String(c || '').trim()).filter((c) => c !== '');
+  if (labelCells.length === 0) return null;
+  return { label: labelCells.join(' '), numbers };
+}
+function buildHeaderlessRows(parsed, fields, requiredKey, buildRowFn, sectionHeaderMap) {
+  const numberFields = fields.filter((f) => f.type === 'number');
+  if (numberFields.length === 0) return null;
+  const classified = parsed.map((r) => classifyHeaderlessRow(r));
+  const hitCount = classified.filter(Boolean).length;
+  // require a decent majority of rows to look like label+number pairs
+  // before trusting this shape — otherwise a genuinely broken/odd file
+  // could produce a handful of coincidental matches.
+  if (hitCount < 2 || hitCount < parsed.length * 0.4) return null;
+  const { sections } = deriveSectionOverrides(parsed, sectionHeaderMap);
+  const rows = [];
+  classified.forEach((c, i) => {
+    if (!c) return;
+    rows.push(buildRowFn(c, fields, requiredKey, numberFields, sections[i]));
+  });
+  return rows.length > 0 ? rows : null;
+}
+
+/* ---- section-header classification override: Xero's Balance Sheet
+   export groups rows under literal section headers ("Assets",
+   "Liabilities", "Equity") that appear as a standalone label with no
+   amount alongside it. Per-account keyword guessing (guessSelect) is
+   unreliable for real account names — e.g. "Loan to Arus Acres PL" is
+   an ASSET (an inter-company receivable) but the word "loan" trips a
+   naive Liability guess, and "GST"/"Current Year Earnings" have no
+   matching keyword at all and fall through to the Asset default even
+   though one is a Liability and the other is Equity. Confirmed via the
+   user's real Balance Sheet export: this misclassification produced
+   completely wrong totals (Total Assets/Liabilities/Equity all off by
+   tens of thousands of dollars) even after the amount-column and
+   headerless-table fixes made every individual figure correct.
+   deriveSectionOverrides walks rows in order — for header-found reports
+   this must be the RAW pre-column-mapping rows, because Xero puts the
+   section label in column 0 while the account name lives in a
+   different column, so on a mapped row a section-header line looks
+   like an empty/blank account and would otherwise just vanish; for
+   headerless-PDF reports it's the same raw parsed rows used for
+   classifyHeaderlessRow. Whenever a row consists of exactly one
+   non-empty cell that matches a key in sectionHeaderMap (case-
+   insensitive), that becomes the "current section" applied to every
+   row after it until the next section header — and that row's own
+   index is marked in skipIndexes so callers can drop it outright
+   (it carries no account name or figure of its own). Returns
+   { sections, skipIndexes } — sections is an array parallel to
+   rawRows holding the section label in effect at each index (or null
+   before any header / when sectionHeaderMap is not configured);
+   skipIndexes is a Set of indexes that are section-header rows
+   themselves. A schema with no sectionHeaderMap gets an all-null,
+   empty-skip result, so this is a no-op for every other report type. ---- */
+function deriveSectionOverrides(rawRows, sectionHeaderMap) {
+  const sections = new Array((rawRows || []).length).fill(null);
+  const skipIndexes = new Set();
+  if (!sectionHeaderMap) return { sections, skipIndexes };
+  let current = null;
+  (rawRows || []).forEach((r, i) => {
+    const nonEmpty = (r || []).map((c) => String(c || '').trim()).filter((c) => c !== '');
+    if (nonEmpty.length === 1 && sectionHeaderMap[nonEmpty[0].toLowerCase()]) {
+      current = sectionHeaderMap[nonEmpty[0].toLowerCase()];
+      skipIndexes.add(i);
+    }
+    sections[i] = current;
+  });
+  return { sections, skipIndexes };
+}
+
 function parseImportFile(file) {
   return new Promise((resolve, reject) => {
     const name = String(file.name || '').toLowerCase();
@@ -620,6 +756,8 @@ function parseImportFile(file) {
 Object.assign(window, {
   ArsCard, ArsButton, ArsBadge, ArsInput, ArsProgress, ArsAvatar, ArsSectionHeader,
   ArsVariance, ArsFigure, ArsTabs, ArsSkeleton, ArsEmpty, ArsRAG, ArsLifecycle,
-  fmtMYR, fmtPct, curLabel, ArsModal, ArsConfirmDialog, ArsField, arsFieldInputStyle,
-  exportRowsToCSV, parseCSVText, parseImportFile, findHeaderRowIndex,
-});
+  fmtMYR, fmtAUD, fmtPct, curLabel, ArsModal, ArsConfirmDialog, ArsField, arsFieldInputStyle,
+    exportRowsToCSV, parseCSVText, parseImportFile, findHeaderRowIndex,
+    detectColumnsWithFallback, classifyHeaderlessRow, buildHeaderlessRows,
+    deriveSectionOverrides,
+  });
