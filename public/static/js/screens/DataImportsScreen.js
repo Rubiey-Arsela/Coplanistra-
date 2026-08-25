@@ -202,9 +202,82 @@
         { label: 'Net cash movement (YTD)', value: t.netMovementYTD, money: true, tone: t.netMovementYTD >= 0 ? 'success' : 'danger' },
       ]),
     },
+    accountTransactions: {
+      icon: 'IconFile',
+      hint: 'Reports \u2192 Account Transactions \u2192 current period, all accounts \u2192 Export \u2192 CSV, Excel or PDF.',
+      // Confirmed against the client's real Account_Transactions-2
+      // Excel/PDF: columns are Date/Source/Description/Reference/
+      // Debit/Credit/Running Balance/Gross/GST, with rows grouped
+      // under a standalone ACCOUNT-NAME header row (e.g. "Insurance",
+      // "Loan to Arus Acres PL") rather than a fixed set of section
+      // labels \u2014 handled by deriveSectionOverrides' 'freeform' mode
+      // (primitives.js), which carries the raw header text itself
+      // forward as the section value. "Opening Balance"/"Closing
+      // Balance"/"Total {account}" pseudo-rows carry their label in
+      // the Date column (this schema's requiredKey is 'description',
+      // so those rows' description cell is blank and they're dropped
+      // by finalizeRow's blank-name check without even needing
+      // EXCLUDE_ROW_RE). Running Balance is display-only (Xero's own
+      // chained formulas are stale as literal text but not needed for
+      // any total here) so it's intentionally omitted from fields.
+      fields: [
+        { key: 'date', label: 'Date', type: 'date', aliases: ['date'] },
+        { key: 'account', label: 'Account', type: 'text', fromSection: true, aliases: [] },
+        { key: 'source', label: 'Source', type: 'text', aliases: ['source'] },
+        { key: 'description', label: 'Description', type: 'text', aliases: ['description'] },
+        { key: 'reference', label: 'Reference', type: 'text', aliases: ['reference'] },
+        { key: 'debit', label: 'Debit', type: 'number', aliases: ['debit'] },
+        { key: 'credit', label: 'Credit', type: 'number', aliases: ['credit'] },
+        { key: 'gst', label: 'GST', type: 'number', aliases: ['gst'] },
+      ],
+      requiredKey: 'description',
+      sectionHeaderMap: 'freeform',
+      computeTotals: (rows) => {
+        const totalDebit = rows.reduce((a, r) => a + (Number(r.debit) || 0), 0);
+        const totalCredit = rows.reduce((a, r) => a + (Number(r.credit) || 0), 0);
+        const byAccount = {};
+        rows.forEach((r) => {
+          const acc = r.account || 'Unassigned';
+          if (!byAccount[acc]) byAccount[acc] = { account: acc, debit: 0, credit: 0, count: 0 };
+          byAccount[acc].debit += Number(r.debit) || 0;
+          byAccount[acc].credit += Number(r.credit) || 0;
+          byAccount[acc].count += 1;
+        });
+        return {
+          totalDebit, totalCredit, rowCount: rows.length,
+          accountCount: Object.keys(byAccount).length,
+          byAccount: Object.values(byAccount).sort((a, b) => (b.debit + b.credit) - (a.debit + a.credit)),
+        };
+      },
+      renderTotals: (t) => ([
+        { label: 'Transaction lines', value: t.rowCount, money: false, tone: 'navy' },
+        { label: 'Accounts touched', value: t.accountCount, money: false, tone: 'navy' },
+        { label: 'Total debit', value: t.totalDebit, money: true, tone: 'navy' },
+        { label: 'Total credit', value: t.totalCredit, money: true, tone: 'navy' },
+      ]),
+    },
     bankReconciliation: {
       icon: 'IconReconcile',
-      hint: 'Accounting \u2192 Bank accounts \u2192 Westpac #2077 \u2192 Reconciliation Reports \u2192 export the Bank Reconciliation Summary/Detail as CSV for month-end.',
+      hint: 'Accounting \u2192 Bank accounts \u2192 Westpac #2077 \u2192 Reconciliation Reports \u2192 export the Bank Reconciliation report as CSV, Excel or PDF for month-end.',
+      // Confirmed against the client's real Bank_Reconciliation(-2)
+      // export: it's the "Westpac AU 036069452077 Reco..." sheet, a
+      // single Date/Description/Reference/Amount table containing
+      // THREE distinct sections in sequence \u2014 "Totals Summary" (the
+      // Xero-balance/statement-balance recap this schema used to
+      // require as manual metaFields, now read straight off the sheet
+      // instead), "Plus Unreconciled Statement Lines" (the real
+      // transaction rows \u2014 the only ones actually imported as rows),
+      // and "Statement Balances" (a second recap, duplicate of the
+      // first). sheetHints lets the same schema pull the matching
+      // sheet out of either the standalone Bank Reconciliation export
+      // OR the combined Reconciliation Reports pack. metaFields is
+      // kept as an editable fallback/override, but extractMeta below
+      // auto-populates both values straight from the "Balance in
+      // Xero"/"Statement balance (calculated)" labelled rows inside
+      // the Totals Summary section as soon as the file is read, so in
+      // the normal case nothing needs to be typed in by hand and the
+      // figures can't drift out of sync with the actual export.
+      sheetHints: ['westpac', 'reco', 'bank reconciliation'],
       metaFields: [
         { key: 'xeroBalance', label: 'Xero bank balance (per report)', type: 'number' },
         { key: 'statementBalance', label: 'Bank statement balance', type: 'number' },
@@ -216,11 +289,42 @@
         { key: 'status', label: 'Status', type: 'select', options: ['Reconciled', 'Unreconciled'], aliases: [] },
       ],
       requiredKey: 'description',
+      sectionHeaderMap: 'freeform',
+      // Only the "Plus Unreconciled Statement Lines" section holds real
+      // transactions to import \u2014 "Totals Summary"/"Balance in Xero"/
+      // "Statement Balances" are recap sections whose rows would
+      // otherwise look like plausible description+amount lines and get
+      // imported as if they were bank transactions.
+      sectionFilter: (section) => /unreconciled statement lines/i.test(section || ''),
       guessSelect: { status: () => 'Unreconciled' },
+      // extractMeta(parsed) runs once against the FULL raw sheet (before
+      // header-slicing) as soon as the file is read \u2014 finds the "Balance
+      // in Xero" and "Statement balance (calculated)" labelled rows
+      // inside the "Totals Summary" section and returns their trailing
+      // amount cell, auto-populating metaValues so computeTotals reads
+      // real figures straight from the export instead of manual entry.
+      extractMeta: (parsed) => {
+        const findAmount = (label) => {
+          for (const r of parsed) {
+            const cells = (r || []).map((c) => String(c || '').trim());
+            if (cells.some((c) => c.toLowerCase() === label.toLowerCase())) {
+              const amt = [...cells].reverse().find((c) => c !== '' && /^-?\$?\(?[\d,]+(\.\d+)?\)?$/.test(c));
+              if (amt != null) return String(parseAmountCell(amt));
+            }
+          }
+          return null;
+        };
+        const out = {};
+        const xeroBalance = findAmount('Balance in Xero');
+        const statementBalance = findAmount('Statement balance (calculated)');
+        if (xeroBalance != null) out.xeroBalance = xeroBalance;
+        if (statementBalance != null) out.statementBalance = statementBalance;
+        return out;
+      },
       computeTotals: (rows, meta) => {
         const unre = rows.filter((r) => r.status === 'Unreconciled');
-        const xeroBalance = Number(meta.xeroBalance) || 0;
-        const statementBalance = Number(meta.statementBalance) || 0;
+        const xeroBalance = Number(meta && meta.xeroBalance) || 0;
+        const statementBalance = Number(meta && meta.statementBalance) || 0;
         return {
           xeroBalance, statementBalance, difference: xeroBalance - statementBalance,
           unreconciledCount: unre.length,
@@ -234,35 +338,119 @@
         { label: 'Unreconciled items', value: `${t.unreconciledCount} (${t.unreconciledTotal.toFixed(0)})`, money: false, tone: t.unreconciledCount > 0 ? 'warning' : 'success' },
       ]),
     },
-    generalLedger: {
-      icon: 'IconFile',
-      hint: 'Reports \u2192 General Ledger Detail \u2192 current month, all accounts, accrual basis \u2192 Export \u2192 CSV.',
+    bankSummary: {
+      icon: 'IconWallet',
+      hint: 'Reports \u2192 Bank Summary \u2192 current period, all bank accounts \u2192 Export \u2192 CSV, Excel or PDF.',
+      // Confirmed against the client's real Bank_Summary export: a
+      // flat single-row-per-bank-account table, no section grouping
+      // needed \u2014 Account/Bank Account Type/Status/Opening Balance/
+      // Cash Received/Cash Spent/Closing Balance. Xero's own "Total"
+      // row uses simple cell-reference formulas (e.g. =D7) which still
+      // cache stale 0, so it's excluded the same way as every other
+      // report type and computeTotals() sums the real per-account rows.
       fields: [
-        { key: 'date', label: 'Date', type: 'date', aliases: ['date'] },
-        { key: 'account', label: 'Account', type: 'text', aliases: ['account', 'account name'] },
-        { key: 'description', label: 'Description', type: 'text', aliases: ['description', 'reference', 'narrative'] },
-        { key: 'debit', label: 'Debit', type: 'number', aliases: ['debit'] },
-        { key: 'credit', label: 'Credit', type: 'number', aliases: ['credit'] },
+        { key: 'account', label: 'Account', type: 'text', aliases: ['account'] },
+        { key: 'accountType', label: 'Bank Account Type', type: 'text', aliases: ['bank account type', 'account type'] },
+        { key: 'status', label: 'Status', type: 'text', aliases: ['status'] },
+        { key: 'opening', label: 'Opening Balance', type: 'number', aliases: ['opening balance'] },
+        { key: 'received', label: 'Cash Received', type: 'number', aliases: ['cash received'] },
+        { key: 'spent', label: 'Cash Spent', type: 'number', aliases: ['cash spent'] },
+        { key: 'closing', label: 'Closing Balance', type: 'number', aliases: ['closing balance'] },
       ],
       requiredKey: 'account',
-      computeTotals: (rows) => ({
-        totalDebit: rows.reduce((a, r) => a + (Number(r.debit) || 0), 0),
-        totalCredit: rows.reduce((a, r) => a + (Number(r.credit) || 0), 0),
-        rowCount: rows.length,
-      }),
+      computeTotals: (rows) => {
+        const sum = (k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+        return {
+          totalOpening: sum('opening'), totalReceived: sum('received'),
+          totalSpent: sum('spent'), totalClosing: sum('closing'),
+          accountCount: rows.length,
+        };
+      },
+      renderTotals: (t) => ([
+        { label: 'Bank accounts', value: t.accountCount, money: false, tone: 'navy' },
+        { label: 'Total opening balance', value: t.totalOpening, money: true, tone: 'navy' },
+        { label: 'Total cash received', value: t.totalReceived, money: true, tone: 'success' },
+        { label: 'Total cash spent', value: t.totalSpent, money: true, tone: 'danger' },
+        { label: 'Total closing balance', value: t.totalClosing, money: true, tone: 'navy' },
+      ]),
+    },
+    generalLedger: {
+      icon: 'IconFile',
+      hint: 'Reports \u2192 General Ledger Detail \u2192 current month, all accounts, accrual basis \u2192 Export \u2192 CSV, Excel or PDF.',
+      // Confirmed against the client's real General_Ledger_Detail
+      // export: same account-name-header-row grouping pattern as
+      // Account Transactions (via 'freeform' sectionHeaderMap), plus
+      // columns Date/Source/Description/Reference/Debit/Credit/
+      // Running Balance/GST/GST Rate/GST Rate Name. Each account group
+      // also has a "Net movement" pseudo-row after its "Total {account}"
+      // row \u2014 unlike the Total rows (formula-driven, stale 0), Net
+      // movement uses PLAIN numbers that ARE the real net change for
+      // that account, but it's still excluded from row-import (it's a
+      // summary, not a transaction) via EXCLUDE_ROW_RE; the same figure
+      // is available post-import through computeTotals()'s byAccount
+      // breakdown (credit - debit per account), so no information is
+      // actually lost by dropping the pseudo-row itself.
+      fields: [
+        { key: 'date', label: 'Date', type: 'date', aliases: ['date'] },
+        { key: 'account', label: 'Account', type: 'text', fromSection: true, aliases: [] },
+        { key: 'source', label: 'Source', type: 'text', aliases: ['source'] },
+        { key: 'description', label: 'Description', type: 'text', aliases: ['description'] },
+        { key: 'reference', label: 'Reference', type: 'text', aliases: ['reference'] },
+        { key: 'debit', label: 'Debit', type: 'number', aliases: ['debit'] },
+        { key: 'credit', label: 'Credit', type: 'number', aliases: ['credit'] },
+        { key: 'gst', label: 'GST', type: 'number', aliases: ['gst'] },
+      ],
+      requiredKey: 'description',
+      sectionHeaderMap: 'freeform',
+      computeTotals: (rows) => {
+        const totalDebit = rows.reduce((a, r) => a + (Number(r.debit) || 0), 0);
+        const totalCredit = rows.reduce((a, r) => a + (Number(r.credit) || 0), 0);
+        const byAccount = {};
+        rows.forEach((r) => {
+          const acc = r.account || 'Unassigned';
+          if (!byAccount[acc]) byAccount[acc] = { account: acc, debit: 0, credit: 0, netMovement: 0 };
+          byAccount[acc].debit += Number(r.debit) || 0;
+          byAccount[acc].credit += Number(r.credit) || 0;
+          byAccount[acc].netMovement = byAccount[acc].debit - byAccount[acc].credit;
+        });
+        return {
+          totalDebit, totalCredit, rowCount: rows.length,
+          accountCount: Object.keys(byAccount).length,
+          byAccount: Object.values(byAccount).sort((a, b) => Math.abs(b.netMovement) - Math.abs(a.netMovement)),
+        };
+      },
       renderTotals: (t) => ([
         { label: 'Transaction lines', value: t.rowCount, money: false, tone: 'navy' },
+        { label: 'Accounts touched', value: t.accountCount, money: false, tone: 'navy' },
         { label: 'Total debit', value: t.totalDebit, money: true, tone: 'navy' },
         { label: 'Total credit', value: t.totalCredit, money: true, tone: 'navy' },
       ]),
     },
     trialBalance: {
       icon: 'IconCheck',
-      hint: 'Reports \u2192 Trial Balance \u2192 as at month-end \u2192 Export \u2192 CSV.',
+      hint: 'Reports \u2192 Trial Balance \u2192 as at month-end \u2192 Export \u2192 CSV, Excel or PDF.',
+      // Confirmed against the client's real Trial_Balance export (both
+      // standalone and the Reconciliation_Reports pack's Trial Balance
+      // sheet): columns Account Code/Account/Account Type/"Debit - Year
+      // to date"/"Credit - Year to date"/a prior-period column whose
+      // header text is a literal date that VARIES by export ("31 July
+      // 2026" in the pack vs "30 June 2026" standalone) \u2014 given no
+      // fixed alias, detectColumnsWithFallback's date-like-column
+      // fallback claims it the same way P&L's single value column is
+      // claimed. Some rows have no Account Code (e.g. the bank account
+      // row starts at column B) \u2014 accountCode has no aliases removed,
+      // it just comes through blank for those rows, which is fine since
+      // 'account' (not accountCode) is requiredKey. sheetHints lets this
+      // schema also pull the "Trial Balance" sheet straight out of the
+      // combined Reconciliation_Reports pack.
+      sheetHints: ['trial balance'],
       fields: [
+        { key: 'accountCode', label: 'Account Code', type: 'text', aliases: ['account code'] },
         { key: 'account', label: 'Account', type: 'text', aliases: ['account', 'account name'] },
-        { key: 'debit', label: 'Debit', type: 'number', aliases: ['debit'] },
-        { key: 'credit', label: 'Credit', type: 'number', aliases: ['credit'] },
+        { key: 'accountType', label: 'Account Type', type: 'text', aliases: ['account type'] },
+        { key: 'debit', label: 'Debit YTD', type: 'number', aliases: ['debit - year to date', 'debit ytd', 'debit'] },
+        { key: 'credit', label: 'Credit YTD', type: 'number', aliases: ['credit - year to date', 'credit ytd', 'credit'] },
+        { key: 'prior', label: 'Prior period', type: 'number', aliases: [] },
       ],
       requiredKey: 'account',
       computeTotals: (rows) => {
@@ -386,19 +574,33 @@
     // rows must always be excluded and re-derived from the underlying
     // data rows by computeTotals() instead of trusted at face value.
     // Broadened beyond "net profit/income/assets/liabilities" (the
-    // Balance Sheet/P&L wording) to also catch General Ledger Detail's
-    // "Net movement" pseudo-rows, "Opening/Closing Balance" account-
-    // running-balance pseudo-rows (Account Transactions/General Ledger
-    // Detail/Bank Statement), and "Total {anything}"/"Total Difference"/
-    // "Total Unreconciled..." variants (Fixed Asset Reconciliation,
-    // Bank Reconciliation, Journal Report).
+    // Balance Sheet/P&L wording) to also catch "Gross Profit" (P&L),
+    // General Ledger Detail's "Net movement" pseudo-rows, "Opening/
+    // Closing Balance" account-running-balance pseudo-rows (Account
+    // Transactions/General Ledger Detail/Bank Statement), and "Total
+    // {anything}" variants. In every one of these report types the
+    // pseudo-row's label lands in the schema's requiredKey-mapped
+    // column (e.g. Bank Summary's "Total" sits in the Account column;
+    // P&L's "Gross Profit"/"Total Operating Expenses"/"Net Profit" sit
+    // in the Account column) OR the requiredKey column is simply blank
+    // for that row (e.g. Account Transactions/General Ledger Detail's
+    // "Total {account}"/"Opening Balance"/"Closing Balance" rows carry
+    // their label in the Date column, not Description — so nameVal is
+    // already empty and the row is excluded by the blank check alone).
     const EXCLUDE_ROW_RE = /^total\b|^grand total|^gross profit$|^net (profit|income|assets|liabilities|movement)\b|^opening balance$|^closing balance$/i;
-    const finalizeRow = (row) => {
+    // sectionFilter (optional, per-schema): excludes rows whose derived
+    // section fails a report-specific test even though the row itself
+    // has real name/date/amount content — used by Bank Reconciliation
+    // to keep only the genuine "Plus Unreconciled Statement Lines"
+    // transactions and drop the "Totals Summary"/"Balance in Xero"/
+    // "Statement Balances" recap rows that share the same sheet.
+    const finalizeRow = (row, section) => {
       if (schema.guessSelect) {
         Object.keys(schema.guessSelect).forEach((k) => { row[k] = schema.guessSelect[k](row); });
       }
       const nameVal = row[schema.requiredKey] || '';
-      row.include = nameVal.length > 0 && !EXCLUDE_ROW_RE.test(nameVal.trim());
+      const sectionExcluded = schema.sectionFilter ? !schema.sectionFilter(section || '') : false;
+      row.include = nameVal.length > 0 && !EXCLUDE_ROW_RE.test(nameVal.trim()) && !sectionExcluded;
       return row;
     };
     const rowHasContent = (r) => {
@@ -420,6 +622,16 @@
         setParsing(false);
         try {
           if (parsed.length < 2) { setError(`No data rows found in this ${fileKindLabel(file.name)}.`); setRows(null); return; }
+          // extractMeta (Bank Reconciliation only) reads recap-section
+          // labelled amounts straight off the raw sheet and pre-fills
+          // metaValues, so the "Xero bank balance"/"Bank statement
+          // balance" fields are correct without manual entry.
+          if (schema.extractMeta) {
+            const extracted = schema.extractMeta(parsed);
+            if (extracted && Object.keys(extracted).length) {
+              setMetaValues((m) => ({ ...m, ...extracted }));
+            }
+          }
           // Excel/PDF exports from Xero often have a title block (company
           // name, report title, date range, blank rows) above the real
           // header row, unlike the CSV export which starts at row 0 —
@@ -460,7 +672,7 @@
                 else if (f.fromSection || f.type === 'select') row[f.key] = sections[i] || '';
                 else row[f.key] = String(raw || '').trim();
               });
-              return finalizeRow(row);
+              return finalizeRow(row, sections[i]);
             }).filter(Boolean).filter(rowHasContent);
           } else {
             // No header row found anywhere — this is normal for Xero's
@@ -481,7 +693,7 @@
                 }
                 row[f.key] = '';
               });
-              return finalizeRow(row);
+              return finalizeRow(row, section);
             }, schema.sectionHeaderMap);
             if (built) built = built.filter(rowHasContent);
             if (!built || built.length === 0) {
