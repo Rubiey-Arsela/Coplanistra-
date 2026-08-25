@@ -71,16 +71,34 @@
   const REPORT_SCHEMAS = {
     profitAndLoss: {
       icon: 'IconChart',
-      hint: 'Reports \u2192 Profit and Loss \u2192 set the date range to current month (or FY-to-date) \u2192 Export \u2192 CSV.',
+      hint: 'Reports \u2192 Profit and Loss \u2192 set the date range to current month (or FY-to-date) \u2192 Export \u2192 CSV, Excel or PDF.',
+      // Xero's real P&L export (confirmed against the client's actual
+      // Profit_and_Loss.xlsx/.pdf) has just ONE figure column, labelled
+      // with the literal period range ("1 July-25 Aug 2026") rather than
+      // a generic "YTD"/"current month" word \u2014 the 'ytd' field below
+      // has no aliases on purpose so detectColumnsWithFallback's
+      // date-like-column fallback claims it. Rows are grouped under
+      // standalone section headers ("Operating Expenses" etc, no figure
+      // of their own) exactly like Balance Sheet's Assets/Liabilities/
+      // Equity \u2014 tracked the same way via sectionHeaderMap. "Gross
+      // Profit"/"Total Operating Expenses"/"Net Profit" are Xero's own
+      // formula-driven subtotal rows (stale-cached, often literally 0)
+      // and are excluded via EXCLUDE_ROW_RE so real totals are always
+      // recomputed here from the underlying account lines.
       fields: [
         { key: 'account', label: 'Account', type: 'text', aliases: ['account', 'line item', 'account name', 'name'] },
         { key: 'classification', label: 'Classification', type: 'select', options: ['Revenue', 'Other Income', 'Cost of Sales', 'Operating Expense', 'Other Expense'], aliases: [] },
-        { key: 'current', label: 'Current month', type: 'number', aliases: ['current month', 'this month', 'current', 'month'] },
-        { key: 'ytd', label: 'YTD actual', type: 'number', aliases: ['ytd actual', 'ytd', 'year to date'] },
-        { key: 'budget', label: 'YTD budget', type: 'number', aliases: ['ytd budget', 'budget', 'annual budget'] },
+        { key: 'ytd', label: 'Amount', type: 'number', aliases: [] },
       ],
       requiredKey: 'account',
+      sectionHeaderMap: {
+        'trading income': 'Revenue', 'income': 'Revenue', 'revenue': 'Revenue', 'sales': 'Revenue',
+        'cost of sales': 'Cost of Sales', 'cost of goods sold': 'Cost of Sales',
+        'operating expenses': 'Operating Expense', 'expenses': 'Operating Expense',
+        'other income': 'Other Income', 'other expenses': 'Other Expense', 'other expense': 'Other Expense',
+      },
       guessSelect: { classification: (row) => {
+        if (row.classification) return row.classification; // keep a section-derived value
         const a = (row.account || '').toLowerCase();
         if (/other income/.test(a)) return 'Other Income';
         if (/(revenue|sales|income|fees earned)/.test(a)) return 'Revenue';
@@ -89,20 +107,24 @@
         return 'Operating Expense';
       } },
       computeTotals: (rows) => {
-        const sum = (arr, k) => arr.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+        const sum = (arr) => arr.reduce((a, r) => a + (Number(r.ytd) || 0), 0);
         const rev = rows.filter((r) => r.classification === 'Revenue' || r.classification === 'Other Income');
-        const exp = rows.filter((r) => !(r.classification === 'Revenue' || r.classification === 'Other Income'));
-        const totalRevenueYTD = sum(rev, 'ytd') || sum(rev, 'current');
-        const totalExpenseYTD = sum(exp, 'ytd') || sum(exp, 'current');
+        const cos = rows.filter((r) => r.classification === 'Cost of Sales');
+        const exp = rows.filter((r) => r.classification === 'Operating Expense' || r.classification === 'Other Expense');
+        const totalRevenueYTD = sum(rev);
+        const totalCostOfSalesYTD = sum(cos);
+        const totalExpenseYTD = sum(exp);
+        const grossProfitYTD = totalRevenueYTD - totalCostOfSalesYTD;
         return {
-          totalRevenueYTD, totalExpenseYTD,
-          totalRevenueCurrent: sum(rev, 'current'), totalExpenseCurrent: sum(exp, 'current'),
-          netProfitYTD: totalRevenueYTD - totalExpenseYTD,
-          revenueBySource: rev.map((r) => ({ account: r.account, ytd: r.ytd || r.current || 0 })).sort((a, b) => b.ytd - a.ytd),
+          totalRevenueYTD, totalCostOfSalesYTD, totalExpenseYTD, grossProfitYTD,
+          netProfitYTD: grossProfitYTD - totalExpenseYTD,
+          // Kept for ReportsScreen.js's Director's Report Q1 section
+          // ("where's the money coming from") \u2014 must not be renamed.
+          revenueBySource: rev.map((r) => ({ account: r.account, ytd: r.ytd || 0 })).sort((a, b) => b.ytd - a.ytd),
         };
       },
       renderTotals: (t) => ([
-        { label: 'Total revenue (YTD)', value: t.totalRevenueYTD, money: true, tone: 'success' },
+        { label: 'Gross profit (YTD)', value: t.grossProfitYTD, money: true, tone: t.grossProfitYTD >= 0 ? 'success' : 'danger' },
         { label: 'Total expenses (YTD)', value: t.totalExpenseYTD, money: true, tone: 'danger' },
         { label: 'Net profit / (loss) YTD', value: t.netProfitYTD, money: true, tone: t.netProfitYTD >= 0 ? 'success' : 'danger' },
       ]),
@@ -354,12 +376,29 @@
     // and the headerless-PDF fallback path below — fills select/guess
     // fields and computes the default include/exclude flag the same way
     // regardless of how the raw cell values were located.
+    // Xero's real exports (confirmed across Account Transactions, Bank
+    // Reconciliation, General Ledger Detail, Bank Summary, Fixed Asset
+    // Reconciliation, Journal Report) never bake a reliable total into
+    // the file — every "Total"/subtotal/roll-up row is backed by a SUM
+    // or reference formula that Xero's export tool did not force to
+    // recalculate, so it caches a stale value of 0 (confirmed via
+    // openpyxl data_only=True across all 7 unique Excel files). These
+    // rows must always be excluded and re-derived from the underlying
+    // data rows by computeTotals() instead of trusted at face value.
+    // Broadened beyond "net profit/income/assets/liabilities" (the
+    // Balance Sheet/P&L wording) to also catch General Ledger Detail's
+    // "Net movement" pseudo-rows, "Opening/Closing Balance" account-
+    // running-balance pseudo-rows (Account Transactions/General Ledger
+    // Detail/Bank Statement), and "Total {anything}"/"Total Difference"/
+    // "Total Unreconciled..." variants (Fixed Asset Reconciliation,
+    // Bank Reconciliation, Journal Report).
+    const EXCLUDE_ROW_RE = /^total\b|^grand total|^gross profit$|^net (profit|income|assets|liabilities|movement)\b|^opening balance$|^closing balance$/i;
     const finalizeRow = (row) => {
       if (schema.guessSelect) {
         Object.keys(schema.guessSelect).forEach((k) => { row[k] = schema.guessSelect[k](row); });
       }
       const nameVal = row[schema.requiredKey] || '';
-      row.include = nameVal.length > 0 && !/^total\b|^grand total|^net (profit|income|assets|liabilities)/i.test(nameVal.trim());
+      row.include = nameVal.length > 0 && !EXCLUDE_ROW_RE.test(nameVal.trim());
       return row;
     };
     const rowHasContent = (r) => {
@@ -370,7 +409,14 @@
 
     const handleFile = (file) => {
       setError(''); setFileName(file.name); setParsing(true);
-      parseImportFile(file).then((parsed) => {
+      // Some report types are multi-sheet workbooks (standalone Bank
+      // Reconciliation exports, and the combined 7-sheet Reconciliation
+      // Reports pack) where the sheet relevant to THIS report type isn't
+      // always sheet 0 \u2014 schema.sheetHints (an ordered list of
+      // case-insensitive substrings to try against real sheet names)
+      // lets the same schema accept either the standalone single-report
+      // export or the matching sheet pulled out of the combined pack.
+      parseImportFile(file, schema.sheetHints).then((parsed) => {
         setParsing(false);
         try {
           if (parsed.length < 2) { setError(`No data rows found in this ${fileKindLabel(file.name)}.`); setRows(null); return; }
@@ -404,7 +450,14 @@
                 const raw = idx !== -1 ? r[idx] : '';
                 if (f.type === 'number') row[f.key] = parseAmountCell(raw);
                 else if (f.type === 'date') row[f.key] = parseDateCell(raw) || period;
-                else if (f.type === 'select') row[f.key] = sections[i] || ''; // section wins; guessSelect below is the fallback
+                // fromSection: true marks the field that should be
+                // populated from the current section-header value rather
+                // than a mapped column \u2014 works for BOTH select fields
+                // (Balance Sheet's fixed Assets/Liabilities/Equity) and
+                // plain text fields (Account Transactions/General Ledger
+                // Detail's freeform account-name header grouping, where
+                // there's no finite option list to render as a <select>).
+                else if (f.fromSection || f.type === 'select') row[f.key] = sections[i] || '';
                 else row[f.key] = String(raw || '').trim();
               });
               return finalizeRow(row);
@@ -419,7 +472,7 @@
               const row = {};
               fields.forEach((f) => {
                 if (f.key === requiredKey) { row[f.key] = classified.label; return; }
-                if (f.type === 'select') { row[f.key] = section || ''; return; }
+                if (f.fromSection || f.type === 'select') { row[f.key] = section || ''; return; }
                 if (f.type === 'date') { row[f.key] = period; return; }
                 if (f.type === 'number') {
                   const numIdx = numberFields.indexOf(f);

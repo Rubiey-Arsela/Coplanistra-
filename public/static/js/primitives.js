@@ -575,9 +575,18 @@ function detectColumnsWithFallback(headerRow, fields, detectColumnsFn) {
    doesn't look like a plausible label+numbers table at all, so callers
    can fall back to the normal "could not find a column" error. ---- */
 const ARS_NUMERIC_CELL_RE = /^\(?-?\$?\s?[\d,]+(\.\d+)?\)?$/;
+// Xero's real exports (confirmed across Account Transactions, Bank
+// Reconciliation, General Ledger Detail, Bank Summary, Trial Balance)
+// render a blank/zero cell as a literal dash "-" rather than "0" or an
+// empty string, in BOTH the PDF text layer and the Excel cell values.
+// Treated as numeric-zero so headerless-PDF row classification doesn't
+// mistake a dash for the start of the label text (which would merge a
+// zero-value column into the label and shift every remaining number
+// left by one).
+const ARS_DASH_ZERO_RE = /^-$/;
 function arsIsNumericCell(v) {
   const s = String(v || '').trim();
-  return s !== '' && ARS_NUMERIC_CELL_RE.test(s);
+  return s !== '' && (ARS_NUMERIC_CELL_RE.test(s) || ARS_DASH_ZERO_RE.test(s));
 }
 function classifyHeaderlessRow(cells) {
   if (!cells || cells.length < 2) return null;
@@ -638,23 +647,65 @@ function buildHeaderlessRows(parsed, fields, requiredKey, buildRowFn, sectionHea
    skipIndexes is a Set of indexes that are section-header rows
    themselves. A schema with no sectionHeaderMap gets an all-null,
    empty-skip result, so this is a no-op for every other report type. ---- */
+/* 'freeform' mode (sectionHeaderMap === 'freeform'): Xero's Account
+   Transactions and General Ledger Detail exports group transaction
+   rows under a standalone ACCOUNT-NAME header row (e.g. "Insurance",
+   "Loan to Arus Acres PL") rather than a fixed set of section labels
+   like Balance Sheet's Assets/Liabilities/Equity. There's no finite
+   lookup map to check against here — any standalone single-cell row
+   becomes the new "current" value verbatim (the account name itself),
+   carried forward onto every row until the next standalone-cell row.
+   This still safely skips Xero's own pseudo-rows ("Opening Balance",
+   "Total {account}", "Closing Balance", "Net movement") because those
+   always carry at least one amount alongside the label in Xero's
+   export (so they never look like a lone single-cell row) \u2014
+   confirmed against the real Account Transactions / General Ledger
+   Detail exports. */
 function deriveSectionOverrides(rawRows, sectionHeaderMap) {
   const sections = new Array((rawRows || []).length).fill(null);
   const skipIndexes = new Set();
   if (!sectionHeaderMap) return { sections, skipIndexes };
+  const freeform = sectionHeaderMap === 'freeform';
   let current = null;
   (rawRows || []).forEach((r, i) => {
     const nonEmpty = (r || []).map((c) => String(c || '').trim()).filter((c) => c !== '');
-    if (nonEmpty.length === 1 && sectionHeaderMap[nonEmpty[0].toLowerCase()]) {
-      current = sectionHeaderMap[nonEmpty[0].toLowerCase()];
-      skipIndexes.add(i);
+    if (nonEmpty.length === 1) {
+      if (freeform) {
+        current = nonEmpty[0];
+        skipIndexes.add(i);
+      } else if (sectionHeaderMap[nonEmpty[0].toLowerCase()]) {
+        current = sectionHeaderMap[nonEmpty[0].toLowerCase()];
+        skipIndexes.add(i);
+      }
     }
     sections[i] = current;
   });
   return { sections, skipIndexes };
 }
 
-function parseImportFile(file) {
+/* Xero's "Reconciliation Reports" pack export (and, separately, the
+   standalone Bank Reconciliation export) are multi-sheet workbooks
+   where the one sheet relevant to the report type currently being
+   imported isn't always sheet 0 — e.g. importing "Trial Balance" from
+   a 7-sheet Reconciliation Reports pack needs the sheet literally
+   named "Trial Balance", not whichever sheet Xero happened to put
+   first. sheetHints is an ordered list of case-insensitive substrings
+   to try against each real sheet name in turn (first match wins);
+   an empty/omitted list (or no match at all) falls back to the
+   previous always-first-sheet behaviour so every existing single-
+   sheet report type is unaffected. */
+function pickSheetName(sheetNames, sheetHints) {
+  if (!sheetHints || sheetHints.length === 0) return sheetNames[0];
+  for (const hint of sheetHints) {
+    const h = String(hint || '').toLowerCase();
+    if (!h) continue;
+    const match = sheetNames.find((n) => String(n || '').toLowerCase().includes(h));
+    if (match) return match;
+  }
+  return sheetNames[0];
+}
+
+function parseImportFile(file, sheetHints) {
   return new Promise((resolve, reject) => {
     const name = String(file.name || '').toLowerCase();
     if (/\.(xlsx|xls)$/.test(name)) {
@@ -664,14 +715,18 @@ function parseImportFile(file) {
         try {
           const data = new Uint8Array(reader.result);
           const wb = window.XLSX.read(data, { type: 'array' });
-          const sheetName = wb.SheetNames[0];
+          const sheetName = pickSheetName(wb.SheetNames, sheetHints);
           if (!sheetName) { reject(new Error('This Excel file has no sheets.')); return; }
           const sheet = wb.Sheets[sheetName];
           const rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
           const cleaned = rows
             .map((r) => r.map((c) => (c == null ? '' : String(c))))
             .filter((r) => r.some((v) => v.trim() !== ''));
-          if (cleaned.length === 0) { reject(new Error('No data found on the first sheet of this Excel file.')); return; }
+          if (cleaned.length === 0) {
+            const which = sheetHints && sheetHints.length ? `the "${sheetName}" sheet` : 'the first sheet';
+            reject(new Error(`No data found on ${which} of this Excel file.`));
+            return;
+          }
           resolve(cleaned);
         } catch (e) {
           reject(new Error('Could not read this Excel file. Please check it is a valid .xlsx/.xls export and try again.'));
