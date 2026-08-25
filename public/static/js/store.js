@@ -247,14 +247,18 @@
      period" point-in-time exports), newest first. All figures are
      stored in the report's native currency (AUD, per Arsela's
      Xero org) exactly as imported — no FX conversion applied here.
-     XERO_REPORT_TYPES is the single source of truth for the 8
-     report types the client asked to import, consumed by the
-     Data Imports screen to render one card + CRUD per type. ---- */
+     XERO_REPORT_TYPES is the single source of truth for the 10
+     report types the client asked to import (the original 8 plus
+     Account Transactions and Bank Summary, added 2026-08-25 to match
+     the client's real full Xero export suite), consumed by the Data
+     Imports screen to render one card + CRUD per type. ---- */
   const XERO_REPORT_TYPES = [
     { key: 'profitAndLoss', label: 'Profit and Loss', settings: 'Current month and FY-to-date · accrual basis · monthly columns', purpose: 'Revenue, expenses and budget-versus-actual' },
     { key: 'balanceSheet', label: 'Balance Sheet', settings: 'As at month-end · compare with previous month-end', purpose: 'Assets, liabilities, equity and solvency indicators' },
     { key: 'cashFlowActuals', label: 'Statement of Cash Flows (Direct) / Cash Summary', settings: 'Current month and FY-to-date', purpose: 'Where cash came from and where it went' },
+    { key: 'accountTransactions', label: 'Account Transactions', settings: 'Current period · all accounts', purpose: 'Every transaction posted per account, grouped by account, for detailed tracing' },
     { key: 'bankReconciliation', label: 'Bank Reconciliation Report Pack', settings: 'Westpac Account #2077 · as at month-end', purpose: "Confirms Xero's bank balance and unreconciled items" },
+    { key: 'bankSummary', label: 'Bank Summary', settings: 'Current period · all bank accounts', purpose: 'Opening/closing balances and cash received/spent per bank account' },
     { key: 'generalLedger', label: 'General Ledger Detail', settings: 'Current month · all accounts · accrual basis', purpose: 'Transaction-level matching, account mapping and duplicate checks' },
     { key: 'trialBalance', label: 'Trial Balance', settings: 'As at month-end', purpose: 'Control check that Coplanistra totals agree with Xero' },
     { key: 'agedReceivables', label: 'Aged Receivables Detail', settings: 'As at month-end', purpose: 'Customer amounts outstanding and expected cash receipts' },
@@ -265,7 +269,9 @@
   const seedProfitAndLoss = [];
   const seedBalanceSheet = [];
   const seedCashFlowActuals = [];
+  const seedAccountTransactions = [];
   const seedBankReconciliation = [];
+  const seedBankSummary = [];
   const seedGeneralLedger = [];
   const seedTrialBalance = [];
   const seedAgedReceivables = [];
@@ -313,7 +319,9 @@
     profitAndLoss: seedProfitAndLoss,
     balanceSheet: seedBalanceSheet,
     cashFlowActuals: seedCashFlowActuals,
+    accountTransactions: seedAccountTransactions,
     bankReconciliation: seedBankReconciliation,
+    bankSummary: seedBankSummary,
     generalLedger: seedGeneralLedger,
     trialBalance: seedTrialBalance,
     agedReceivables: seedAgedReceivables,
