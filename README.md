@@ -8,9 +8,28 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://coplanistra.pages.dev (latest deploy pending redeploy of this session's work — see session update immediately below; previous deploy https://73a8ca56.coplanistra.pages.dev covers the Balance Sheet real-file fix only)
+- **Production**: https://4c7737a5.coplanistra.pages.dev (latest deploy — Director's Report now syncs all 10 Xero report types; see session update immediately below. Also aliased at https://coplanistra.pages.dev)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-08-26) — Director's Report now syncs ALL 10 Xero report types, not just 5
+**User complaint (verbatim)**: *"WHY DIRECTOR REPORT IS NOT REFLECTED OF WHAT I HAVE UPLOADED. make sure everything is link and sync correctly. when I imported the data from xero, make sure it is recorded in all menu/panel. sync automatically please and make sure calculation is correct."*
+
+**Root cause**: `ReportsScreen.js`'s Director's Report only ever read 5 of the 10 Xero report types (Profit & Loss, Balance Sheet, Aged Receivables, Aged Payables, Cash Flow Actuals) — wired before the other 5 types (Account Transactions, Bank Summary, Bank Reconciliation, General Ledger, Trial Balance) were added in a later session. Those 5 newer types imported fine and were visible in the Data Imports hub, but had **no downstream consumer anywhere else** — so uploading them never changed the Director's Report.
+
+**Fix**:
+- Wired all 5 missing report types into the Director's Report via the existing generic `window.Store.latestXeroImport()` / `xeroReportTypes()` API — no hardcoded "10", so it stays correct if more Xero report types are added later.
+- Added a new **"Xero sync" completeness banner** at the top of the report: "N of 10 Xero report types imported and reflected below", listing exactly which types are still missing, clickable through to Data Imports.
+- Added a new **"Xero control checks"** card with 4 tiles: Trial Balance (balanced/debit/credit), Bank Reconciliation (unreconciled count/difference), Bank Summary (closing balance/cash received/spent), and Ledger activity (from General Ledger or Account Transactions, whichever was imported).
+- **Calculation fix, not just display**: "Enough to cover our expenses?" (Q2) previously always used the budget-derived cash-flow forecast as "cash on hand," even when a real Bank Summary was imported. It now uses the **real Xero bank closing balance** whenever a Bank Summary has been imported, falling back to the forecast only when it hasn't — this changes the actual coverage-ratio math, not just the label.
+- Extended Data Limitations messaging and both CSV and PDF exports to include all the new figures and the missing-types list, so exports stay in sync with the on-screen report.
+
+**Verification** (three layers, all passed):
+1. `npm run build` — clean build, no errors.
+2. Live Playwright run importing 7 of the 10 real Xero files in one session, then inspecting the Director's Report: banner correctly read "7 of 10 Xero report types imported", all 4 new control-check tiles showed correct figures, Q2 correctly showed the real Bank Summary balance ("Cash on hand (Xero bank balance): A$10.0K"), zero console errors. Confirmed on both localhost and the redeployed production URL.
+3. CSV/PDF export re-verified in both empty-state (0 of 10, all types listed as missing) and populated-state (correct Trial Balance debit/credit, Bank Summary closing balance) — exports match on-screen figures exactly.
+
+**Not in this session's scope** (flagged for follow-up): Dashboard and a few other screens still have no Xero-import awareness at all — only Reports/Reconciliations/Cash Flow were audited and fixed this session, since the Director's Report was the user's explicit complaint.
 
 ## Session update (2026-08-25, part 2) — Full 10-report-type Xero import suite: Account Transactions & Bank Summary added, Bank Reconciliation/General Ledger/Trial Balance reworked to match real Xero export layouts
 The client uploaded the **full real Xero export suite** — all 8 originally-scoped report types, each in both PDF and Excel format (Account Transactions, Bank Reconciliation, Bank Summary, General Ledger Detail, Profit and Loss, Reconciliation Reports pack, Trial Balance, plus Balance Sheet already fixed) — with the instruction: *"I want to be able to upload all these... make sure I can upload, all figures reflected correctly and calculated correctly."* Inspecting these real files (via openpyxl cached-value dumps) showed several report types had a materially different real-world layout than originally coded, and two report types (Account Transactions, Bank Summary) weren't supported at all. Fixed:
