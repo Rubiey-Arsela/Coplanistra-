@@ -151,6 +151,43 @@
     const latestAR = window.Store.latestXeroImport ? window.Store.latestXeroImport('agedReceivables') : null;
     const latestAP = window.Store.latestXeroImport ? window.Store.latestXeroImport('agedPayables') : null;
     const latestCFA = window.Store.latestXeroImport ? window.Store.latestXeroImport('cashFlowActuals') : null;
+    // ---- 2026-08-26 fix: the report above only ever read 5 of the 10
+    // Xero report types the Data Imports hub actually supports, so
+    // anything imported as Account Transactions / Bank Summary / Bank
+    // Reconciliation / General Ledger / Trial Balance never showed up
+    // anywhere outside the hub itself — the direct cause of "why isn't
+    // my import reflected in the Director's Report". These five extra
+    // pulls, plus the completeness banner and activity cards further
+    // below, close that gap so every imported Xero report is surfaced
+    // here automatically, with no re-entry required.
+    const latestAT = window.Store.latestXeroImport ? window.Store.latestXeroImport('accountTransactions') : null;
+    const latestBSum = window.Store.latestXeroImport ? window.Store.latestXeroImport('bankSummary') : null;
+    const latestBR = window.Store.latestXeroImport ? window.Store.latestXeroImport('bankReconciliation') : null;
+    const latestGL = window.Store.latestXeroImport ? window.Store.latestXeroImport('generalLedger') : null;
+    const latestTB = window.Store.latestXeroImport ? window.Store.latestXeroImport('trialBalance') : null;
+    const xeroTypeList = window.Store.xeroReportTypes ? window.Store.xeroReportTypes() : [];
+    const xeroStatus = xeroTypeList.map((t) => ({ ...t, latest: window.Store.latestXeroImport ? window.Store.latestXeroImport(t.key) : null }));
+    const xeroImportedCount = xeroStatus.filter((t) => t.latest).length;
+    const xeroMissing = xeroStatus.filter((t) => !t.latest);
+    // Real bank cash position (Bank Summary) — when available this
+    // REPLACES the budget-derived cash-flow-model proxy for "cash on
+    // hand" in Q2 below, since it is the client's actual Xero bank
+    // balance rather than a forecast.
+    const bankTotalClosing = latestBSum && latestBSum.totals ? latestBSum.totals.totalClosing : null;
+    const hasBankSummary = bankTotalClosing != null;
+    // Trial Balance control check — surfaced next to Q3 (solvency) as an
+    // independent cross-check that Coplanistra's figures agree with Xero.
+    const tbTotals = latestTB && latestTB.totals ? latestTB.totals : null;
+    // Bank Reconciliation status — already shown on the Reconciliations
+    // screen; repeated here so the Director's Report doesn't require a
+    // separate visit to confirm the bank account itself reconciles.
+    const brTotals = latestBR && latestBR.totals ? latestBR.totals : null;
+    // General Ledger / Account Transactions activity — prefer General
+    // Ledger (fuller export) but fall back to Account Transactions so
+    // the card still populates if only one of the two was imported.
+    const ledgerSource = latestGL || latestAT;
+    const ledgerTotals = ledgerSource && ledgerSource.totals ? ledgerSource.totals : null;
+    const ledgerLabel = latestGL ? 'General Ledger' : latestAT ? 'Account Transactions' : null;
 
     const FY_PERIOD_LABEL = window.Store.fyLabel(window.Store.today());
     const cf = window.computeCashFlow ? window.computeCashFlow(FY_PERIOD_LABEL, activeScenario, budgets, capexProjects) : null;
@@ -179,12 +216,19 @@
     // Monthly burn re-used from the existing cash-flow model (AUD, in
     // millions -> convert to whole units for comparison with AR/AP).
     const monthlyBurnUnits = cf ? (cf.monthlyBurn || 0) * 1e6 : 0;
+    // "Cash on hand" prefers the REAL Xero bank balance (Bank Summary
+    // import) over the budget-derived cash-flow-model forecast — a
+    // Bank Summary import always reflects actual money in the bank as
+    // at its report date, whereas the cash-flow model is a projection.
+    // Falls back to the forecast only when no Bank Summary is imported.
+    const cashOnHandUnits = hasBankSummary ? bankTotalClosing : (cf ? cf.closingCash * 1e6 : 0);
+    const cashOnHandSource = hasBankSummary ? `Bank Summary as at ${latestBSum.period}` : 'cash flow model (forecast)';
     const coverageMonths = (hasCoverageData && monthlyBurnUnits > 0)
-      ? ((arOutstanding || 0) - (apOutstanding || 0) + (cf ? cf.closingCash * 1e6 : 0)) / monthlyBurnUnits
+      ? ((arOutstanding || 0) - (apOutstanding || 0) + cashOnHandUnits) / monthlyBurnUnits
       : null;
     const canCoverExpenses = hasCoverageData
-      ? ((arOutstanding || 0) + (cf ? cf.closingCash * 1e6 : 0)) >= (apOutstanding || 0)
-      : (cf && cf.hasData ? cf.minCash > 0 : null);
+      ? ((arOutstanding || 0) + cashOnHandUnits) >= (apOutstanding || 0)
+      : (hasBankSummary ? cashOnHandUnits > 0 : (cf && cf.hasData ? cf.minCash > 0 : null));
 
     // ---- Q3: Are we solvent — real assets-vs-liabilities from the
     // latest imported Balance Sheet (the client's stated definition of
@@ -271,6 +315,8 @@
           ...(hasCoverageData ? [
             ['Q2: Enough to cover expenses', 'Receivables outstanding (AUD)', arOutstanding],
             ['Q2: Enough to cover expenses', 'Payables outstanding (AUD)', apOutstanding],
+            ['Q2: Enough to cover expenses', 'Cash on hand (AUD)', cashOnHandUnits],
+            ['Q2: Enough to cover expenses', 'Cash on hand source', cashOnHandSource],
             ['Q2: Enough to cover expenses', 'Months of burn covered', coverageMonths != null ? coverageMonths.toFixed(1) : 'n/a'],
           ] : []),
           ['Q3: Are we solvent', 'Status', bsTotals ? (realSolvent ? 'Solvent' : 'Insolvent — liabilities exceed assets') : `Proxy only (cash runway) — ${solvent ? 'within/below threshold, no Balance Sheet imported' : 'at risk'}`],
@@ -281,6 +327,16 @@
             ['Q3: Are we solvent', 'Current ratio', currentRatio != null ? currentRatio.toFixed(2) : 'n/a'],
             ['Q3: Are we solvent', 'Balance Sheet as at', latestBS.period],
           ] : []),
+          // Xero control checks (client ask, 2026-08-26) — Trial Balance,
+          // Bank Reconciliation, Bank Summary and ledger activity, the
+          // five report types that previously had no downstream consumer.
+          ['Xero control checks', 'Trial Balance status', tbTotals ? (tbTotals.balanced ? 'Balanced' : 'Out of balance') : 'Not imported'],
+          ...(tbTotals ? [['Xero control checks', 'Trial Balance debit/credit (AUD)', `${tbTotals.totalDebit} / ${tbTotals.totalCredit}`]] : []),
+          ['Xero control checks', 'Bank Reconciliation status', brTotals ? `${brTotals.unreconciledCount} unreconciled item(s), difference ${brTotals.difference}` : 'Not imported'],
+          ['Xero control checks', 'Bank Summary total closing balance (AUD)', hasBankSummary ? bankTotalClosing : 'Not imported'],
+          ['Xero control checks', `${ledgerLabel || 'Ledger activity'}`, ledgerTotals ? `${ledgerTotals.rowCount} lines across ${ledgerTotals.accountCount} account(s)` : 'Not imported'],
+          ['Xero sync', 'Report types imported', `${xeroImportedCount} of ${xeroTypeList.length}`],
+          ...(xeroMissing.length ? [['Xero sync', 'Not yet imported', xeroMissing.map((t) => t.label).join('; ')]] : []),
           ...deptRows.map((d) => [`Department — ${d.dept}`, 'Allocated / Actual (reconciled) / Committed / Forecast final (AUD)', `${d.allocated} / ${d.spent} / ${d.committed} / ${d.forecastFinal}`]),
         ]
       );
@@ -370,12 +426,28 @@
         revenueBySource.slice(0, 3).forEach((r) => { doc.text(`   • ${r.account}: ${fmtMYR(r.ytd, { compact: true })}`, 40, y); y += 12; });
       }
       y += 6;
-      doc.text(`Q2 — Enough to cover our expenses: ${canCoverExpenses == null ? 'Not answerable — add budgets/CAPEX or import Aged Receivables/Payables.' : (canCoverExpenses ? 'Yes — covered.' : 'At risk — projected shortfall.')}${hasCoverageData ? ` Receivables due ${fmtMYR(arOutstanding, { compact: true })}, payables due ${fmtMYR(apOutstanding, { compact: true })}${coverageMonths != null ? `, ≈${coverageMonths.toFixed(1)} months of burn covered.` : '.'}` : ''}`, 40, y, { maxWidth: pageW - 80 }); y += 26;
+      doc.text(`Q2 — Enough to cover our expenses: ${canCoverExpenses == null ? 'Not answerable — add budgets/CAPEX or import Aged Receivables/Payables/Bank Summary.' : (canCoverExpenses ? 'Yes — covered.' : 'At risk — projected shortfall.')}${hasCoverageData ? ` Receivables due ${fmtMYR(arOutstanding, { compact: true })}, payables due ${fmtMYR(apOutstanding, { compact: true })}, cash on hand ${fmtMYR(cashOnHandUnits, { compact: true })} (${cashOnHandSource})${coverageMonths != null ? `, ≈${coverageMonths.toFixed(1)} months of burn covered.` : '.'}` : ''}`, 40, y, { maxWidth: pageW - 80 }); y += 26;
       doc.text(`Q3 — Are we solvent: ${bsTotals ? (realSolvent ? `Yes — solvent. Assets ${fmtMYR(bsTotals.totalAssets, { compact: true })} vs liabilities ${fmtMYR(bsTotals.totalLiabilities, { compact: true })}, current ratio ${currentRatio != null ? currentRatio.toFixed(2) + 'x' : 'n/a'} (Balance Sheet as at ${latestBS.period}).` : `No — liabilities exceed assets. Assets ${fmtMYR(bsTotals.totalAssets, { compact: true })} vs liabilities ${fmtMYR(bsTotals.totalLiabilities, { compact: true })} (Balance Sheet as at ${latestBS.period}).`) : `No Balance Sheet imported — cash-runway proxy only (${solvent ? (withinRunwayThreshold ? 'within comfort threshold' : 'below comfort threshold') : 'at risk'}).`}`, 40, y, { maxWidth: pageW - 80 }); y += 30;
+
+      if (y > 620) { doc.addPage(); y = 50; }
+      doc.setFontSize(13); doc.setFont(undefined, 'bold');
+      doc.text('6. Xero control checks', 40, y); y += 8;
+      doc.autoTable({
+        startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
+        head: [['Report', 'Status', 'Detail', 'Period']],
+        body: [
+          ['Trial Balance', tbTotals ? (tbTotals.balanced ? 'Balanced' : 'Out of balance') : 'Not imported', tbTotals ? `Debit ${fmtMYR(tbTotals.totalDebit, { compact: true })} / Credit ${fmtMYR(tbTotals.totalCredit, { compact: true })}` : '—', latestTB ? latestTB.period : '—'],
+          ['Bank Reconciliation', brTotals ? (brTotals.unreconciledCount === 0 ? 'Fully reconciled' : `${brTotals.unreconciledCount} unreconciled`) : 'Not imported', brTotals ? `Difference ${fmtMYR(brTotals.difference, { compact: true })}` : '—', latestBR ? latestBR.period : '—'],
+          ['Bank Summary', hasBankSummary ? 'Imported' : 'Not imported', hasBankSummary ? `Closing balance ${fmtMYR(bankTotalClosing, { compact: true })}` : '—', latestBSum ? latestBSum.period : '—'],
+          [ledgerLabel || 'General Ledger / Account Transactions', ledgerTotals ? 'Imported' : 'Not imported', ledgerTotals ? `${ledgerTotals.rowCount} lines, ${ledgerTotals.accountCount} account(s)` : '—', ledgerSource ? ledgerSource.period : '—'],
+        ],
+        styles: { fontSize: 8.5 }, headStyles: { fillColor: [19, 67, 203] },
+      });
+      y = doc.lastAutoTable.finalY + 24;
 
       if (y > 640) { doc.addPage(); y = 50; }
       doc.setFontSize(13); doc.setFont(undefined, 'bold');
-      doc.text('6. Approvals requiring director attention', 40, y); y += 8;
+      doc.text('7. Approvals requiring director attention', 40, y); y += 8;
       doc.autoTable({
         startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
         head: [['Item', 'Type', 'Amount', 'Requester', 'Urgent']],
@@ -385,9 +457,9 @@
 
       if (y > 640) { doc.addPage(); y = 50; }
       doc.setFontSize(13); doc.setFont(undefined, 'bold');
-      doc.text('7. Data limitations', 40, y); y += 8;
+      doc.text('8. Data limitations', 40, y); y += 8;
       doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
-      doc.text(`This report is ${isPreliminary ? 'a PRELIMINARY SNAPSHOT — ' : ''}based on Xero actuals reconciled through ${latestActualsThrough || 'n/a'}. ${unreconciledBudgets.length} of ${budgets.length} budget lines are pending reconciliation, and ${unpostedExpenses.length} approved expense(s) are not yet posted in Xero. Figures beyond the reconciled-through date are forecasts, not actuals.`, 40, y, { maxWidth: pageW - 80 });
+      doc.text(`This report is ${isPreliminary ? 'a PRELIMINARY SNAPSHOT — ' : ''}based on Xero actuals reconciled through ${latestActualsThrough || 'n/a'}. ${unreconciledBudgets.length} of ${budgets.length} budget lines are pending reconciliation, and ${unpostedExpenses.length} approved expense(s) are not yet posted in Xero. Figures beyond the reconciled-through date are forecasts, not actuals. Xero report types imported: ${xeroImportedCount} of ${xeroTypeList.length}.${xeroMissing.length ? ` Not yet imported: ${xeroMissing.map((t) => t.label).join(', ')}.` : ''}`, 40, y, { maxWidth: pageW - 80 });
 
       doc.save(`Coplanistra-Directors-Report-${monthLabel.replace(/\s+/g, '-')}.pdf`);
       window.Store.toast('Director\'s report exported as PDF', 'success');
@@ -418,6 +490,31 @@
             </div>
             <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>
               Xero actuals reconciled through {latestActualsThrough || 'n/a'} · {unreconciledBudgets.length} of {budgets.length} budget line(s) pending reconciliation · {unpostedExpenses.length} approved expense(s) not yet posted in Xero.
+            </div>
+          </div>
+        </div>
+
+        {/* ---- Xero import sync/completeness banner (client ask,
+            2026-08-26): "make sure it is recorded in all menu/panel,
+            sync automatically" — every report imported via Data
+            Imports flows into this screen automatically (no manual
+            re-entry), but a report that has never been imported still
+            cannot show real figures. This banner makes that visible
+            and links straight to the hub for whatever is missing. ---- */}
+        <div onClick={() => window.Router.go('/dataimports')} title="Click to open Data Imports" style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 10, cursor: 'pointer', marginBottom: 20,
+          background: xeroImportedCount === xeroTypeList.length ? 'var(--arsela-success-50)' : '#EEF3FF',
+          border: '1px solid ' + (xeroImportedCount === xeroTypeList.length ? 'var(--arsela-success)' : '#D6E1FF'),
+        }}>
+          <ArsBadge tone={xeroImportedCount === xeroTypeList.length ? 'success' : 'neutral'} dot size="sm">Xero sync</ArsBadge>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>
+              {xeroImportedCount} of {xeroTypeList.length} Xero report types imported and reflected below
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>
+              {xeroMissing.length === 0
+                ? 'Every Xero report type has been imported at least once — all sections below are live.'
+                : `Not yet imported: ${xeroMissing.map((t) => t.label).join(', ')}. Import from Data Imports to populate the matching section(s) here.`}
             </div>
           </div>
         </div>
@@ -513,11 +610,16 @@
                     <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Receivables due in</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{arOutstanding != null ? fmtMYR(arOutstanding, { compact: true }) : '—'}</span></div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Payables due out</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{apOutstanding != null ? fmtMYR(apOutstanding, { compact: true }) : '—'}</span></div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid var(--arsela-border)' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash on hand (cash flow model)</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{cf ? curLabel(cf.closingCash) : '—'}</span></div>
-                      {coverageMonths != null && <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>≈ {coverageMonths.toFixed(1)} months of burn covered</div>}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid var(--arsela-border)' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash on hand ({hasBankSummary ? 'Xero bank balance' : 'cash flow model'})</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(cashOnHandUnits, { compact: true })}</span></div>
+                      {coverageMonths != null && <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>≈ {coverageMonths.toFixed(1)} months of burn covered · {cashOnHandSource}</div>}
+                    </div>
+                  ) : hasBankSummary ? (
+                    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash on hand (Xero bank balance)</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(cashOnHandUnits, { compact: true })}</span></div>
+                      <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{cashOnHandSource} · import Aged Receivables/Payables for a full coverage ratio.</div>
                     </div>
                   ) : (
-                    <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Based on the budget-derived cash flow model (no Aged Receivables/Payables imported yet). Minimum projected balance {cf ? curLabel(cf.minCash) : '—'}.</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Based on the budget-derived cash flow model (no Aged Receivables/Payables or Bank Summary imported yet). Minimum projected balance {cf ? curLabel(cf.minCash) : '—'}.</div>
                   )}
                 </>
               ) : (
@@ -548,6 +650,103 @@
                 <div style={{ marginTop: 8 }}>
                   <ArsBadge tone={solvent ? 'warning' : 'danger'} size="sm">{solvent ? 'Proxy only — not confirmed' : 'At risk (proxy)'}</ArsBadge>
                   <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>No Balance Sheet imported yet — showing the cash-runway proxy only ({!solvent ? 'projected balance may go negative' : withinRunwayThreshold ? 'within comfort threshold' : 'below comfort threshold'}). Import a Balance Sheet for a real assets-vs-liabilities answer.</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </ArsCard>
+
+        {/* ---- Xero control checks (client ask, 2026-08-26): Trial
+            Balance, Bank Reconciliation, Bank Summary and General
+            Ledger/Account Transactions activity — the five report
+            types that previously had NO Director's Report presence at
+            all despite being fully importable in Data Imports. ---- */}
+        <ArsCard style={{ marginBottom: 20 }}>
+          <ArsSectionHeader title="Xero control checks" subtitle="Trial Balance · Bank Reconciliation · Bank Summary · ledger activity — each from the latest import"/>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}>
+
+            {/* Trial Balance control check */}
+            <div onClick={() => window.Router.go('/dataimports')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16 }} title="Click to import or review the Trial Balance">
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Trial Balance</div>
+              {tbTotals ? (
+                <>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: tbTotals.balanced ? 'var(--success)' : 'var(--danger)', marginTop: 6 }}>
+                    {tbTotals.balanced ? 'Balanced' : 'Out of balance'}
+                  </div>
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Debit</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(tbTotals.totalDebit, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Credit</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(tbTotals.totalCredit, { compact: true })}</span></div>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 8 }}>{latestTB.period}</div>
+                </>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ArsBadge tone="neutral" size="sm">Not imported</ArsBadge>
+                  <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Import a Trial Balance to confirm Coplanistra agrees with Xero.</div>
+                </div>
+              )}
+            </div>
+
+            {/* Bank Reconciliation status */}
+            <div onClick={() => window.Router.go(brTotals ? '/reconciliations' : '/dataimports')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16 }} title="Click to open Reconciliations">
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Bank Reconciliation</div>
+              {brTotals ? (
+                <>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: brTotals.unreconciledCount === 0 ? 'var(--success)' : 'var(--warning)', marginTop: 6 }}>
+                    {brTotals.unreconciledCount === 0 ? 'Fully reconciled' : `${brTotals.unreconciledCount} unreconciled`}
+                  </div>
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Xero balance</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(brTotals.xeroBalance, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Difference</span><span className="arsela-num" style={{ fontWeight: 700, color: Math.abs(brTotals.difference) < 1 ? 'var(--success)' : 'var(--danger)' }}>{fmtMYR(brTotals.difference, { compact: true })}</span></div>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 8 }}>{latestBR.period}</div>
+                </>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ArsBadge tone="neutral" size="sm">Not imported</ArsBadge>
+                  <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Import a Bank Reconciliation report to confirm the bank account balance.</div>
+                </div>
+              )}
+            </div>
+
+            {/* Bank Summary */}
+            <div onClick={() => window.Router.go('/dataimports')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16 }} title="Click to import or review the Bank Summary">
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Bank Summary</div>
+              {latestBSum && latestBSum.totals ? (
+                <>
+                  <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(latestBSum.totals.totalClosing, { compact: true })}</div>
+                  <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Total closing balance · {latestBSum.totals.accountCount} account(s)</div>
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash received</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--success)' }}>{fmtMYR(latestBSum.totals.totalReceived, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash spent</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--danger)' }}>{fmtMYR(latestBSum.totals.totalSpent, { compact: true })}</span></div>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 8 }}>{latestBSum.period}</div>
+                </>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ArsBadge tone="neutral" size="sm">Not imported</ArsBadge>
+                  <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Import a Bank Summary for the real cash position (used in Q2 above).</div>
+                </div>
+              )}
+            </div>
+
+            {/* General Ledger / Account Transactions activity */}
+            <div onClick={() => window.Router.go(latestGL ? '/reconciliations' : '/dataimports')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16 }} title="Click to review ledger activity">
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>{ledgerLabel || 'Ledger activity'}</div>
+              {ledgerTotals ? (
+                <>
+                  <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{ledgerTotals.rowCount} lines</div>
+                  <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{ledgerTotals.accountCount} account(s) touched</div>
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Total debit</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(ledgerTotals.totalDebit, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Total credit</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(ledgerTotals.totalCredit, { compact: true })}</span></div>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 8 }}>{ledgerSource.period}</div>
+                </>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ArsBadge tone="neutral" size="sm">Not imported</ArsBadge>
+                  <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Import General Ledger Detail or Account Transactions for transaction-level activity.</div>
                 </div>
               )}
             </div>
@@ -645,10 +844,11 @@
             </div>
             <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 6 }}>Lowest forecast balance {cf ? curLabel(cf.minCash) : '—'}{cf && CF_MONTHS && cf.minCashMonthIdx != null ? ` in ${CF_MONTHS[cf.minCashMonthIdx]}` : ''}.</div>
           </ArsCard>
-          <ArsCard>
+          <ArsCard onClick={() => window.Router.go('/dataimports')} style={{ cursor: xeroMissing.length ? 'pointer' : 'default' }} title={xeroMissing.length ? 'Click to open Data Imports' : undefined}>
             <ArsSectionHeader title="Data limitations" subtitle="What this report does not yet cover"/>
             <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', lineHeight: 1.5 }}>
               {unreconciledBudgets.length} budget line(s) pending reconciliation to Xero. {unpostedExpenses.length} approved expense(s) not yet posted in Xero. Figures beyond {latestActualsThrough || 'the reconciled-through date'} are forecasts, not actuals.
+              {xeroMissing.length > 0 && <> Not yet imported from Xero: {xeroMissing.map((t) => t.label).join(', ')} — sections above relying on these show a proxy or empty state until imported.</>}
             </div>
           </ArsCard>
         </div>
