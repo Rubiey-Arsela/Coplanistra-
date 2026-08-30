@@ -8,9 +8,25 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://4c7737a5.coplanistra.pages.dev (latest deploy — Director's Report now syncs all 10 Xero report types; see session update immediately below. Also aliased at https://coplanistra.pages.dev)
+- **Production**: https://0aa68d99.coplanistra.pages.dev (latest deploy — Executive Summary A$0 bug fixed + Dashboard Xero sync; see session update immediately below. Also aliased at https://coplanistra.pages.dev)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-08-30) — Director's Report Executive Summary A$0 bug fixed + Dashboard now has full Xero-sync awareness
+**User complaint (verbatim, with screenshot of production Director's Report)**: *"make sure dashboard and this director reports is updated and sync based on my xero import."*
+
+**Root cause**: the previous session's fix (2026-08-26, below) correctly wired the Q1/Q2/Q3 and "Xero control checks" sections to real Xero imports — but the **Executive Summary block at the very top** of the same report (Xero Actuals, Open Commitments, Actual + Commitments, Forecast Final Cost, Actual vs Budget-to-Date) was still 100% derived from the internal **Budgets module** (`s.budgets`), which is empty by default ("start fresh"). A client who imports real Xero reports but never manually creates a Budget entry saw a contradictory report: real figures a few hundred pixels down, but a flat "A$ 0" at the top — the exact thing visible in the user's screenshot. Separately, **Dashboard had ZERO Xero-import awareness at all** (confirmed via grep — no references to the Xero-sync API anywhere in that file), and one of its stat cards ("Budget-to-Date Variance") was a **hardcoded fabricated placeholder** (`fmtMYR(2,800,000)`, fake "▲1.8% over" delta) that never reflected any real data, budget or Xero.
+
+**Fixes**:
+- **Director's Report Executive Summary** (`ReportsScreen.js`): each of the 5 top-line KPIs now prefers the Budgets-module figure when budgets exist (unchanged behaviour), and falls back to the equivalent **real imported Xero figure** when no budgets exist — Xero Actuals ← P&L Cost of Sales + Expenses; Open Commitments ← Aged Payables outstanding; Actual + Commitments ← sum of the two; Forecast Final Cost ← run-rate projection from YTD Xero actuals. Each fallback is explicitly labelled with its source (e.g. "Total expenses YTD per Xero P&L"). "Actual vs budget-to-date" has no honest Xero-only substitute (there is no plan to compare against) so it now shows a clear "No plan to compare" empty state instead of a misleading A$0.
+- **Reconciliation-status contradiction** (both `ReportsScreen.js` and `DashboardScreen.js`): previously driven solely by the Budgets-module reconciliation flag, so the app could claim "All reconciled" while a real imported Bank Reconciliation report showed unreconciled bank items. Now a combined signal (budgets pending + real Bank Reconciliation unreconciled count), with a breakdown label (e.g. "2 budget line(s) + 3 bank item(s) pending").
+- **Dashboard Xero-sync banner** (new): mirrors the Director's Report's banner — "N of 10 Xero report types imported", links to Data Imports, plus a shortcut to the full Director's Report.
+- **Dashboard "Xero snapshot" card** (new): 4 tiles — Revenue (YTD) from Profit & Loss, Bank balance from Bank Summary, Solvency from Balance Sheet, Trial Balance status — each with an honest "Not imported" fallback, so a director scanning only the Dashboard still sees real Xero figures.
+- **Fabricated "Budget-to-Date Variance" stat card fixed**: replaced the hardcoded A$2.8M/1.8% placeholder with a real time-prorated calculation (`totalAnnualPlan × % of FY elapsed` vs reconciled Xero actuals) — same basis used by `SpentVsBudgetToDate` and the Director's Report.
+
+**Verification**: `npm run build` — clean build, no errors. Local Playwright smoke test on `/reports` with zero console errors. Deployed to production and confirmed the new deployment responds (HTTP 200).
+
+**Not in this session's scope** (flagged for follow-up): whether Dashboard's remaining 3 budgets-only finance stat cards ("Total Annual Plan", "Xero Actuals (Reconciled)", "Actual + Commitments") should also blend in Xero fallbacks, or are acceptable as legitimate "budget tracking" figures distinct from the new "Xero snapshot" card — no decision made yet, left as-is this session.
 
 ## Session update (2026-08-26) — Director's Report now syncs ALL 10 Xero report types, not just 5
 **User complaint (verbatim)**: *"WHY DIRECTOR REPORT IS NOT REFLECTED OF WHAT I HAVE UPLOADED. make sure everything is link and sync correctly. when I imported the data from xero, make sure it is recorded in all menu/panel. sync automatically please and make sure calculation is correct."*
