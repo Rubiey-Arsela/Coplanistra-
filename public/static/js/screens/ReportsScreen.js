@@ -374,6 +374,9 @@
           // instead of falling back to the raw budgets-only totals (which
           // are always 0 when s.budgets is empty).
           ['Summary', 'Total allocated (AUD)', hasBudgets ? totalAllocated : 'n/a — no Budgets module entries'],
+          // NOTE: these Summary rows are RAW numbers (not run through
+          // fmtMYR/fmtAUD) so the CSV always carries the true underlying
+          // value regardless of basis — no currency-conversion risk here.
           ['Summary', 'Xero actuals — reconciled only (AUD)', xeroActualsBasis != null ? Math.round(xeroActualsBasis) : 'Not answerable — no budgets or Profit & Loss imported'],
           ['Summary', 'Xero actuals basis', xeroActualsSourceLabel || 'n/a'],
           ['Summary', 'Open commitments (AUD)', openCommitmentsBasis != null ? Math.round(openCommitmentsBasis) : 'Not answerable — no budgets or Aged Payables imported'],
@@ -461,13 +464,16 @@
           // the screen shows for a no-budgets client instead of always
           // printing A$0.
           [`Total ${FY_PERIOD_LABEL} budget allocated`, hasBudgets ? fmtMYR(totalAllocated, { compact: true }) : 'n/a — no Budgets module entries'],
-          ['Xero actuals — reconciled only', xeroActualsBasis != null ? `${fmtMYR(xeroActualsBasis, { compact: true })} (${xeroActualsSourceLabel})` : 'Not answerable — no budgets or Profit & Loss imported'],
-          ['Open commitments', openCommitmentsBasis != null ? `${fmtMYR(openCommitmentsBasis, { compact: true })} (${openCommitmentsSourceLabel})` : 'Not answerable — no budgets or Aged Payables imported'],
-          ['Actual + commitments', actualPlusCommitmentsBasis != null ? fmtMYR(actualPlusCommitmentsBasis, { compact: true }) : 'Not answerable'],
-          ['Forecast final cost (full year)', forecastFinalBasis != null ? `${fmtMYR(forecastFinalBasis, { compact: true })} (${forecastFinalSourceLabel})` : 'Not answerable — no budgets or Xero actuals to project from'],
+          // 2026-08-30: real Xero figures are AUD and must use fmtAUD (no
+          // conversion) — fmtMYR would silently shrink them by the
+          // MYR->AUD display rate. Budget-basis figures stay on fmtMYR.
+          ['Xero actuals — reconciled only', xeroActualsBasis != null ? `${hasBudgets ? fmtMYR(xeroActualsBasis, { compact: true }) : fmtAUD(xeroActualsBasis, { compact: true })} (${xeroActualsSourceLabel})` : 'Not answerable — no budgets or Profit & Loss imported'],
+          ['Open commitments', openCommitmentsBasis != null ? `${hasBudgets ? fmtMYR(openCommitmentsBasis, { compact: true }) : fmtAUD(openCommitmentsBasis, { compact: true })} (${openCommitmentsSourceLabel})` : 'Not answerable — no budgets or Aged Payables imported'],
+          ['Actual + commitments', actualPlusCommitmentsBasis != null ? (hasBudgets ? fmtMYR(actualPlusCommitmentsBasis, { compact: true }) : fmtAUD(actualPlusCommitmentsBasis, { compact: true })) : 'Not answerable'],
+          ['Forecast final cost (full year)', forecastFinalBasis != null ? `${hasBudgets ? fmtMYR(forecastFinalBasis, { compact: true }) : fmtAUD(forecastFinalBasis, { compact: true })} (${forecastFinalSourceLabel})` : 'Not answerable — no budgets or Xero actuals to project from'],
           ['Burn vs total annual budget', hasBudgets ? `${burnPct.toFixed(1)}%` : 'n/a — no Budgets module entries'],
           [`Budget to date (${Math.round(fyPct * 100)}% of ${FY_PERIOD_LABEL} elapsed)`, budgetToDateBasis != null ? fmtMYR(budgetToDateBasis, { compact: true }) : 'No plan to compare'],
-          ['Actual vs budget-to-date variance', varianceToDateBasis != null ? `${varianceToDateBasis >= 0 ? '+' : '−'}${fmtMYR(Math.abs(varianceToDateBasis), { compact: true })} ${varianceToDateBasis >= 0 ? 'over' : 'under'}` : 'No plan to compare — add budgets to see a plan-vs-actual variance'],
+          ['Actual vs budget-to-date variance', varianceToDateBasis != null ? `${varianceToDateBasis >= 0 ? '+' : '−'}${hasBudgets ? fmtMYR(Math.abs(varianceToDateBasis), { compact: true }) : fmtAUD(Math.abs(varianceToDateBasis), { compact: true })} ${varianceToDateBasis >= 0 ? 'over' : 'under'}` : 'No plan to compare — add budgets to see a plan-vs-actual variance'],
           ['Budgets currently over plan', hasBudgets ? `${overBudget.length} of ${budgets.length}` : 'n/a — no Budgets module entries'],
           ['Budgets pending reconciliation to Xero', hasBudgets ? `${unreconciledBudgets.length} of ${budgets.length}` : 'n/a — no Budgets module entries'],
           ['Bank items unreconciled (Bank Reconciliation import)', brTotals ? String(bankUnreconciledCount) : 'Not imported'],
@@ -625,7 +631,12 @@
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Xero actuals (reconciled)</div>
               {xeroActualsBasis != null ? (
                 <>
-                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(xeroActualsBasis, { compact: true })}</div>
+                  {/* 2026-08-30: real Xero figures are AUD and must use
+                      fmtAUD (no conversion) — fmtMYR would silently shrink
+                      them by the MYR->AUD display rate. hasBudgets=true
+                      keeps fmtMYR since that basis is the internal Budget
+                      module (MYR-denominated). */}
+                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{hasBudgets ? fmtMYR(xeroActualsBasis, { compact: true }) : fmtAUD(xeroActualsBasis, { compact: true })}</div>
                   <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{xeroActualsSourceLabel}</div>
                 </>
               ) : (
@@ -639,7 +650,7 @@
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Open commitments</div>
               {openCommitmentsBasis != null ? (
                 <>
-                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(openCommitmentsBasis, { compact: true })}</div>
+                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{hasBudgets ? fmtMYR(openCommitmentsBasis, { compact: true }) : fmtAUD(openCommitmentsBasis, { compact: true })}</div>
                   <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{openCommitmentsSourceLabel}</div>
                 </>
               ) : (
@@ -653,7 +664,7 @@
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Actual + commitments</div>
               {actualPlusCommitmentsBasis != null ? (
                 <>
-                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(actualPlusCommitmentsBasis, { compact: true })}</div>
+                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{hasBudgets ? fmtMYR(actualPlusCommitmentsBasis, { compact: true }) : fmtAUD(actualPlusCommitmentsBasis, { compact: true })}</div>
                   <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{hasBudgets ? `vs ${fmtMYR(totalAllocated, { compact: true })} allocated` : 'Xero actuals + payables (no budget plan to compare against)'}</div>
                 </>
               ) : (
@@ -667,7 +678,7 @@
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Forecast final cost</div>
               {forecastFinalBasis != null ? (
                 <>
-                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: hasBudgets && totalForecastFinal > totalAllocated ? 'var(--danger)' : 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(forecastFinalBasis, { compact: true })}</div>
+                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: hasBudgets && totalForecastFinal > totalAllocated ? 'var(--danger)' : 'var(--arsela-navy)', marginTop: 6 }}>{hasBudgets ? fmtMYR(forecastFinalBasis, { compact: true }) : fmtAUD(forecastFinalBasis, { compact: true })}</div>
                   <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{forecastFinalSourceLabel}</div>
                 </>
               ) : (
@@ -682,7 +693,7 @@
             <div>
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Actual vs budget-to-date</div>
               {varianceToDateBasis != null ? (
-                <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: varianceToDateBasis > 0 ? 'var(--danger)' : 'var(--success)', marginTop: 6 }}>{varianceToDateBasis >= 0 ? '+' : '−'}{fmtMYR(Math.abs(varianceToDateBasis), { compact: true })}</div>
+                <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: varianceToDateBasis > 0 ? 'var(--danger)' : 'var(--success)', marginTop: 6 }}>{varianceToDateBasis >= 0 ? '+' : '−'}{hasBudgets ? fmtMYR(Math.abs(varianceToDateBasis), { compact: true }) : fmtAUD(Math.abs(varianceToDateBasis), { compact: true })}</div>
               ) : (
                 <div style={{ marginTop: 8 }}>
                   <ArsBadge tone="neutral" size="sm">No plan to compare</ArsBadge>
