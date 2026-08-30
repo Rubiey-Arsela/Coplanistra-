@@ -8,9 +8,27 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://0f971e9d.coplanistra.pages.dev (latest deploy — Executive Summary export fix + critical currency-conversion fix; see session update immediately below. Also aliased at https://coplanistra.pages.dev)
+- **Production**: https://07090795.coplanistra.pages.dev (latest deploy — broader currency-conversion fix across Q1/Q2/Q3, Xero control checks, and Dashboard; see session update "part 3" immediately below. Also aliased at https://coplanistra.pages.dev)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-08-30, part 3) — currency-conversion bug fully fixed across Q1/Q2/Q3, Xero control checks, and Dashboard
+**Follow-up to part 2 below, closing out the item it flagged as NOT fixed.** User's instruction: *"please fix"*.
+
+Applied the identical `fmtMYR()` → `fmtAUD()` fix (same root cause as part 2's Executive Summary fix) to every remaining Director's Report / Dashboard surface rendering real Xero-imported AUD figures:
+
+- **Q1 card** ("Where's the money coming from"): total revenue YTD, revenue-by-source lines (real Profit & Loss data).
+- **Q2 card** ("Enough to cover our expenses?"): receivables/payables due (real Aged Receivables/Payables); cash on hand now uses `hasBankSummary ? fmtAUD(...) : fmtMYR(...)` since that figure is genuinely conditional — real Xero AUD when a Bank Summary has been imported, else a budget-derived MYR cash-flow-model forecast.
+- **Q3 card** ("Are we solvent?"): total assets, total liabilities, working capital (real Balance Sheet data) — this is the exact case from the user's original screenshot (Balance Sheet "Total assets" A$35,295.54 was displaying as "A$11.5K").
+- **"Xero control checks" card**: Trial Balance debit/credit, Bank Reconciliation Xero balance/difference, Bank Summary closing/received/spent, General Ledger/Account Transactions debit/credit — all real Xero data.
+- **`exportPDF()`**: the matching PDF text/table sections for the three questions and Xero control checks, for screen/PDF consistency.
+- **Dashboard "Xero snapshot" card**: Revenue (YTD) tile and Bank balance tile.
+
+**Confirmed correctly left unchanged** (genuinely MYR-denominated, not part of this bug): Department budget performance table, CAPEX programme card, Approvals card, `SpentVsBudgetToDate` widget, Dashboard's "Total Annual Plan"/"Xero Actuals (Reconciled)"/"Actual + Commitments"/"Budget-to-Date Variance" StatCards (all `s.budgets`-derived despite the "Xero Actuals" label — a separate labeling question, not raised by the user, left untouched), and all `curLabel(...)` cash-flow-model chart-label calls.
+
+**Verified end-to-end** (fresh no-budgets Store + real Xero Profit & Loss/Balance Sheet/Bank Summary/Trial Balance import, via Playwright, against both local dev and the newly deployed production URL): ground truth (`window.Store` direct read) matches on-screen figures exactly on both the Reports and Dashboard screens — e.g. Total assets "A$ 35.3K" = 35,295.54; Trial Balance "A$ 226.7K" = 226,710.43; Bank Summary closing balance "A$ 30.8K" = 30,816.54 (consistent on both the Q2 card and the Dashboard Bank balance tile). Zero console errors.
+
+The currency-conversion bug is now fixed across every Xero-figure display surface in the app: Executive Summary (part 2), Q1/Q2/Q3, Xero control checks, Dashboard Xero snapshot, and both CSV/PDF exports.
 
 ## Session update (2026-08-30, part 2) — CSV/PDF exports fixed to match screen + critical currency-conversion bug fixed
 **Follow-up to part 1 below.** Two issues found and fixed while verifying the Executive Summary fix end-to-end with real Xero files:
@@ -21,7 +39,7 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 
 **Verified end-to-end** (fresh no-budgets Store + real Xero P&L/Balance Sheet/Bank Summary/Trial Balance import, via Playwright, against both local dev and the deployed production URL): ground-truth `totalExpenseYTD` (47754.4) now matches the on-screen tile ("A$ 47.8K") and the CSV export (47754) exactly. Zero console errors throughout.
 
-**⚠️ Flagged, NOT fixed this session (needs a dedicated follow-up pass)**: the same `fmtMYR()`-on-real-Xero-AUD pattern likely also affects the **pre-existing** Q1/Q2/Q3 and "Xero control checks" sections of the Director's Report (added in the 2026-08-26 session, before this bug was discovered) — e.g. a Balance Sheet "Total assets" of A$35,295.54 was observed displaying as "A$11.5K". This also potentially affects the equivalent Xero figures on the Dashboard screen. Recommend a dedicated audit pass across `ReportsScreen.js` + `DashboardScreen.js` to replace every `fmtMYR(...)` call whose argument is a real Xero-imported figure with `fmtAUD(...)`.
+**Follow-up (fixed in part 3 above)**: the same `fmtMYR()`-on-real-Xero-AUD pattern was flagged here as also affecting the pre-existing Q1/Q2/Q3 and "Xero control checks" sections of the Director's Report, plus the Dashboard's Xero snapshot card — e.g. a Balance Sheet "Total assets" of A$35,295.54 was observed displaying as "A$11.5K". See "Session update (2026-08-30, part 3)" above for the fix.
 
 ## Session update (2026-08-30, part 1) — Director's Report Executive Summary A$0 bug fixed + Dashboard now has full Xero-sync awareness
 **User complaint (verbatim, with screenshot of production Director's Report)**: *"make sure dashboard and this director reports is updated and sync based on my xero import."*
