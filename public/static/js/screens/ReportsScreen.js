@@ -121,6 +121,18 @@
     const unreconciledBudgets = budgets.filter((b) => !b.reconciled);
     const latestActualsThrough = budgets.reduce((latest, b) => (b.actualsThrough && (!latest || b.actualsThrough > latest)) ? b.actualsThrough : latest, null);
 
+    // ---- 2026-08-30 fix: `unreconciledBudgets`/`latestActualsThrough`
+    // above are purely INTERNAL-BUDGET-MODULE signals — a client who
+    // has imported real Xero reports but never created a Budget entry
+    // sees "0 of 0 pending" here while the Bank Reconciliation control
+    // check further down correctly shows real unreconciled items. That
+    // is a genuine sync gap the client flagged ("make sure everything
+    // is link and sync correctly"), so the preliminary banner and the
+    // Executive Summary's reconciliation tile below now ALSO fold in
+    // the real imported Bank Reconciliation figure (computed from
+    // `latestBR`/`brTotals`, declared further below) so the two never
+    // contradict each other. Declared here as `let` and assigned after
+    // `brTotals` exists.
     const overBudget = budgets.filter((b) => b.status === 'over');
     const pendingApprovals = approvals.filter((a) => a.status === 'pending');
     const urgentApprovals = pendingApprovals.filter((a) => a.urgent);
@@ -189,6 +201,23 @@
     const ledgerTotals = ledgerSource && ledgerSource.totals ? ledgerSource.totals : null;
     const ledgerLabel = latestGL ? 'General Ledger' : latestAT ? 'Account Transactions' : null;
 
+    // ---- 2026-08-30 fix: combined reconciliation status — folds the
+    // internal Budgets-module reconciliation flag together with the
+    // REAL imported Bank Reconciliation unreconciled-item count, so the
+    // preliminary/reconciled banner at the top of this report and the
+    // "Reconciliation status" tile in the Executive Summary never say
+    // "0 pending" while the Xero control check further down correctly
+    // shows real unreconciled bank items. Either source alone can now
+    // drive the "still pending" state, and the sublabel says which.
+    const bankUnreconciledCount = brTotals ? brTotals.unreconciledCount : 0;
+    const combinedPendingCount = unreconciledBudgets.length + bankUnreconciledCount;
+    const combinedReconLabel = combinedPendingCount === 0
+      ? (brTotals ? 'All reconciled (incl. bank)' : 'All reconciled')
+      : [
+          unreconciledBudgets.length ? `${unreconciledBudgets.length} budget line(s)` : null,
+          bankUnreconciledCount ? `${bankUnreconciledCount} bank item(s)` : null,
+        ].filter(Boolean).join(' + ') + ' pending';
+
     const FY_PERIOD_LABEL = window.Store.fyLabel(window.Store.today());
     const cf = window.computeCashFlow ? window.computeCashFlow(FY_PERIOD_LABEL, activeScenario, budgets, capexProjects) : null;
     // 13-week (~3 month) look-ahead cash view, built from the same
@@ -239,6 +268,58 @@
     const currentRatio = bsTotals ? bsTotals.currentRatio : null;
     const workingCapital = bsTotals ? bsTotals.workingCapital : null;
 
+    // ---- 2026-08-30 fix (THE primary bug from the client's screenshot):
+    // the Executive Summary's top-line KPIs (Xero Actuals / Open
+    // Commitments / Actual+Commitments / Forecast Final Cost / Actual vs
+    // Budget-to-Date) were 100% derived from the internal Budgets module
+    // (`s.budgets`), which is empty on a fresh Store — a client who
+    // imports real Xero reports but never creates a Budget entry saw
+    // every one of these tiles as a flat "A$ 0", even though the exact
+    // same screen's Q1/Q2/Q3 and Xero control checks sections (a few
+    // hundred pixels lower) correctly showed real imported figures. That
+    // contradiction is the direct cause of "why isn't my Xero import
+    // reflected" — fixed with the SAME pattern already used for Q2's
+    // cash-on-hand: prefer the Budget-tracking figures when budgets
+    // exist (unchanged behaviour for clients who use the Budgets
+    // module), and fall back to the equivalent REAL imported Xero figure
+    // when no budgets exist, so this block is never silently
+    // disconnected from what was actually imported. Each fallback is
+    // explicitly labelled so the basis is never ambiguous.
+    const hasBudgets = budgets.length > 0;
+    // Xero P&L's Cost of Sales + Operating/Other Expense lines = the
+    // real reconciled "money spent" figure per Xero, independent of the
+    // Budgets module.
+    const xeroExpenseYTD = latestPL && latestPL.totals
+      ? (latestPL.totals.totalCostOfSalesYTD || 0) + (latestPL.totals.totalExpenseYTD || 0)
+      : null;
+    const xeroActualsBasis = hasBudgets ? totalSpent : xeroExpenseYTD;
+    const xeroActualsSourceLabel = hasBudgets
+      ? `${burnPct.toFixed(1)}% of total plan`
+      : (latestPL ? `Total expenses YTD per Xero P&L (${latestPL.period})` : null);
+    // Aged Payables outstanding = a real, imported "amount owed but not
+    // yet paid" figure — the closest Xero-backed equivalent to "open
+    // commitments" when no internal Budget commitments exist.
+    const openCommitmentsBasis = hasBudgets ? totalCommitted : apOutstanding;
+    const openCommitmentsSourceLabel = hasBudgets
+      ? 'Approved, not yet posted'
+      : (apOutstanding != null ? `Payables outstanding (Aged Payables, ${latestAP.period})` : null);
+    const actualPlusCommitmentsBasis = (xeroActualsBasis != null || openCommitmentsBasis != null)
+      ? (xeroActualsBasis || 0) + (openCommitmentsBasis || 0) : null;
+    // Forecast final cost without a Budget plan has no allocation to
+    // extrapolate against — the most honest substitute is a simple
+    // run-rate projection (YTD actual ÷ % of year elapsed), clearly
+    // labelled as such rather than presented as an equivalent figure.
+    const forecastFinalBasis = hasBudgets ? totalForecastFinal : (xeroActualsBasis != null && fyPct > 0 ? xeroActualsBasis / fyPct : null);
+    const forecastFinalSourceLabel = hasBudgets
+      ? 'Full-year projection'
+      : (forecastFinalBasis != null ? `Run-rate projection from YTD Xero actuals (${Math.round(fyPct * 100)}% of year elapsed)` : null);
+    // "Actual vs budget-to-date" is a comparison AGAINST A PLAN — with no
+    // Budgets module entries there genuinely is no plan to compare
+    // against, so this stays an honest empty state rather than a
+    // fabricated or misleading substitute.
+    const budgetToDateBasis = hasBudgets ? budgetToDate : null;
+    const varianceToDateBasis = hasBudgets ? varianceToDate : null;
+
     // Department rollup — carries ALL bases (actual/committed/forecast)
     // so a near-zero-spend department against a large allocation is never
     // shown as a flat "green" underspend without the fuller picture.
@@ -271,8 +352,11 @@
     const monthLabel = REPORT_DATE.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
     const dateLabel = REPORT_DATE.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
     // An incomplete month/period must be labeled a preliminary snapshot,
-    // not presented as a complete closed-period report.
-    const isPreliminary = unreconciledBudgets.length > 0 || fyPct < 1;
+    // not presented as a complete closed-period report. Now also folds
+    // in real imported bank-reconciliation items (see combinedPendingCount
+    // above) so this can't say "Reconciled" while a real Xero import
+    // shows unreconciled bank lines.
+    const isPreliminary = combinedPendingCount > 0 || fyPct < 1;
 
     const exportCSV = () => {
       exportRowsToCSV(
@@ -282,6 +366,7 @@
           ['Basis', `Reporting status`, isPreliminary ? `Preliminary snapshot as at ${dateLabel}` : `Reconciled — ${FY_PERIOD_LABEL}`],
           ['Basis', 'Reconciled Xero actuals through', latestActualsThrough || 'n/a'],
           ['Basis', 'Budgets pending reconciliation (count)', unreconciledBudgets.length],
+          ['Basis', 'Bank items unreconciled (from latest Bank Reconciliation import)', brTotals ? bankUnreconciledCount : 'Not imported'],
           ['Basis', 'Approved expenses not yet posted in Xero (count)', unpostedExpenses.length],
           ['Summary', 'Total allocated (AUD)', totalAllocated],
           ['Summary', 'Xero actuals — reconciled only (AUD)', totalSpent],
@@ -373,6 +458,7 @@
           ['Actual vs budget-to-date variance', `${varianceToDate >= 0 ? '+' : '−'}${fmtMYR(Math.abs(varianceToDate), { compact: true })} ${varianceToDate >= 0 ? 'over' : 'under'}`],
           ['Budgets currently over plan', `${overBudget.length} of ${budgets.length}`],
           ['Budgets pending reconciliation to Xero', `${unreconciledBudgets.length} of ${budgets.length}`],
+          ['Bank items unreconciled (Bank Reconciliation import)', brTotals ? String(bankUnreconciledCount) : 'Not imported'],
           ['Approved expenses not yet posted in Xero', `${unpostedExpenses.length}`],
           ['Pending approvals', `${pendingApprovals.length} (${fmtMYR(pendingApprovalValue, { compact: true })}), ${urgentApprovals.length} urgent`],
           ['Reporting status', isPreliminary ? `Preliminary snapshot as at ${dateLabel}` : 'Reconciled'],
@@ -459,7 +545,7 @@
       doc.setFontSize(13); doc.setFont(undefined, 'bold');
       doc.text('8. Data limitations', 40, y); y += 8;
       doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
-      doc.text(`This report is ${isPreliminary ? 'a PRELIMINARY SNAPSHOT — ' : ''}based on Xero actuals reconciled through ${latestActualsThrough || 'n/a'}. ${unreconciledBudgets.length} of ${budgets.length} budget lines are pending reconciliation, and ${unpostedExpenses.length} approved expense(s) are not yet posted in Xero. Figures beyond the reconciled-through date are forecasts, not actuals. Xero report types imported: ${xeroImportedCount} of ${xeroTypeList.length}.${xeroMissing.length ? ` Not yet imported: ${xeroMissing.map((t) => t.label).join(', ')}.` : ''}`, 40, y, { maxWidth: pageW - 80 });
+      doc.text(`This report is ${isPreliminary ? 'a PRELIMINARY SNAPSHOT — ' : ''}based on Xero actuals reconciled through ${latestActualsThrough || 'n/a'}. ${unreconciledBudgets.length} of ${budgets.length} budget lines are pending reconciliation${brTotals ? `, and ${bankUnreconciledCount} bank item(s) are unreconciled per the latest Bank Reconciliation import (${latestBR.period})` : ''}, and ${unpostedExpenses.length} approved expense(s) are not yet posted in Xero. Figures beyond the reconciled-through date are forecasts, not actuals. Xero report types imported: ${xeroImportedCount} of ${xeroTypeList.length}.${xeroMissing.length ? ` Not yet imported: ${xeroMissing.map((t) => t.label).join(', ')}.` : ''}`, 40, y, { maxWidth: pageW - 80 });
 
       doc.save(`Coplanistra-Directors-Report-${monthLabel.replace(/\s+/g, '-')}.pdf`);
       window.Store.toast('Director\'s report exported as PDF', 'success');
@@ -489,7 +575,8 @@
               {isPreliminary ? `Preliminary snapshot as at ${dateLabel} — not a closed-period report` : `Reconciled report for ${FY_PERIOD_LABEL}`}
             </div>
             <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>
-              Xero actuals reconciled through {latestActualsThrough || 'n/a'} · {unreconciledBudgets.length} of {budgets.length} budget line(s) pending reconciliation · {unpostedExpenses.length} approved expense(s) not yet posted in Xero.
+              Xero actuals reconciled through {latestActualsThrough || 'n/a'} · {unreconciledBudgets.length} of {budgets.length} budget line(s) pending reconciliation
+              {brTotals && <> · {bankUnreconciledCount} bank item(s) unreconciled ({latestBR.period})</>} · {unpostedExpenses.length} approved expense(s) not yet posted in Xero.
             </div>
           </div>
         </div>
@@ -520,33 +607,76 @@
         </div>
 
         <ArsCard style={{ marginBottom: 20 }}>
-          <ArsSectionHeader title="Executive summary" subtitle={`All figures below are labelled by basis — Actual = reconciled Xero data only`}/>
+          <ArsSectionHeader title="Executive summary" subtitle={hasBudgets ? `All figures below are labelled by basis — Actual = reconciled Xero data only` : `No Budgets module entries yet — figures below are sourced directly from the latest imported Xero reports instead`}/>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
             <div>
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Xero actuals (reconciled)</div>
-              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(totalSpent, { compact: true })}</div>
-              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{burnPct.toFixed(1)}% of total plan</div>
+              {xeroActualsBasis != null ? (
+                <>
+                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(xeroActualsBasis, { compact: true })}</div>
+                  <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{xeroActualsSourceLabel}</div>
+                </>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ArsBadge tone="neutral" size="sm">Not answerable yet</ArsBadge>
+                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>Add budgets or import a Profit &amp; Loss.</div>
+                </div>
+              )}
             </div>
             <div>
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Open commitments</div>
-              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(totalCommitted, { compact: true })}</div>
-              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Approved, not yet posted</div>
+              {openCommitmentsBasis != null ? (
+                <>
+                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(openCommitmentsBasis, { compact: true })}</div>
+                  <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{openCommitmentsSourceLabel}</div>
+                </>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ArsBadge tone="neutral" size="sm">Not answerable yet</ArsBadge>
+                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>Add budgets or import Aged Payables.</div>
+                </div>
+              )}
             </div>
             <div>
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Actual + commitments</div>
-              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(totalSpent + totalCommitted, { compact: true })}</div>
-              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>vs {fmtMYR(totalAllocated, { compact: true })} allocated</div>
+              {actualPlusCommitmentsBasis != null ? (
+                <>
+                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(actualPlusCommitmentsBasis, { compact: true })}</div>
+                  <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{hasBudgets ? `vs ${fmtMYR(totalAllocated, { compact: true })} allocated` : 'Xero actuals + payables (no budget plan to compare against)'}</div>
+                </>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ArsBadge tone="neutral" size="sm">Not answerable yet</ArsBadge>
+                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>Add budgets or import P&amp;L / Aged Payables.</div>
+                </div>
+              )}
             </div>
             <div>
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Forecast final cost</div>
-              <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: totalForecastFinal > totalAllocated ? 'var(--danger)' : 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(totalForecastFinal, { compact: true })}</div>
-              <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Full-year projection</div>
+              {forecastFinalBasis != null ? (
+                <>
+                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: hasBudgets && totalForecastFinal > totalAllocated ? 'var(--danger)' : 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(forecastFinalBasis, { compact: true })}</div>
+                  <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{forecastFinalSourceLabel}</div>
+                </>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ArsBadge tone="neutral" size="sm">Not answerable yet</ArsBadge>
+                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>Add budgets or import a Profit &amp; Loss.</div>
+                </div>
+              )}
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, paddingTop: 14, borderTop: '1px solid var(--arsela-border)' }}>
             <div>
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Actual vs budget-to-date</div>
-              <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: varianceToDate > 0 ? 'var(--danger)' : 'var(--success)', marginTop: 6 }}>{varianceToDate >= 0 ? '+' : '−'}{fmtMYR(Math.abs(varianceToDate), { compact: true })}</div>
+              {varianceToDateBasis != null ? (
+                <div className="arsela-num" style={{ fontSize: 20, fontWeight: 700, color: varianceToDateBasis > 0 ? 'var(--danger)' : 'var(--success)', marginTop: 6 }}>{varianceToDateBasis >= 0 ? '+' : '−'}{fmtMYR(Math.abs(varianceToDateBasis), { compact: true })}</div>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ArsBadge tone="neutral" size="sm">No plan to compare</ArsBadge>
+                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>Add budgets to see a plan-vs-actual variance here.</div>
+                </div>
+              )}
             </div>
             <div>
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Pending approvals</div>
@@ -558,7 +688,7 @@
             </div>
             <div>
               <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>Reconciliation status</div>
-              <div className="arsela-num" style={{ fontSize: 16, fontWeight: 700, color: unreconciledBudgets.length === 0 ? 'var(--success)' : 'var(--warning)', marginTop: 6 }}>{unreconciledBudgets.length === 0 ? 'All reconciled' : `${unreconciledBudgets.length} pending`}</div>
+              <div className="arsela-num" style={{ fontSize: 16, fontWeight: 700, color: combinedPendingCount === 0 ? 'var(--success)' : 'var(--warning)', marginTop: 6 }}>{combinedReconLabel}</div>
             </div>
           </div>
         </ArsCard>
@@ -847,7 +977,7 @@
           <ArsCard onClick={() => window.Router.go('/dataimports')} style={{ cursor: xeroMissing.length ? 'pointer' : 'default' }} title={xeroMissing.length ? 'Click to open Data Imports' : undefined}>
             <ArsSectionHeader title="Data limitations" subtitle="What this report does not yet cover"/>
             <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', lineHeight: 1.5 }}>
-              {unreconciledBudgets.length} budget line(s) pending reconciliation to Xero. {unpostedExpenses.length} approved expense(s) not yet posted in Xero. Figures beyond {latestActualsThrough || 'the reconciled-through date'} are forecasts, not actuals.
+              {unreconciledBudgets.length} budget line(s) pending reconciliation to Xero{brTotals && <> · {bankUnreconciledCount} bank item(s) unreconciled per {latestBR.period}</>}. {unpostedExpenses.length} approved expense(s) not yet posted in Xero. Figures beyond {latestActualsThrough || 'the reconciled-through date'} are forecasts, not actuals.
               {xeroMissing.length > 0 && <> Not yet imported from Xero: {xeroMissing.map((t) => t.label).join(', ')} — sections above relying on these show a proxy or empty state until imported.</>}
             </div>
           </ArsCard>

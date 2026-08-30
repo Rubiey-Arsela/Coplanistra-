@@ -406,8 +406,50 @@
     const totalCommitted = s.budgets.reduce((a, b) => a + (b.committed || 0), 0);
     const actualPlusCommitments = xeroActuals + totalCommitted;
     const burnPct = totalAnnualPlan > 0 ? (xeroActuals / totalAnnualPlan) * 100 : 0;
-    const unreconciledCount = s.budgets.filter((b) => !b.reconciled).length;
+    // 2026-08-30 fix: this was previously the ONLY signal behind the
+    // "Reconciliation status" banner below — a client who has imported
+    // real Xero reports but never created a Budget entry saw "All
+    // budgets reconciled to Xero" (a false positive) while a real Bank
+    // Reconciliation import showed unreconciled items. Folded together
+    // with the real imported Bank Reconciliation count (bankUnreconciled
+    // below) so the banner can't contradict what Data Imports actually
+    // holds. Client ask: "make sure everything is link and sync
+    // correctly."
+    const unreconciledBudgetsCount = s.budgets.filter((b) => !b.reconciled).length;
     const latestActualsThrough = s.budgets.reduce((latest, b) => (b.actualsThrough && (!latest || b.actualsThrough > latest)) ? b.actualsThrough : latest, null);
+    // 2026-08-30 fix: "Budget-to-Date Variance" below used to be a
+    // hardcoded fmtMYR(2_800_000) figure that never reflected any real
+    // data — now computed live from the same fyProgressPct-prorated
+    // basis used everywhere else in the app (Reports' Director's Report,
+    // SpentVsBudgetToDate above), so it is A$0 on a fresh/no-budgets
+    // Store instead of a fabricated number, and updates correctly once
+    // budgets and reconciled Xero actuals exist.
+    const budgetToDateNow = totalAnnualPlan * fyProgressPct();
+    const varianceToDateNow = xeroActuals - budgetToDateNow;
+    const varianceToDatePct = budgetToDateNow > 0 ? (varianceToDateNow / budgetToDateNow) * 100 : 0;
+
+    // ---- 2026-08-30 fix: Dashboard "recorded in all menu/panel" gap —
+    // this screen previously had ZERO awareness of anything imported
+    // via Data Imports (Xero). Pulls the same generic
+    // xeroReportTypes()/latestXeroImport() API used by the Director's
+    // Report so Dashboard also shows real sync status + headline Xero
+    // figures, not just Reports.
+    const xeroTypeList = window.Store.xeroReportTypes ? window.Store.xeroReportTypes() : [];
+    const xeroStatus = xeroTypeList.map((t) => ({ ...t, latest: window.Store.latestXeroImport ? window.Store.latestXeroImport(t.key) : null }));
+    const xeroImportedCount = xeroStatus.filter((t) => t.latest).length;
+    const xeroMissing = xeroStatus.filter((t) => !t.latest);
+    const latestPL = window.Store.latestXeroImport ? window.Store.latestXeroImport('profitAndLoss') : null;
+    const latestBS = window.Store.latestXeroImport ? window.Store.latestXeroImport('balanceSheet') : null;
+    const latestBSum = window.Store.latestXeroImport ? window.Store.latestXeroImport('bankSummary') : null;
+    const latestBR = window.Store.latestXeroImport ? window.Store.latestXeroImport('bankReconciliation') : null;
+    const latestTB = window.Store.latestXeroImport ? window.Store.latestXeroImport('trialBalance') : null;
+    const plTotals = latestPL && latestPL.totals ? latestPL.totals : null;
+    const bsTotals = latestBS && latestBS.totals ? latestBS.totals : null;
+    const bankTotals = latestBSum && latestBSum.totals ? latestBSum.totals : null;
+    const brTotals = latestBR && latestBR.totals ? latestBR.totals : null;
+    const tbTotals = latestTB && latestTB.totals ? latestTB.totals : null;
+    const bankUnreconciled = brTotals ? brTotals.unreconciledCount : 0;
+    const unreconciledCount = unreconciledBudgetsCount + bankUnreconciled;
 
     /* Departments · Utilisation table — grouped LIVE from Store budgets
        by department (allocated vs reconciled spend), not a hardcoded
@@ -507,13 +549,45 @@
               }}><IconInfo size={16}/></span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>
-                  Reconciliation status: {unreconciledCount === 0 ? 'All budgets reconciled to Xero' : `${unreconciledCount} budget${unreconciledCount === 1 ? '' : 's'} pending reconciliation`}
+                  Reconciliation status: {unreconciledCount === 0 ? 'All reconciled' : [
+                    unreconciledBudgetsCount ? `${unreconciledBudgetsCount} budget${unreconciledBudgetsCount === 1 ? '' : 's'}` : null,
+                    bankUnreconciled ? `${bankUnreconciled} bank item${bankUnreconciled === 1 ? '' : 's'}` : null,
+                  ].filter(Boolean).join(' + ') + ' pending reconciliation'}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>
-                  Actuals imported from {s.budgets[0]?.actualSource || 'Xero'} through {latestActualsThrough || '—'} · figures marked "Live" reflect Xero data as at this date, not real-time.
+                  Actuals imported from {s.budgets[0]?.actualSource || 'Xero'} through {latestActualsThrough || '—'}{latestBR ? ` · bank checked as at ${latestBR.period}` : ''} · figures marked "Live" reflect Xero data as at this date, not real-time.
                 </div>
               </div>
               <ArsBadge tone={unreconciledCount === 0 ? 'success' : 'warning'} dot size="sm">{unreconciledCount === 0 ? 'Reconciled' : 'Review needed'}</ArsBadge>
+            </div>
+          )}
+
+          {/* ---- 2026-08-30 fix (client ask: "make sure dashboard and
+              director report is updated and sync based on my xero
+              import"): Dashboard previously had zero visibility into
+              what has been imported via Data Imports — this banner
+              mirrors the one already on the Director's Report so both
+              screens stay in sync with the same underlying data and a
+              user landing on Dashboard first can immediately see
+              whether their Xero import is reflected. ---- */}
+          {role !== 'employee' && (
+            <div onClick={() => window.Router.go('/dataimports')} title="Click to open Data Imports" style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 10, cursor: 'pointer', marginBottom: 20,
+              background: xeroImportedCount === xeroTypeList.length ? 'var(--arsela-success-50)' : '#EEF3FF',
+              border: '1px solid ' + (xeroImportedCount === xeroTypeList.length ? 'var(--arsela-success)' : '#D6E1FF'),
+            }}>
+              <ArsBadge tone={xeroImportedCount === xeroTypeList.length ? 'success' : 'neutral'} dot size="sm">Xero sync</ArsBadge>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>
+                  {xeroImportedCount} of {xeroTypeList.length} Xero report types imported
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>
+                  {xeroMissing.length === 0
+                    ? 'Every Xero report type has been imported at least once — see the full Director\'s Report for detail.'
+                    : `Not yet imported: ${xeroMissing.map((t) => t.label).join(', ')}. Click to import from Data Imports.`}
+                </div>
+              </div>
+              <ArsButton size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); window.Router.go('/reports'); }}>Director's Report →</ArsButton>
             </div>
           )}
 
@@ -537,7 +611,7 @@
                 <StatCard label={`Total Annual Plan · ${window.Store.fyLabel(FY_REFERENCE_DATE)}`} value={fmtMYR(totalAnnualPlan, { compact: true })} delta="All budgets, any status" deltaTone="blue" sub={`${fmtMYR(approvedActiveBudgets, { compact: true })} in approved active budgets`} icon={<IconWallet size={17}/>} tone="blue" title="Click to view all budgets" onClick={() => window.Router.go('/budgets')}/>
                 <StatCard label="Xero Actuals (Reconciled)" value={fmtMYR(xeroActuals, { compact: true })} delta={`${burnPct.toFixed(1)}% of plan`} deltaTone="teal" sub={latestActualsThrough ? `through ${latestActualsThrough}` : 'no actuals imported'} icon={<IconTrend size={17}/>} tone="teal" title="Click to view budgets by spend" onClick={() => window.Router.go('/budgets?status=active')}/>
                 <StatCard label="Actual + Commitments" value={fmtMYR(actualPlusCommitments, { compact: true })} delta={`+${fmtMYR(totalCommitted, { compact: true })} committed`} deltaTone="navy" sub="reconciled actuals + open POs" icon={<IconFile size={17}/>} tone="navy" title="Click to view CAPEX & commitments" onClick={() => window.Router.go('/capex')}/>
-                <StatCard label="Budget-to-Date Variance" value={'+' + fmtMYR(2_800_000, { compact: true })} delta="▲ 1.8% over" deltaTone="warning" sub="drivers: Ops, People" icon={<IconArrowUp size={17}/>} tone="warn" title="Click to view variance report" onClick={() => window.Router.go('/reports')}/>
+                <StatCard label="Budget-to-Date Variance" value={`${varianceToDateNow >= 0 ? '+' : '−'}${fmtMYR(Math.abs(varianceToDateNow), { compact: true })}`} delta={budgetToDateNow > 0 ? `${varianceToDateNow >= 0 ? '▲' : '▼'} ${Math.abs(varianceToDatePct).toFixed(1)}% ${varianceToDateNow >= 0 ? 'over' : 'under'}` : 'no budgets yet'} deltaTone={varianceToDateNow > 0 ? 'warning' : 'success'} sub="reconciled actuals vs time-prorated plan" icon={<IconArrowUp size={17}/>} tone="warn" title="Click to view variance report" onClick={() => window.Router.go('/reports')}/>
               </>
             )}
           </div>
@@ -546,6 +620,59 @@
             <div style={{ marginBottom: 20 }}>
               <SpentVsBudgetToDate budgets={s.budgets}/>
             </div>
+          )}
+
+          {/* ---- Xero snapshot (client ask, 2026-08-30): headline
+              figures straight from the latest Xero imports, so a
+              director scanning ONLY the Dashboard (not the full
+              Director's Report) still sees real revenue/cash/solvency/
+              control-check figures the moment something is imported —
+              same underlying data/API as ReportsScreen.js's Director's
+              Report, just condensed to 4 tiles. Honest empty state per
+              tile until each report type has been imported at least
+              once. ---- */}
+          {role !== 'employee' && (
+            <ArsCard style={{ marginBottom: 20 }}>
+              <ArsSectionHeader title="Xero snapshot" subtitle="Headline figures from the latest imports · full detail in the Director's Report"/>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}>
+                <div onClick={() => window.Router.go('/dataimports')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 14 }} title="Click to import or review Profit &amp; Loss">
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Revenue (YTD)</div>
+                  {plTotals ? (
+                    <>
+                      <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--success)', marginTop: 6 }}>{fmtMYR(plTotals.totalRevenueYTD, { compact: true })}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{latestPL.period}</div>
+                    </>
+                  ) : <div style={{ marginTop: 6 }}><ArsBadge tone="neutral" size="sm">Not imported</ArsBadge></div>}
+                </div>
+                <div onClick={() => window.Router.go('/dataimports')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 14 }} title="Click to import or review the Bank Summary">
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Bank balance</div>
+                  {bankTotals ? (
+                    <>
+                      <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(bankTotals.totalClosing, { compact: true })}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{latestBSum.period}</div>
+                    </>
+                  ) : <div style={{ marginTop: 6 }}><ArsBadge tone="neutral" size="sm">Not imported</ArsBadge></div>}
+                </div>
+                <div onClick={() => window.Router.go('/dataimports')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 14 }} title="Click to import or review the Balance Sheet">
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Solvency</div>
+                  {bsTotals ? (
+                    <>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: bsTotals.totalAssets >= bsTotals.totalLiabilities ? 'var(--success)' : 'var(--danger)', marginTop: 6 }}>{bsTotals.totalAssets >= bsTotals.totalLiabilities ? 'Solvent' : 'Insolvent'}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{latestBS.period}</div>
+                    </>
+                  ) : <div style={{ marginTop: 6 }}><ArsBadge tone="neutral" size="sm">Not imported</ArsBadge></div>}
+                </div>
+                <div onClick={() => window.Router.go('/dataimports')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 14 }} title="Click to import or review the Trial Balance">
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Trial Balance</div>
+                  {tbTotals ? (
+                    <>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: tbTotals.balanced ? 'var(--success)' : 'var(--danger)', marginTop: 6 }}>{tbTotals.balanced ? 'Balanced' : 'Out of balance'}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{latestTB.period}</div>
+                    </>
+                  ) : <div style={{ marginTop: 6 }}><ArsBadge tone="neutral" size="sm">Not imported</ArsBadge></div>}
+                </div>
+              </div>
+            </ArsCard>
           )}
 
           <div style={{ marginBottom: 20 }}>
