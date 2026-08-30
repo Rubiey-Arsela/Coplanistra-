@@ -525,13 +525,13 @@
       doc.setFontSize(13); doc.setFont(undefined, 'bold');
       doc.text('5. The three questions this report must answer', 40, y); y += 8;
       doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
-      doc.text(`Q1 — Where's the money coming from: ${latestPL ? `${fmtMYR(totalRevenueYTD, { compact: true })} total revenue YTD (${latestPL.period})` : 'Not answerable — no Profit & Loss imported yet.'}`, 40, y, { maxWidth: pageW - 80 }); y += latestPL ? 14 : 14;
+      doc.text(`Q1 — Where's the money coming from: ${latestPL ? `${fmtAUD(totalRevenueYTD, { compact: true })} total revenue YTD (${latestPL.period})` : 'Not answerable — no Profit & Loss imported yet.'}`, 40, y, { maxWidth: pageW - 80 }); y += latestPL ? 14 : 14;
       if (latestPL && revenueBySource.length) {
-        revenueBySource.slice(0, 3).forEach((r) => { doc.text(`   • ${r.account}: ${fmtMYR(r.ytd, { compact: true })}`, 40, y); y += 12; });
+        revenueBySource.slice(0, 3).forEach((r) => { doc.text(`   • ${r.account}: ${fmtAUD(r.ytd, { compact: true })}`, 40, y); y += 12; });
       }
       y += 6;
-      doc.text(`Q2 — Enough to cover our expenses: ${canCoverExpenses == null ? 'Not answerable — add budgets/CAPEX or import Aged Receivables/Payables/Bank Summary.' : (canCoverExpenses ? 'Yes — covered.' : 'At risk — projected shortfall.')}${hasCoverageData ? ` Receivables due ${fmtMYR(arOutstanding, { compact: true })}, payables due ${fmtMYR(apOutstanding, { compact: true })}, cash on hand ${fmtMYR(cashOnHandUnits, { compact: true })} (${cashOnHandSource})${coverageMonths != null ? `, ≈${coverageMonths.toFixed(1)} months of burn covered.` : '.'}` : ''}`, 40, y, { maxWidth: pageW - 80 }); y += 26;
-      doc.text(`Q3 — Are we solvent: ${bsTotals ? (realSolvent ? `Yes — solvent. Assets ${fmtMYR(bsTotals.totalAssets, { compact: true })} vs liabilities ${fmtMYR(bsTotals.totalLiabilities, { compact: true })}, current ratio ${currentRatio != null ? currentRatio.toFixed(2) + 'x' : 'n/a'} (Balance Sheet as at ${latestBS.period}).` : `No — liabilities exceed assets. Assets ${fmtMYR(bsTotals.totalAssets, { compact: true })} vs liabilities ${fmtMYR(bsTotals.totalLiabilities, { compact: true })} (Balance Sheet as at ${latestBS.period}).`) : `No Balance Sheet imported — cash-runway proxy only (${solvent ? (withinRunwayThreshold ? 'within comfort threshold' : 'below comfort threshold') : 'at risk'}).`}`, 40, y, { maxWidth: pageW - 80 }); y += 30;
+      doc.text(`Q2 — Enough to cover our expenses: ${canCoverExpenses == null ? 'Not answerable — add budgets/CAPEX or import Aged Receivables/Payables/Bank Summary.' : (canCoverExpenses ? 'Yes — covered.' : 'At risk — projected shortfall.')}${hasCoverageData ? ` Receivables due ${fmtAUD(arOutstanding, { compact: true })}, payables due ${fmtAUD(apOutstanding, { compact: true })}, cash on hand ${hasBankSummary ? fmtAUD(cashOnHandUnits, { compact: true }) : fmtMYR(cashOnHandUnits, { compact: true })} (${cashOnHandSource})${coverageMonths != null ? `, ≈${coverageMonths.toFixed(1)} months of burn covered.` : '.'}` : ''}`, 40, y, { maxWidth: pageW - 80 }); y += 26;
+      doc.text(`Q3 — Are we solvent: ${bsTotals ? (realSolvent ? `Yes — solvent. Assets ${fmtAUD(bsTotals.totalAssets, { compact: true })} vs liabilities ${fmtAUD(bsTotals.totalLiabilities, { compact: true })}, current ratio ${currentRatio != null ? currentRatio.toFixed(2) + 'x' : 'n/a'} (Balance Sheet as at ${latestBS.period}).` : `No — liabilities exceed assets. Assets ${fmtAUD(bsTotals.totalAssets, { compact: true })} vs liabilities ${fmtAUD(bsTotals.totalLiabilities, { compact: true })} (Balance Sheet as at ${latestBS.period}).`) : `No Balance Sheet imported — cash-runway proxy only (${solvent ? (withinRunwayThreshold ? 'within comfort threshold' : 'below comfort threshold') : 'at risk'}).`}`, 40, y, { maxWidth: pageW - 80 }); y += 30;
 
       if (y > 620) { doc.addPage(); y = 50; }
       doc.setFontSize(13); doc.setFont(undefined, 'bold');
@@ -540,9 +540,9 @@
         startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
         head: [['Report', 'Status', 'Detail', 'Period']],
         body: [
-          ['Trial Balance', tbTotals ? (tbTotals.balanced ? 'Balanced' : 'Out of balance') : 'Not imported', tbTotals ? `Debit ${fmtMYR(tbTotals.totalDebit, { compact: true })} / Credit ${fmtMYR(tbTotals.totalCredit, { compact: true })}` : '—', latestTB ? latestTB.period : '—'],
-          ['Bank Reconciliation', brTotals ? (brTotals.unreconciledCount === 0 ? 'Fully reconciled' : `${brTotals.unreconciledCount} unreconciled`) : 'Not imported', brTotals ? `Difference ${fmtMYR(brTotals.difference, { compact: true })}` : '—', latestBR ? latestBR.period : '—'],
-          ['Bank Summary', hasBankSummary ? 'Imported' : 'Not imported', hasBankSummary ? `Closing balance ${fmtMYR(bankTotalClosing, { compact: true })}` : '—', latestBSum ? latestBSum.period : '—'],
+          ['Trial Balance', tbTotals ? (tbTotals.balanced ? 'Balanced' : 'Out of balance') : 'Not imported', tbTotals ? `Debit ${fmtAUD(tbTotals.totalDebit, { compact: true })} / Credit ${fmtAUD(tbTotals.totalCredit, { compact: true })}` : '—', latestTB ? latestTB.period : '—'],
+          ['Bank Reconciliation', brTotals ? (brTotals.unreconciledCount === 0 ? 'Fully reconciled' : `${brTotals.unreconciledCount} unreconciled`) : 'Not imported', brTotals ? `Difference ${fmtAUD(brTotals.difference, { compact: true })}` : '—', latestBR ? latestBR.period : '—'],
+          ['Bank Summary', hasBankSummary ? 'Imported' : 'Not imported', hasBankSummary ? `Closing balance ${fmtAUD(bankTotalClosing, { compact: true })}` : '—', latestBSum ? latestBSum.period : '—'],
           [ledgerLabel || 'General Ledger / Account Transactions', ledgerTotals ? 'Imported' : 'Not imported', ledgerTotals ? `${ledgerTotals.rowCount} lines, ${ledgerTotals.accountCount} account(s)` : '—', ledgerSource ? ledgerSource.period : '—'],
         ],
         styles: { fontSize: 8.5 }, headStyles: { fillColor: [19, 67, 203] },
@@ -731,13 +731,13 @@
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Where's the money coming from?</div>
               {latestPL ? (
                 <>
-                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--success)', marginTop: 6 }}>{fmtMYR(totalRevenueYTD, { compact: true })}</div>
+                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--success)', marginTop: 6 }}>{fmtAUD(totalRevenueYTD, { compact: true })}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Total revenue (YTD) · {latestPL.period}</div>
                   <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {revenueBySource.slice(0, 3).map((r, i) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                         <span style={{ color: 'var(--arsela-navy)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>{r.account}</span>
-                        <span className="arsela-num" style={{ fontWeight: 700, flexShrink: 0, color: 'var(--arsela-text-muted)' }}>{fmtMYR(r.ytd, { compact: true })}</span>
+                        <span className="arsela-num" style={{ fontWeight: 700, flexShrink: 0, color: 'var(--arsela-text-muted)' }}>{fmtAUD(r.ytd, { compact: true })}</span>
                       </div>
                     ))}
                     {revenueBySource.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)' }}>No revenue lines found in the imported P&amp;L.</div>}
@@ -761,14 +761,14 @@
                   </div>
                   {hasCoverageData ? (
                     <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Receivables due in</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{arOutstanding != null ? fmtMYR(arOutstanding, { compact: true }) : '—'}</span></div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Payables due out</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{apOutstanding != null ? fmtMYR(apOutstanding, { compact: true }) : '—'}</span></div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid var(--arsela-border)' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash on hand ({hasBankSummary ? 'Xero bank balance' : 'cash flow model'})</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(cashOnHandUnits, { compact: true })}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Receivables due in</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{arOutstanding != null ? fmtAUD(arOutstanding, { compact: true }) : '—'}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Payables due out</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{apOutstanding != null ? fmtAUD(apOutstanding, { compact: true }) : '—'}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid var(--arsela-border)' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash on hand ({hasBankSummary ? 'Xero bank balance' : 'cash flow model'})</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{hasBankSummary ? fmtAUD(cashOnHandUnits, { compact: true }) : fmtMYR(cashOnHandUnits, { compact: true })}</span></div>
                       {coverageMonths != null && <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>≈ {coverageMonths.toFixed(1)} months of burn covered · {cashOnHandSource}</div>}
                     </div>
                   ) : hasBankSummary ? (
                     <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash on hand (Xero bank balance)</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(cashOnHandUnits, { compact: true })}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash on hand (Xero bank balance)</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtAUD(cashOnHandUnits, { compact: true })}</span></div>
                       <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{cashOnHandSource} · import Aged Receivables/Payables for a full coverage ratio.</div>
                     </div>
                   ) : (
@@ -792,9 +792,9 @@
                     {realSolvent ? 'Solvent' : 'Insolvent — liabilities exceed assets'}
                   </div>
                   <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Total assets</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(bsTotals.totalAssets, { compact: true })}</span></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Total liabilities</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(bsTotals.totalLiabilities, { compact: true })}</span></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid var(--arsela-border)' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Working capital</span><span className="arsela-num" style={{ fontWeight: 700, color: workingCapital >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmtMYR(workingCapital, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Total assets</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtAUD(bsTotals.totalAssets, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Total liabilities</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtAUD(bsTotals.totalLiabilities, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid var(--arsela-border)' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Working capital</span><span className="arsela-num" style={{ fontWeight: 700, color: workingCapital >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmtAUD(workingCapital, { compact: true })}</span></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Current ratio</span><span className="arsela-num" style={{ fontWeight: 700, color: currentRatio >= 1 ? 'var(--success)' : 'var(--danger)' }}>{currentRatio != null ? currentRatio.toFixed(2) + 'x' : '—'}</span></div>
                   </div>
                   <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 8 }}>Balance Sheet as at {latestBS.period}</div>
@@ -827,8 +827,8 @@
                     {tbTotals.balanced ? 'Balanced' : 'Out of balance'}
                   </div>
                   <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Debit</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(tbTotals.totalDebit, { compact: true })}</span></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Credit</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(tbTotals.totalCredit, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Debit</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtAUD(tbTotals.totalDebit, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Credit</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtAUD(tbTotals.totalCredit, { compact: true })}</span></div>
                   </div>
                   <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 8 }}>{latestTB.period}</div>
                 </>
@@ -849,8 +849,8 @@
                     {brTotals.unreconciledCount === 0 ? 'Fully reconciled' : `${brTotals.unreconciledCount} unreconciled`}
                   </div>
                   <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Xero balance</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(brTotals.xeroBalance, { compact: true })}</span></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Difference</span><span className="arsela-num" style={{ fontWeight: 700, color: Math.abs(brTotals.difference) < 1 ? 'var(--success)' : 'var(--danger)' }}>{fmtMYR(brTotals.difference, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Xero balance</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtAUD(brTotals.xeroBalance, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Difference</span><span className="arsela-num" style={{ fontWeight: 700, color: Math.abs(brTotals.difference) < 1 ? 'var(--success)' : 'var(--danger)' }}>{fmtAUD(brTotals.difference, { compact: true })}</span></div>
                   </div>
                   <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 8 }}>{latestBR.period}</div>
                 </>
@@ -867,11 +867,11 @@
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Bank Summary</div>
               {latestBSum && latestBSum.totals ? (
                 <>
-                  <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(latestBSum.totals.totalClosing, { compact: true })}</div>
+                  <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtAUD(latestBSum.totals.totalClosing, { compact: true })}</div>
                   <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Total closing balance · {latestBSum.totals.accountCount} account(s)</div>
                   <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash received</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--success)' }}>{fmtMYR(latestBSum.totals.totalReceived, { compact: true })}</span></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash spent</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--danger)' }}>{fmtMYR(latestBSum.totals.totalSpent, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash received</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--success)' }}>{fmtAUD(latestBSum.totals.totalReceived, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash spent</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--danger)' }}>{fmtAUD(latestBSum.totals.totalSpent, { compact: true })}</span></div>
                   </div>
                   <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 8 }}>{latestBSum.period}</div>
                 </>
@@ -891,8 +891,8 @@
                   <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{ledgerTotals.rowCount} lines</div>
                   <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{ledgerTotals.accountCount} account(s) touched</div>
                   <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Total debit</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(ledgerTotals.totalDebit, { compact: true })}</span></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Total credit</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtMYR(ledgerTotals.totalCredit, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Total debit</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtAUD(ledgerTotals.totalDebit, { compact: true })}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Total credit</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtAUD(ledgerTotals.totalCredit, { compact: true })}</span></div>
                   </div>
                   <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 8 }}>{ledgerSource.period}</div>
                 </>

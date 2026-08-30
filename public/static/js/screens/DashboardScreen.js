@@ -639,7 +639,7 @@
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Revenue (YTD)</div>
                   {plTotals ? (
                     <>
-                      <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--success)', marginTop: 6 }}>{fmtMYR(plTotals.totalRevenueYTD, { compact: true })}</div>
+                      <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--success)', marginTop: 6 }}>{fmtAUD(plTotals.totalRevenueYTD, { compact: true })}</div>
                       <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{latestPL.period}</div>
                     </>
                   ) : <div style={{ marginTop: 6 }}><ArsBadge tone="neutral" size="sm">Not imported</ArsBadge></div>}
@@ -648,7 +648,7 @@
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Bank balance</div>
                   {bankTotals ? (
                     <>
-                      <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtMYR(bankTotals.totalClosing, { compact: true })}</div>
+                      <div className="arsela-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--arsela-navy)', marginTop: 6 }}>{fmtAUD(bankTotals.totalClosing, { compact: true })}</div>
                       <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 4 }}>{latestBSum.period}</div>
                     </>
                   ) : <div style={{ marginTop: 6 }}><ArsBadge tone="neutral" size="sm">Not imported</ArsBadge></div>}
