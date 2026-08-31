@@ -3,9 +3,17 @@
   /* FY progress — Arsela's fiscal year starts 1 July, so these now
      delegate to store.js's single source of truth (fyProgressPct /
      fyLabel / fyQuarterLabel) instead of a locally-hardcoded
-     calendar-year calculation. Re-exported below (unchanged names)
-     so ReportsScreen.js and other consumers keep working. */
-  const FY_REFERENCE_DATE = window.Store.today();
+     calendar-year calculation.
+
+     2026-08-30 fix: Store.today() now returns the LIVE system date
+     (see store.js), but this was captured into a module-level const
+     ONCE when the script first loads — in a long-lived SPA session
+     that's effectively "whenever the tab was last hard-refreshed",
+     not "right now". Re-exported below (unchanged name) as a getter
+     function instead of a frozen value so every read — including
+     ReportsScreen.js and other consumers via window.FY_REFERENCE_DATE
+     — reflects the actual current date. */
+  function FY_REFERENCE_DATE() { return window.Store.today(); }
   function fyProgressPct() { return window.Store.fyProgressPct(); }
 
   /* Spent-to-date vs Budget-to-date panel — reads LIVE budgets from the
@@ -34,7 +42,7 @@
       >
         <ArsSectionHeader
           title="Spent to Date vs Budget to Date"
-          subtitle={`Time-prorated ${window.Store.fyLabel(FY_REFERENCE_DATE)} plan (${Math.round(pct * 100)}% of year elapsed) vs reconciled Xero actuals`}
+          subtitle={`Time-prorated ${window.Store.fyLabel(FY_REFERENCE_DATE())} plan (${Math.round(pct * 100)}% of year elapsed) vs reconciled Xero actuals`}
         />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, marginTop: 4 }}>
           <div>
@@ -530,7 +538,7 @@
                 <ArsRoleBadge role={role}/>
               </div>
               <div style={{ fontSize: 13, color: 'var(--arsela-text-muted)', marginTop: 4 }}>
-                {greet.sub} · <span style={{ color: 'var(--arsela-navy)', fontWeight: 600 }}>{FY_REFERENCE_DATE.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                {greet.sub} · <span style={{ color: 'var(--arsela-navy)', fontWeight: 600 }}>{FY_REFERENCE_DATE().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
               </div>
             </div>
             <ArsLiveDot label="Live · updated 2 min ago"/>
@@ -608,7 +616,7 @@
               </>
             ) : (
               <>
-                <StatCard label={`Total Annual Plan · ${window.Store.fyLabel(FY_REFERENCE_DATE)}`} value={fmtMYR(totalAnnualPlan, { compact: true })} delta="All budgets, any status" deltaTone="blue" sub={`${fmtMYR(approvedActiveBudgets, { compact: true })} in approved active budgets`} icon={<IconWallet size={17}/>} tone="blue" title="Click to view all budgets" onClick={() => window.Router.go('/budgets')}/>
+                <StatCard label={`Total Annual Plan · ${window.Store.fyLabel(FY_REFERENCE_DATE())}`} value={fmtMYR(totalAnnualPlan, { compact: true })} delta="All budgets, any status" deltaTone="blue" sub={`${fmtMYR(approvedActiveBudgets, { compact: true })} in approved active budgets`} icon={<IconWallet size={17}/>} tone="blue" title="Click to view all budgets" onClick={() => window.Router.go('/budgets')}/>
                 <StatCard label="Xero Actuals (Reconciled)" value={fmtMYR(xeroActuals, { compact: true })} delta={`${burnPct.toFixed(1)}% of plan`} deltaTone="teal" sub={latestActualsThrough ? `through ${latestActualsThrough}` : 'no actuals imported'} icon={<IconTrend size={17}/>} tone="teal" title="Click to view budgets by spend" onClick={() => window.Router.go('/budgets?status=active')}/>
                 <StatCard label="Actual + Commitments" value={fmtMYR(actualPlusCommitments, { compact: true })} delta={`+${fmtMYR(totalCommitted, { compact: true })} committed`} deltaTone="navy" sub="reconciled actuals + open POs" icon={<IconFile size={17}/>} tone="navy" title="Click to view CAPEX & commitments" onClick={() => window.Router.go('/capex')}/>
                 <StatCard label="Budget-to-Date Variance" value={`${varianceToDateNow >= 0 ? '+' : '−'}${fmtMYR(Math.abs(varianceToDateNow), { compact: true })}`} delta={budgetToDateNow > 0 ? `${varianceToDateNow >= 0 ? '▲' : '▼'} ${Math.abs(varianceToDatePct).toFixed(1)}% ${varianceToDateNow >= 0 ? 'over' : 'under'}` : 'no budgets yet'} deltaTone={varianceToDateNow > 0 ? 'warning' : 'success'} sub="reconciled actuals vs time-prorated plan" icon={<IconArrowUp size={17}/>} tone="warn" title="Click to view variance report" onClick={() => window.Router.go('/reports')}/>
@@ -705,7 +713,7 @@
               <BudgetChart budgets={s.budgets}/>
             </ArsCard>
             <ArsCard>
-              <ArsSectionHeader title="Category Mix" subtitle={`Share of planned ${window.Store.fyLabel(FY_REFERENCE_DATE)}`} action={<IconMore size={16} style={{ color: 'var(--arsela-text-subtle)', cursor: 'pointer' }} onClick={() => window.Store.toast('Category breakdown exported', 'info')}/>}/>
+              <ArsSectionHeader title="Category Mix" subtitle={`Share of planned ${window.Store.fyLabel(FY_REFERENCE_DATE())}`} action={<IconMore size={16} style={{ color: 'var(--arsela-text-subtle)', cursor: 'pointer' }} onClick={() => window.Store.toast('Category breakdown exported', 'info')}/>}/>
               <CategoryDonut budgets={s.budgets}/>
             </ArsCard>
           </div>
@@ -715,7 +723,7 @@
               <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--arsela-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--arsela-navy)' }}>Departments · Utilisation</div>
-                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Spend to date vs allocated {window.Store.fyLabel(FY_REFERENCE_DATE)} budget</div>
+                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Spend to date vs allocated {window.Store.fyLabel(FY_REFERENCE_DATE())} budget</div>
                 </div>
                 <a style={{ fontSize: 12, color: 'var(--arsela-blue)', fontWeight: 600, cursor: 'pointer' }} onClick={() => window.Router.go('/budgets')}>View all →</a>
               </div>

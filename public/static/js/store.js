@@ -19,16 +19,22 @@
 
   /* ----------------------------------------------------------
      Fiscal year configuration — Arsela Resources' financial year
-     starts 1 July (not 1 January). So 1 Jul 2026 begins FY2027,
-     and the app's "today" reference date of 22 Jul 2026 falls in
-     FY2027 Q1 (22 days into the year), NOT "Q3 FY2026" as earlier
-     hardcoded labels assumed. All FY/quarter/period labels across
-     the app must be derived from these helpers — never hardcoded —
-     so a future change to the reference date or FY start month
-     only needs to change it here.
+     starts 1 July (not 1 January). All FY/quarter/period labels
+     across the app must be derived from these helpers — never
+     hardcoded — so a future change to the FY start month only
+     needs to change it here.
+
+     "Today" reference (client ask, 2026-08-30): previously pinned
+     to a fixed demo date (22 Jul 2026) that silently went stale as
+     real time passed it by (surfaced as "As at 22 July 2026" on
+     imported Balance Sheet/Trial Balance cards while the real date
+     was already 30 Aug 2026). Now reads the real device clock via
+     a function (not a constant captured once at module load) so
+     every call to Store.today() reflects the actual current date,
+     including across a long-lived session that spans midnight.
      ---------------------------------------------------------- */
   const FY_START_MONTH = 6; // 0-indexed: June -> FY starts 1 July
-  const APP_TODAY = new Date(2026, 6, 22); // 22 July 2026 — demo "today"
+  const APP_TODAY = () => new Date(); // live system date — see note above
 
   /** Given any JS Date, return the fiscal year NUMBER it falls in.
    *  Arsela convention: FYnnnn covers 1 Jul (nnnn-1) -> 30 Jun nnnn.
@@ -331,7 +337,7 @@
     // as a display option via the currency switcher (CURRENCY_CONFIG
     // below) but is no longer the default.
     currency: 'AUD',
-    period: fyQuarterLabel(APP_TODAY),
+    period: fyQuarterLabel(APP_TODAY()),
     toasts: [],
     copilotMessages: null, // per-screen default seeded lazily
   };
@@ -371,10 +377,10 @@
   if (!state.agedPayables) state.agedPayables = seedAgedPayables;
   if (!state.supportingDocuments) state.supportingDocuments = seedSupportingDocuments;
   if (!state.currency) state.currency = 'AUD';
-  // Force-correct the period label for any state persisted before the
-  // FY-start-month fix (Arsela's FY starts 1 Jul, so 22 Jul 2026 is
-  // Q1 FY2027, not "Q3 · FY 2026").
-  state.period = fyQuarterLabel(APP_TODAY);
+  // Force-correct the period label to the live current date on every
+  // load (Arsela's FY starts 1 Jul, so this always reflects today's
+  // real fiscal quarter rather than a stale persisted/hardcoded one).
+  state.period = fyQuarterLabel(APP_TODAY());
 
   const listeners = new Set();
 
@@ -940,7 +946,7 @@
     // ---- fiscal-year helpers (single source of truth — Arsela's FY
     // starts 1 July). Every screen should call these instead of
     // hardcoding FY/quarter labels or calendar-year assumptions. ----
-    today: () => APP_TODAY,
+    today: () => APP_TODAY(),
     fyYearOf,
     fyQuarterOf,
     fyStartDate,
@@ -948,8 +954,8 @@
     fyProgressPctOf,
     fyQuarterLabel,
     fyLabel,
-    /** Fraction (0-1) of the CURRENT fiscal year elapsed, as of APP_TODAY. */
-    fyProgressPct: () => fyProgressPctOf(APP_TODAY),
+    /** Fraction (0-1) of the CURRENT fiscal year elapsed, as of today's real date. */
+    fyProgressPct: () => fyProgressPctOf(APP_TODAY()),
   };
 
   window.Store = Store;

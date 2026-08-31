@@ -227,12 +227,44 @@
     const solvent = cf && cf.hasData ? cf.minCash > 0 : true;
     const withinRunwayThreshold = cf && cf.hasData ? cf.minCash >= 60 : true;
 
-    // ---- Q1: Where's the money coming from — real revenue mix from the
-    // latest imported Profit & Loss (Xero), falling back to an honest
-    // "no P&L imported yet" state (Coplanistra has no other revenue
-    // data model — budgets/CAPEX only track spend, never income).
+    // ---- Q1: Where's the money coming from — client feedback
+    // (2026-08-30): Arsela is more of a cost centre than a trading
+    // business, so "money coming from" is NOT always trading revenue —
+    // it can be shareholder/parent capital injections, intercompany
+    // funding, or loans drawn to cover the cost base. Trading revenue
+    // alone (P&L) would forever show A$0 for a pure cost-centre entity
+    // even while it is being actively funded. Now pulls from BOTH real
+    // imported Xero reports (never budgets/CAPEX, which are spend-only
+    // and have no income data model):
+    //   - Revenue (P&L revenueBySource) — genuine trading income.
+    //   - Financing inflows (Cash Flow Actuals, Financing activity
+    //     lines with a positive YTD/current total) — capital
+    //     injections, shareholder/parent funding, loans drawn. This
+    //     report type has been part of the Data Imports hub since the
+    //     8-report-type build but was previously read into `latestCFA`
+    //     and never actually used anywhere in this report.
+    // The two are always shown as SEPARATE labelled lines (never
+    // merged into one figure) so a director can see whether the
+    // business is earning its own way or being funded externally.
     const revenueBySource = latestPL && latestPL.totals ? (latestPL.totals.revenueBySource || []) : [];
     const totalRevenueYTD = latestPL && latestPL.totals ? (latestPL.totals.totalRevenueYTD || 0) : 0;
+    const cfaTotals = latestCFA && latestCFA.totals ? latestCFA.totals : null;
+    // Financing lines individually, positive (inflow) ones only — a
+    // financing OUTFLOW (e.g. a dividend paid, loan repaid) is not a
+    // "money coming from" source and is deliberately excluded here.
+    const financingInflowLines = (latestCFA && Array.isArray(latestCFA.rows) ? latestCFA.rows : [])
+      .filter((r) => r.activity === 'Financing' && ((r.ytd || r.current || 0) > 0))
+      .map((r) => ({ description: r.description, amount: r.ytd || r.current || 0 }))
+      .sort((a, b) => b.amount - a.amount);
+    const totalFinancingInflowYTD = cfaTotals ? Math.max(0, cfaTotals.netFinancingYTD || 0) : 0;
+    const hasFinancingData = cfaTotals != null;
+    const hasMoneySourceData = latestPL != null || hasFinancingData;
+    // Combined total across both real sources, for the headline figure.
+    const totalMoneyInYTD = totalRevenueYTD + totalFinancingInflowYTD;
+    // Cost-centre framing: revenue is negligible/zero but financing
+    // inflows are the actual funding source — call this out explicitly
+    // rather than implying the business earns nothing.
+    const isCostCentreFunded = hasFinancingData && totalFinancingInflowYTD > 0 && totalRevenueYTD <= 0;
 
     // ---- Q2: Do we have enough to cover our expenses — a real coverage
     // ratio when a Balance Sheet and/or Aged Receivables/Payables have
@@ -403,10 +435,19 @@
             ['Cash Flow', 'Next 13-week forecast outflow (AUD M)', next13WeekOutflow.toFixed(1)],
             ['Cash Flow', 'Solvency status', solvent ? (withinRunwayThreshold ? 'Solvent — within threshold' : 'Solvent — below comfort threshold') : 'At risk — projected negative balance'],
           ] : []),
-          // Three questions (client ask, 2026-08-19) — Xero-import-backed where available
-          ['Q1: Where is the money coming from', 'Total revenue YTD (AUD)', latestPL ? totalRevenueYTD : 'Not answerable — no Profit & Loss imported'],
-          ...(latestPL ? [['Q1: Where is the money coming from', 'Period', latestPL.period]] : []),
+          // Three questions (client ask, 2026-08-19) — Xero-import-backed where available.
+          // Q1 combines trading revenue (P&L) and financing inflows
+          // (Cash Flow Actuals — shareholder/parent funding, loans) as
+          // two separate lines (client ask, 2026-08-30 — Arsela is a
+          // cost centre, so revenue alone would misrepresent funding).
+          ['Q1: Where is the money coming from', 'Total revenue + financing inflows YTD (AUD)', hasMoneySourceData ? totalMoneyInYTD : 'Not answerable — no Profit & Loss or Cash Flow Actuals imported'],
+          ['Q1: Where is the money coming from', 'Trading revenue YTD (AUD)', latestPL ? totalRevenueYTD : 'Not imported'],
+          ...(latestPL ? [['Q1: Where is the money coming from', 'Revenue period', latestPL.period]] : []),
           ...revenueBySource.slice(0, 5).map((r) => ['Q1: Revenue by source', r.account, r.ytd]),
+          ['Q1: Where is the money coming from', 'Financing inflows YTD (AUD)', hasFinancingData ? totalFinancingInflowYTD : 'Not imported'],
+          ...(hasFinancingData ? [['Q1: Where is the money coming from', 'Financing period', latestCFA.period]] : []),
+          ...financingInflowLines.slice(0, 5).map((r) => ['Q1: Financing inflow by line', r.description, r.amount]),
+          ['Q1: Where is the money coming from', 'Cost-centre funded (no/negligible trading revenue)', isCostCentreFunded ? 'Yes' : 'No'],
           ['Q2: Enough to cover expenses', 'Status', canCoverExpenses == null ? 'Not answerable' : (canCoverExpenses ? 'Yes — covered' : 'At risk — shortfall')],
           ...(hasCoverageData ? [
             ['Q2: Enough to cover expenses', 'Receivables outstanding (AUD)', arOutstanding],
@@ -525,9 +566,12 @@
       doc.setFontSize(13); doc.setFont(undefined, 'bold');
       doc.text('5. The three questions this report must answer', 40, y); y += 8;
       doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
-      doc.text(`Q1 — Where's the money coming from: ${latestPL ? `${fmtAUD(totalRevenueYTD, { compact: true })} total revenue YTD (${latestPL.period})` : 'Not answerable — no Profit & Loss imported yet.'}`, 40, y, { maxWidth: pageW - 80 }); y += latestPL ? 14 : 14;
+      doc.text(`Q1 — Where's the money coming from: ${hasMoneySourceData ? `${fmtAUD(totalMoneyInYTD, { compact: true })} total ${isCostCentreFunded ? '(funded by financing, not trading revenue)' : 'revenue + financing inflows YTD'}. Trading revenue: ${latestPL ? fmtAUD(totalRevenueYTD, { compact: true }) + ` (${latestPL.period})` : 'not imported'}. Financing inflows: ${hasFinancingData ? fmtAUD(totalFinancingInflowYTD, { compact: true }) + ` (${latestCFA.period})` : 'not imported'}.` : 'Not answerable — no Profit & Loss or Cash Flow Actuals imported yet.'}`, 40, y, { maxWidth: pageW - 80 }); y += 14;
       if (latestPL && revenueBySource.length) {
         revenueBySource.slice(0, 3).forEach((r) => { doc.text(`   • ${r.account}: ${fmtAUD(r.ytd, { compact: true })}`, 40, y); y += 12; });
+      }
+      if (hasFinancingData && financingInflowLines.length) {
+        financingInflowLines.slice(0, 3).forEach((r) => { doc.text(`   • ${r.description}: ${fmtAUD(r.amount, { compact: true })}`, 40, y); y += 12; });
       }
       y += 6;
       doc.text(`Q2 — Enough to cover our expenses: ${canCoverExpenses == null ? 'Not answerable — add budgets/CAPEX or import Aged Receivables/Payables/Bank Summary.' : (canCoverExpenses ? 'Yes — covered.' : 'At risk — projected shortfall.')}${hasCoverageData ? ` Receivables due ${fmtAUD(arOutstanding, { compact: true })}, payables due ${fmtAUD(apOutstanding, { compact: true })}, cash on hand ${hasBankSummary ? fmtAUD(cashOnHandUnits, { compact: true }) : fmtMYR(cashOnHandUnits, { compact: true })} (${cashOnHandSource})${coverageMonths != null ? `, ≈${coverageMonths.toFixed(1)} months of burn covered.` : '.'}` : ''}`, 40, y, { maxWidth: pageW - 80 }); y += 26;
@@ -726,27 +770,50 @@
           <ArsSectionHeader title="The three questions this report must answer" subtitle="Money source · expense coverage · solvency — each backed by the latest imported Xero report"/>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
 
-            {/* Q1 — where's the money coming from */}
-            <div onClick={() => window.Router.go('/dataimports')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16 }} title="Click to import or review Profit &amp; Loss">
+            {/* Q1 — where's the money coming from. Client feedback
+                (2026-08-30): for a cost-centre entity, revenue alone
+                is the wrong lens — this now also surfaces financing
+                inflows (shareholder/parent injections, intercompany
+                funding, loans drawn) from the imported Cash Flow
+                Actuals report, kept as a clearly separate line from
+                trading revenue. */}
+            <div onClick={() => window.Router.go('/dataimports')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16 }} title="Click to import or review Profit &amp; Loss / Cash Flow Actuals">
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Where's the money coming from?</div>
-              {latestPL ? (
+              {hasMoneySourceData ? (
                 <>
-                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--success)', marginTop: 6 }}>{fmtAUD(totalRevenueYTD, { compact: true })}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>Total revenue (YTD) · {latestPL.period}</div>
+                  <div className="arsela-num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--success)', marginTop: 6 }}>{fmtAUD(totalMoneyInYTD, { compact: true })}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>
+                    {isCostCentreFunded ? 'Total funding (YTD) — funded by financing, not trading revenue' : 'Total revenue + financing inflows (YTD)'}
+                  </div>
                   <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {revenueBySource.slice(0, 3).map((r, i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                        <span style={{ color: 'var(--arsela-navy)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>{r.account}</span>
-                        <span className="arsela-num" style={{ fontWeight: 700, flexShrink: 0, color: 'var(--arsela-text-muted)' }}>{fmtAUD(r.ytd, { compact: true })}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                      <span style={{ color: 'var(--arsela-text-muted)', fontWeight: 600 }}>Trading revenue{latestPL ? ` (${latestPL.period})` : ''}</span>
+                      <span className="arsela-num" style={{ fontWeight: 700, flexShrink: 0, color: 'var(--arsela-navy)' }}>{latestPL ? fmtAUD(totalRevenueYTD, { compact: true }) : 'Not imported'}</span>
+                    </div>
+                    {revenueBySource.slice(0, 2).map((r, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, paddingLeft: 10 }}>
+                        <span style={{ color: 'var(--arsela-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>{r.account}</span>
+                        <span className="arsela-num" style={{ flexShrink: 0, color: 'var(--arsela-text-muted)' }}>{fmtAUD(r.ytd, { compact: true })}</span>
                       </div>
                     ))}
-                    {revenueBySource.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)' }}>No revenue lines found in the imported P&amp;L.</div>}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, paddingTop: 6, borderTop: '1px solid var(--arsela-border)' }}>
+                      <span style={{ color: 'var(--arsela-text-muted)', fontWeight: 600 }}>Financing inflows{hasFinancingData ? ` (${latestCFA.period})` : ''}</span>
+                      <span className="arsela-num" style={{ fontWeight: 700, flexShrink: 0, color: 'var(--arsela-navy)' }}>{hasFinancingData ? fmtAUD(totalFinancingInflowYTD, { compact: true }) : 'Not imported'}</span>
+                    </div>
+                    {financingInflowLines.slice(0, 2).map((r, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, paddingLeft: 10 }}>
+                        <span style={{ color: 'var(--arsela-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>{r.description}</span>
+                        <span className="arsela-num" style={{ flexShrink: 0, color: 'var(--arsela-text-muted)' }}>{fmtAUD(r.amount, { compact: true })}</span>
+                      </div>
+                    ))}
+                    {hasFinancingData && financingInflowLines.length === 0 && <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', paddingLeft: 10 }}>No financing inflow lines in the imported Cash Flow Actuals.</div>}
+                    {!latestPL && !hasFinancingData && <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)' }}>No revenue lines found and no financing data imported.</div>}
                   </div>
                 </>
               ) : (
                 <div style={{ marginTop: 8 }}>
                   <ArsBadge tone="neutral" size="sm">Not answerable yet</ArsBadge>
-                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Import a Profit &amp; Loss from Xero to see revenue by source here.</div>
+                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Import a Profit &amp; Loss (trading revenue) and/or Cash Flow Actuals (financing inflows — shareholder/parent funding, loans) from Xero to see where the money is coming from.</div>
                 </div>
               )}
             </div>
