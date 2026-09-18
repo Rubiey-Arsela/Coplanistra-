@@ -44,7 +44,7 @@ function shellHtml() {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Coplanistra — Budget &amp; Plan</title>
+  <title>ApexFin — Budget &amp; Plan</title>
   <link rel="icon" type="image/png" href="/static/img/logo-icon-new.png" />
   <link rel="apple-touch-icon" href="/static/img/logo-icon-new.png" />
   <link href="/static/css/tokens.css" rel="stylesheet" />
@@ -68,7 +68,7 @@ function shellHtml() {
 <body>
   <div id="root">
     <div class="coplan-splash">
-      <div>Loading Coplanistra…</div>
+      <div>Loading ApexFin…</div>
     </div>
   </div>
 ${scriptTags}

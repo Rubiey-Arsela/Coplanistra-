@@ -293,7 +293,7 @@
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                       <div style={{ color: 'var(--arsela-teal-600)', marginTop: 1 }}><IconCheck size={14}/></div>
                       <div style={{ fontSize: 12.5, color: 'var(--arsela-navy)', lineHeight: 1.5 }}>
-                        <b>Ready to submit.</b> Coplanistra will notify {approvers[0]?.name || 'the first approver'} once submitted.
+                        <b>Ready to submit.</b> ApexFin will notify {approvers[0]?.name || 'the first approver'} once submitted.
                       </div>
                     </div>
                   </div>

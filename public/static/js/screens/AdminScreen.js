@@ -55,7 +55,7 @@
 
     return (
       <ArsModal open onClose={onClose} title={isEdit ? `Edit ${user.name}` : 'Add team member'}
-        subtitle={isEdit ? user.email : 'Creates a real login for Coplanistra'}
+        subtitle={isEdit ? user.email : 'Creates a real login for ApexFin'}
         footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={save}>{isEdit ? 'Save changes' : 'Add member'}</ArsButton></>}>
         <ArsField label="Full name"><input value={form.name} onChange={set('name')} style={arsFieldInputStyle}/></ArsField>
         <ArsField label="Email address (used as login ID)" hint={isEdit ? 'Email cannot be changed after account creation' : undefined}>

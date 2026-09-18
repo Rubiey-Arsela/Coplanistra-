@@ -188,7 +188,7 @@
     const bankTotalClosing = latestBSum && latestBSum.totals ? latestBSum.totals.totalClosing : null;
     const hasBankSummary = bankTotalClosing != null;
     // Trial Balance control check — surfaced next to Q3 (solvency) as an
-    // independent cross-check that Coplanistra's figures agree with Xero.
+    // independent cross-check that ApexFin's figures agree with Xero.
     const tbTotals = latestTB && latestTB.totals ? latestTB.totals : null;
     // Bank Reconciliation status — already shown on the Reconciliations
     // screen; repeated here so the Director's Report doesn't require a
@@ -487,7 +487,7 @@
       let y = 50;
 
       doc.setFontSize(18); doc.setFont(undefined, 'bold');
-      doc.text('Coplanistra — Monthly Director\'s Report', 40, y);
+      doc.text('ApexFin — Monthly Director\'s Report', 40, y);
       y += 20;
       doc.setFontSize(11); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
       doc.text(`${monthLabel} · Prepared ${dateLabel} · Arsela Resources (Group)`, 40, y);
@@ -609,7 +609,7 @@
       doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
       doc.text(`This report is ${isPreliminary ? 'a PRELIMINARY SNAPSHOT — ' : ''}based on Xero actuals reconciled through ${latestActualsThrough || 'n/a'}. ${unreconciledBudgets.length} of ${budgets.length} budget lines are pending reconciliation${brTotals ? `, and ${bankUnreconciledCount} bank item(s) are unreconciled per the latest Bank Reconciliation import (${latestBR.period})` : ''}, and ${unpostedExpenses.length} approved expense(s) are not yet posted in Xero. Figures beyond the reconciled-through date are forecasts, not actuals. Xero report types imported: ${xeroImportedCount} of ${xeroTypeList.length}.${xeroMissing.length ? ` Not yet imported: ${xeroMissing.map((t) => t.label).join(', ')}.` : ''}`, 40, y, { maxWidth: pageW - 80 });
 
-      doc.save(`Coplanistra-Directors-Report-${monthLabel.replace(/\s+/g, '-')}.pdf`);
+      doc.save(`ApexFin-Directors-Report-${monthLabel.replace(/\s+/g, '-')}.pdf`);
       window.Store.toast('Director\'s report exported as PDF', 'success');
     };
 
@@ -902,7 +902,7 @@
               ) : (
                 <div style={{ marginTop: 8 }}>
                   <ArsBadge tone="neutral" size="sm">Not imported</ArsBadge>
-                  <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Import a Trial Balance to confirm Coplanistra agrees with Xero.</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Import a Trial Balance to confirm ApexFin agrees with Xero.</div>
                 </div>
               )}
             </div>

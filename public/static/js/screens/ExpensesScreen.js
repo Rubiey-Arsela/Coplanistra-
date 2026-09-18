@@ -116,7 +116,7 @@
           as CSV and attaches it here.
        2. We auto-detect Xero's common column headers (Date,
           Description/Reference/Contact, Amount/Gross/Total) and map
-          them onto Coplanistra's expense shape.
+          them onto ApexFin's expense shape.
        3. A preview table lets the user review/deselect rows, pick a
           department, and assign a category — mirroring how receipt
           OCR pre-fills fields for review rather than auto-submitting.
@@ -305,7 +305,7 @@
         {!rows ? (
           <>
             <div style={{ background: '#EEF3FF', border: '1px solid #D6E1FF', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12.5, color: 'var(--arsela-navy)', lineHeight: 1.5 }}>
-              <b>How to export from Xero:</b> Business → Expense claims (or Reports → Transaction list), set your date range, then <b>Export → CSV, Excel or PDF</b>. Upload that file below — Coplanistra reads the Date, Description/Reference, Contact and Amount columns automatically.
+              <b>How to export from Xero:</b> Business → Expense claims (or Reports → Transaction list), set your date range, then <b>Export → CSV, Excel or PDF</b>. Upload that file below — ApexFin reads the Date, Description/Reference, Contact and Amount columns automatically.
             </div>
             <input ref={importFileRef} type="file" accept=".csv,.xlsx,.xls,.pdf" onChange={onFileChange} style={{ display: 'none' }}/>
             <div style={{

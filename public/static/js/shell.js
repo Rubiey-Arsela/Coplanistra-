@@ -1,5 +1,5 @@
 /* ============================================================
-   Coplanistra — interactive AppShell
+   ApexFin — interactive AppShell
    Wired version of the design's AppShell.jsx: sidebar navigation
    actually routes, notif bell actually toggles or dismisses, role
    badge/user reflect the live Store, topbar search is functional
@@ -27,21 +27,21 @@
     'Settings': '/settings',
   };
 
-  const CoplanistraMark = ({ size = 22 }) => (
+  const ApexFinMark = ({ size = 22 }) => (
     <img
       src="/static/img/logo-icon-new.png"
-      alt="Coplanistra"
+      alt="ApexFin"
       width={size}
       height={size}
       style={{ width: size, height: size, borderRadius: size * 0.22, display: 'block', flexShrink: 0 }}
     />
   );
 
-  const CoplanistraWordmark = ({ color = '#fff', subColor = 'rgba(255,255,255,0.55)', onClick }) => (
+  const ApexFinWordmark = ({ color = '#fff', subColor = 'rgba(255,255,255,0.55)', onClick }) => (
     <div onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: onClick ? 'pointer' : 'default' }}>
-      <CoplanistraMark size={26} color={color} />
+      <ApexFinMark size={26} color={color} />
       <div>
-        <div style={{ fontSize: 17, fontWeight: 700, color, letterSpacing: -0.2, lineHeight: 1 }}>Coplanistra</div>
+        <div style={{ fontSize: 17, fontWeight: 700, color, letterSpacing: -0.2, lineHeight: 1 }}>ApexFin</div>
         <div style={{ fontSize: 9.5, fontWeight: 600, color: subColor, letterSpacing: 1.5, marginTop: 3, textTransform: 'uppercase' }}>Budget &amp; Plan</div>
       </div>
     </div>
@@ -138,7 +138,7 @@
           borderRight: '1px solid rgba(0,0,0,0.2)', flexShrink: 0,
         }}>
         <div style={{ padding: '20px 20px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <CoplanistraWordmark onClick={() => navTo('Dashboard')} />
+          <ApexFinWordmark onClick={() => navTo('Dashboard')} />
           <button className="coplan-sidebar-close" onClick={onClose} aria-label="Close menu" style={{
             width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)',
             color: '#fff', display: 'none', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
@@ -489,6 +489,6 @@
   }
 
   Object.assign(window, {
-    CoplanistraMark, CoplanistraWordmark, ArselaCredit, Sidebar, Topbar, AppFrame, NotifBell, ArsLiveDot, ToastStack, NAV_ROUTES, CurrencySwitcher,
+    ApexFinMark, ApexFinWordmark, ArselaCredit, Sidebar, Topbar, AppFrame, NotifBell, ArsLiveDot, ToastStack, NAV_ROUTES, CurrencySwitcher,
   });
 })();

@@ -162,7 +162,7 @@
        - Investing = CAPEX burn against the approved CAPEX envelope
          (committed, or approved if nothing committed yet), same flat
          monthly spread.
-       - Financing = 0 for every month — Coplanistra does not track
+       - Financing = 0 for every month — ApexFin does not track
          loan/facility drawdowns or repayments yet, so this is left
          honestly at zero instead of fabricated.
        - Opening balance = total approved funding envelope for the year

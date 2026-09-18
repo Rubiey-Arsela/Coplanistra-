@@ -186,7 +186,7 @@
      (fresh install), every bar is simply 0 so the chart renders an
      honest empty grid instead of fabricated figures. The chart shows a
      flat month-by-month view of total allocated (as budget, in $M) vs
-     total reconciled spend (as actual), since Coplanistra's budget
+     total reconciled spend (as actual), since ApexFin's budget
      model doesn't yet track a month-by-month plan/actual breakdown —
      until it does, every month reflects the SAME current totals rather
      than synthetic per-month variation. */

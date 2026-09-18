@@ -168,7 +168,7 @@
       const s = window.Store.getState();
       const blob = { budgets: s.budgets, approvals: s.approvals, expenses: s.expenses };
       window.Store.toast(`Prepared export of ${s.budgets.length} budgets, ${s.approvals.length} approvals, ${s.expenses.length} expenses`, 'info');
-      console.log('Coplanistra data export', blob);
+      console.log('ApexFin data export', blob);
     };
 
     const resetDemoData = () => {
@@ -305,7 +305,7 @@
             <ArsCard>
               <ArsSectionHeader title="About"/>
               <div style={{ fontSize: 13, color: 'var(--arsela-text-muted)', lineHeight: 1.6 }}>
-                <div><b style={{ color: 'var(--arsela-navy)' }}>Coplanistra</b> — Budget & Plan</div>
+                <div><b style={{ color: 'var(--arsela-navy)' }}>ApexFin</b> — Budget & Plan</div>
                 <div style={{ marginTop: 4 }}>Version 1.0.0</div>
                 <div style={{ marginTop: 4 }}>Powered by Arsela Resources</div>
               </div>

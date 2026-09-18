@@ -1,5 +1,5 @@
 /* ============================================================
-   Coplanistra — minimal hash router
+   ApexFin — minimal hash router
    ============================================================ */
 (function () {
   const listeners = new Set();

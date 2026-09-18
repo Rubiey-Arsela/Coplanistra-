@@ -1,6 +1,6 @@
 /* ============================================================
    Data Imports — central hub for the 8 Xero report types the
-   client asked to bring into Coplanistra, plus a register for
+   client asked to bring into ApexFin, plus a register for
    "documents outside Xero" (bank statements, loan agreements,
    board resolutions, etc).
 
@@ -948,7 +948,7 @@
       <ArsModal open onClose={onClose} title="Log a supporting document" subtitle="Outside Xero \u2014 metadata only (name, category, date, note)"
         footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={submit}>Add document</ArsButton></>}>
         <div style={{ background: '#FFF8E6', border: '1px solid #F5E0A3', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12, color: '#7A5B0A', lineHeight: 1.5 }}>
-          Coplanistra is a static, backend-free app \u2014 it can log that a document exists (name, category, date, note) but cannot store the raw file itself. Keep the actual file in your usual shared drive and reference it here.
+          ApexFin is a static, backend-free app \u2014 it can log that a document exists (name, category, date, note) but cannot store the raw file itself. Keep the actual file in your usual shared drive and reference it here.
         </div>
         <ArsField label="Document name">
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Westpac facility agreement \u2014 renewal 2026" style={arsFieldInputStyle}/>
@@ -1022,7 +1022,7 @@
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--arsela-navy)' }}>{importedCount} of {reportTypes.length} Xero report types imported</div>
               <div style={{ fontSize: 12.5, color: 'var(--arsela-text-muted)', marginTop: 3, lineHeight: 1.5 }}>
-                No Xero login is stored in Coplanistra \u2014 export each report from Xero as a CSV and upload it below. Each upload is kept as a dated snapshot, so you can bring in a fresh month-end pack every reporting cycle without losing prior history.
+                No Xero login is stored in ApexFin \u2014 export each report from Xero as a CSV and upload it below. Each upload is kept as a dated snapshot, so you can bring in a fresh month-end pack every reporting cycle without losing prior history.
               </div>
             </div>
           </div>

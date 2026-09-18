@@ -1,16 +1,32 @@
-# Coplanistra — Budget & Plan
+# ApexFin — Budget & Plan
 
 A fully interactive corporate budgeting, planning, and financial-oversight web application built from a Genspark Design handoff. Client-side React SPA (no build-time bundler needed for the app code) served from a lightweight Hono backend on Cloudflare Pages.
 
+> **Naming note**: this app was originally built and branded as "Coplanistra", then renamed to **ApexFin** on 2026-08-31 (user request: *"Change the name to ApexFin"*). All user-facing branding (title, login page, sidebar/topbar wordmark, PDF report header/filename, About screen, code comments, and empty-state copy) has been updated. Internal-only identifiers were intentionally left unchanged since they are invisible to users and changing them carries migration/deploy risk with no user-visible benefit: the Cloudflare project name (`coplanistra`, and its `*.coplanistra.pages.dev` domain), the GitHub repo name (`Coplanistra-`), internal `localStorage` key prefixes (`coplanistra_state_v3`, `coplanistra_settings_v2`), and internal CSS class prefixes (`coplan-*`).
+
 ## Project Overview
-- **Name**: Coplanistra — Budget & Plan
+- **Name**: ApexFin — Budget & Plan
 - **Goal**: Give a Malaysian conglomerate (Acme Holdings, styled after Al Bukhary Group) a role-aware planning, expense-approval, and financial-analytics workspace — budgets, approvals, expenses, CAPEX, cash flow, KPI performance, reporting, an AI copilot, and team/access administration, all wired to a single shared client-side data store so every screen stays in sync.
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://887dde5c.coplanistra.pages.dev (latest deploy — live "today" date fix + Q1 "money coming from" revenue/financing-inflows enhancement; see session update "part 4" immediately below. Also aliased at https://coplanistra.pages.dev)
+- **Production**: https://53484e08.coplanistra.pages.dev (latest deploy — app renamed to ApexFin; see session update "part 5" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-08-31, part 5) — app renamed from Coplanistra to ApexFin
+
+**User instruction (verbatim)**: *"Change the name to ApexFin"*
+
+Replaced every user-facing occurrence of "Coplanistra" with "ApexFin" across the app: browser tab title, login page (wordmark, hero tagline, testimonial quote), sidebar/topbar wordmark component (`CoplanistraMark`/`CoplanistraWordmark` renamed to `ApexFinMark`/`ApexFinWordmark`), Settings → About card, Data Imports empty-state copy, Director's Report PDF header text and exported filename (`ApexFin-Directors-Report-...pdf`), Admin screen helper text, and all in-code comments referencing the app by name.
+
+**Left unchanged (internal-only, invisible to users, changing them adds deploy/migration risk for no visible benefit)**:
+- Cloudflare Pages project name (`coplanistra`) and its `*.coplanistra.pages.dev` domain — renaming a live CF Pages project changes its URL, which would break the existing production link already shared with the client.
+- GitHub repository name (`Coplanistra-`).
+- `localStorage` key prefixes (`coplanistra_state_v3`, `coplanistra_settings_v2`) — renaming these would silently wipe every existing user's saved workspace data on next load.
+- Internal CSS class prefixes (`coplan-*`) and the `package.json`/`wrangler.jsonc` internal `name` field (`webapp`) — purely internal build/style identifiers, never rendered to the user.
+
+**Verified via Playwright** (local + new production URL): page title reads "ApexFin — Budget & Plan"; login screen and dashboard both render "ApexFin" branding; zero remaining occurrences of "Coplanistra" anywhere in the rendered page text on either environment; zero console errors.
 
 ## Session update (2026-08-30/31, part 4) — live "today" date fix + Q1 "money coming from" now includes financing inflows
 

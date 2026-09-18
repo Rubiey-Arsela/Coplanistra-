@@ -1,5 +1,5 @@
 /* ============================================================
-   Coplanistra — app bootstrap
+   ApexFin — app bootstrap
    Maps the current hash route to a screen component, gates
    unauthenticated users to /login, and mounts/re-renders the
    React tree whenever the Router or Store notify a change.
@@ -30,7 +30,7 @@
 
   function NotFoundScreen() {
     return (
-      <AppFrame active="Dashboard" title="Not found" breadcrumb={['Coplanistra', 'Error']}>
+      <AppFrame active="Dashboard" title="Not found" breadcrumb={['ApexFin', 'Error']}>
         <ArsCard>
           <ArsEmpty
             icon={<IconInfo size={28}/>}

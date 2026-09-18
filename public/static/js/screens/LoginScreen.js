@@ -43,7 +43,7 @@
           padding: '48px 72px', background: '#fff', position: 'relative', overflowY: 'auto',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <CoplanistraWordmark color="var(--arsela-navy)" subColor="var(--arsela-text-muted)" />
+            <ApexFinWordmark color="var(--arsela-navy)" subColor="var(--arsela-text-muted)" />
             <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)' }}>
               New here? <a style={{ color: 'var(--arsela-blue)', fontWeight: 600, textDecoration: 'none', cursor: 'pointer' }} onClick={() => window.Store.toast('Contact your workspace admin to request access', 'info')}>Request access</a>
             </div>
@@ -147,7 +147,7 @@
               <span style={{ color: '#00D6BE' }}>decisions.</span>
             </div>
             <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.72)', marginTop: 22, lineHeight: 1.55, maxWidth: 440 }}>
-              Coplanistra brings your organisation's budgets, expenses and approvals into one clear view — so every dollar is planned, tracked and accountable.
+              ApexFin brings your organisation's budgets, expenses and approvals into one clear view — so every dollar is planned, tracked and accountable.
             </div>
 
             <div style={{
@@ -166,7 +166,7 @@
 
           <div style={{ position: 'relative', fontSize: 13, color: 'rgba(255,255,255,0.55)', lineHeight: 1.55, maxWidth: 440 }}>
             <div style={{ fontSize: 30, lineHeight: 0.5, color: '#00D6BE', marginBottom: 6 }}>"</div>
-            Coplanistra replaced eight spreadsheets and cut our monthly close from twelve days to three.
+            ApexFin replaced eight spreadsheets and cut our monthly close from twelve days to three.
             <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.75)', fontWeight: 600 }}>Aisha R. — Group Controller</div>
           </div>
         </div>

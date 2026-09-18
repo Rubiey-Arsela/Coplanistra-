@@ -1,5 +1,5 @@
 /* ============================================================
-   Coplanistra — global app store (plain JS, framework-agnostic)
+   ApexFin — global app store (plain JS, framework-agnostic)
    Central source of truth so users/role, notifications, budgets,
    approvals, expenses and CAPEX stay in sync across every screen.
    ============================================================ */
@@ -243,7 +243,7 @@
   ];
 
   /* ----------------------------------------------------------
-     Xero multi-report imports (2026-08-19). Coplanistra has no
+     Xero multi-report imports (2026-08-19). ApexFin has no
      Xero API/OAuth connection (static Cloudflare Pages hosting
      has no backend to hold credentials) — instead, the user
      exports each of these reports from Xero as a CSV and uploads
@@ -266,7 +266,7 @@
     { key: 'bankReconciliation', label: 'Bank Reconciliation Report Pack', settings: 'Westpac Account #2077 · as at month-end', purpose: "Confirms Xero's bank balance and unreconciled items" },
     { key: 'bankSummary', label: 'Bank Summary', settings: 'Current period · all bank accounts', purpose: 'Opening/closing balances and cash received/spent per bank account' },
     { key: 'generalLedger', label: 'General Ledger Detail', settings: 'Current month · all accounts · accrual basis', purpose: 'Transaction-level matching, account mapping and duplicate checks' },
-    { key: 'trialBalance', label: 'Trial Balance', settings: 'As at month-end', purpose: 'Control check that Coplanistra totals agree with Xero' },
+    { key: 'trialBalance', label: 'Trial Balance', settings: 'As at month-end', purpose: 'Control check that ApexFin totals agree with Xero' },
     { key: 'agedReceivables', label: 'Aged Receivables Detail', settings: 'As at month-end', purpose: 'Customer amounts outstanding and expected cash receipts' },
     { key: 'agedPayables', label: 'Aged Payables Detail', settings: 'As at month-end', purpose: 'Supplier amounts due and upcoming cash payments' },
   ];

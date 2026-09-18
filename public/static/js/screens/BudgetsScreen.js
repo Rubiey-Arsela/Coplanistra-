@@ -1,5 +1,5 @@
 /* ============================================================
-   Coplanistra — Budgets list (wired)
+   ApexFin — Budgets list (wired)
    Live data from window.Store; functional search / filters /
    sorting-lite / pagination-lite / row actions / New Budget nav.
    ============================================================ */
