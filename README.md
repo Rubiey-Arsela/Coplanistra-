@@ -10,9 +10,23 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://648d59ac.coplanistra.pages.dev (latest deploy — app renamed to ApexFin; see session update "part 5" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
+- **Production**: https://d17dd003.coplanistra.pages.dev (latest deploy — Director's Report month selector; see session update "part 7" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-09-21, part 7) — Director's Report: select by month
+
+**Client ask (verbatim)**: *"director report - should be able to select by month"*
+
+The Director's Report previously always showed the latest imported Xero snapshot for every report type, with no way to view a prior month. Fixed:
+
+- **`store.js`** — three new Store methods:
+  - `monthKeyOf(period, importedAt)`: turns a Xero import's free-text `period` label (e.g. "August 2026", "As at 31 Aug 2026") into a sortable `"YYYY-MM"` key, falling back to the reliable `importedAt` timestamp when `period` doesn't parse (e.g. "Q1 FY2027").
+  - `xeroImportMonths()`: every month with at least one Xero import across all 10 report types, newest first, always including the current real month.
+  - `xeroImportForMonth(type, monthKey)`: the exact snapshot for that month if one exists (`isExactMonth: true`), else the most recent PRIOR snapshot carried forward (`isExactMonth: false`) — the same convention Xero itself uses when a month has no new close, so the report is never blank between imports.
+- **`ReportsScreen.js`** — added a month-picker dropdown to the Director's Report tab's top bar (previously had no period control there at all). `DirectorsReportScreen` now accepts a `monthKey` prop; all 10 Xero-import reads route through a new `xero(type)` helper calling `xeroImportForMonth` instead of always `latestXeroImport`. The report title, CSV/PDF exports, and a new contextual banner reflect the selected month; a "Viewing past month" badge and a "carried forward" note appear when relevant.
+- **Scope**: only the Xero-import-backed sections (the three questions, Xero control checks, ledger activity) change with the month picker. Budgets/Approvals/CAPEX/Cash Flow sections always show the current live position — they have no per-month history in their data model — and this split is called out explicitly in the new banner so it's never ambiguous.
+- **Verified end-to-end via Playwright**: default view (no month selected) behaves identically to before — zero regression; switching to a past month with an exact import shows that month's real figures; a month with no exact import correctly carries forward the last prior snapshot; a fresh/zero-import store still renders cleanly. Zero console errors in every case. Re-ran the part-6 reconciliation-audit regression suite (Trial Balance, Aged Receivables/Payables) — all still pass.
 
 ## Session update (2026-08-31, part 5) — app renamed from Coplanistra to ApexFin
 
