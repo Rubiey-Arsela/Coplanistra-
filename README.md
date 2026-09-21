@@ -10,7 +10,7 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://53484e08.coplanistra.pages.dev (latest deploy — app renamed to ApexFin; see session update "part 5" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
+- **Production**: https://648d59ac.coplanistra.pages.dev (latest deploy — app renamed to ApexFin; see session update "part 5" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
 
@@ -370,3 +370,54 @@ Includes the workspace's real members list (mirrors the client's existing user t
 - **Source control**: ✅ Connected to GitHub — https://github.com/Rubiey-Arsela/Coplanistra- (`main` branch)
 - **Tech Stack**: Hono (backend/static-serving) + React 18 (CDN) + Babel Standalone v7 (CDN, in-browser JSX transform) + vanilla CSS design tokens
 - **Last Updated**: 2026-08-24, part 2 (fix: Excel/PDF Xero exports with a title block above the header row now import correctly, across all import entry points)
+
+## Session update (2026-09-21, part 6) — Xero reconciliation & calculation audit
+
+Ran a full end-to-end audit of every Xero import path (all 10 report types) using
+the client's real Xero export files (CSV/Excel/PDF), driving the actual app UI
+via automated browser tests rather than just reading the code. Found and fixed:
+
+- **Aged Receivables / Aged Payables**: importing the combined "Reconciliation
+  Reports" pack silently pulled the wrong sheet (Trial Balance) and produced
+  garbage "customer/supplier ageing" totals with no error. Fixed by adding
+  `sheetHints` so these two report types now correctly locate their own sheet
+  (and correctly show an error if that sheet is genuinely empty, instead of
+  silently importing wrong data).
+- **Trial Balance PDF import**: could show "Balanced — agrees with Xero" while
+  every actual figure was 0 (caused by Xero's PDF wrapping the Debit/Credit
+  "Year to Date" header across multiple lines, which defeated column
+  detection). Fixed: the control check no longer claims "Balanced" when both
+  totals are exactly zero, and a new generic warning banner ("All amounts
+  read as 0 for the selected rows") now appears in the import preview for
+  **any** of the 10 report types if this class of silent-zero-parse happens
+  again, so it's caught before committing the import.
+- **Cash Flow Actuals**: broadened the Financing-activity detection keywords
+  to include "shareholder", "capital injection/contribution", "equity
+  injection", "drawdown/drawn" — previously a real "Shareholder capital
+  injection" line was misclassified as Operating, understating financing
+  inflows in the Director's Report.
+
+Confirmed correct (no changes needed) via the same real-file, real-UI tests:
+Profit & Loss, Balance Sheet, Account Transactions, Bank Reconciliation, Bank
+Summary, General Ledger Detail, and Trial Balance via CSV/Excel all compute
+totals that tie out exactly to independently-verified ground truth, e.g.:
+- Balance Sheet: Total Assets A$35,295.54 = Total Liabilities A$261,871.20 +
+  Total Equity A$(226,575.66) ✓ balances.
+- Trial Balance: Total Debit = Total Credit = A$226,710.43 ✓ balances.
+- Bank Reconciliation: unreconciled total A$(17,033.76) ties exactly to the
+  sum of the 3 real unreconciled statement lines.
+- Bank balance A$30,816.54 is consistent across Balance Sheet, Trial Balance,
+  Bank Summary and Bank Reconciliation.
+
+**Known remaining limitation (not fixed this session, flagged for awareness):**
+PDF exports for Account Transactions, General Ledger Detail, Bank
+Reconciliation and Bank Summary can suffer column misalignment when Xero
+wraps long descriptions across multiple physical lines in the PDF — this is a
+pre-existing, disclosed PDF-parsing limitation (the UI already recommends
+CSV/Excel for reliable column detection). CSV/Excel imports for every report
+type are fully correct. The three sheets in the combined "Reconciliation
+Reports" pack that have no corresponding report type at all (Fixed Asset
+Reconciliation, General Ledger Exceptions, Journal Report) remain
+unsupported/out of scope, as previously documented.
+
+Live production: https://648d59ac.coplanistra.pages.dev
