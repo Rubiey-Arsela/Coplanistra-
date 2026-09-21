@@ -544,6 +544,67 @@
         { label: '90+ days overdue', value: t.d90plus, money: true, tone: t.d90plus > 0 ? 'danger' : 'success' },
       ]),
     },
+    equityMovement: {
+      icon: 'IconBuilding',
+      hint: 'Reports \u2192 Statement of Changes in Equity (Xero calls this "Movement in Equity") \u2192 set the date range to FY-to-date \u2192 Export \u2192 CSV or Excel.',
+      // NO real client sample of this report exists yet (unlike every
+      // other schema on this page, which was built and verified against
+      // an actual Arsela Xero export) \u2014 built from Xero's documented
+      // report shape instead: one row per EQUITY ACCOUNT (e.g. "Retained
+      // Earnings", "Current Year Earnings", "Share Capital", an "Owner
+      // A Drawings" account, etc), each with an opening balance for the
+      // period, the net movement during the period, and a closing
+      // balance \u2014 the classic three-column shape of a statement of
+      // changes in equity. `account` also doubles as a loose movement-
+      // type guess (see guessSelect) so the Director's Report PDF can
+      // still group "Opening balance"/"Profit for the period"/
+      // "Contributions"/"Distributions"/"Closing balance" sensibly even
+      // if the real export uses different account names than expected.
+      // TREAT AS BEST-EFFORT until validated against a genuine export.
+      fields: [
+        { key: 'account', label: 'Equity account', type: 'text', aliases: ['account', 'line item', 'account name', 'description'] },
+        { key: 'movementType', label: 'Type', type: 'select', options: ['Opening Balance', 'Profit for the Period', 'Contributions', 'Distributions', 'Other Movements', 'Closing Balance'], aliases: [] },
+        { key: 'opening', label: 'Opening balance', type: 'number', aliases: ['opening balance', 'opening'] },
+        { key: 'movement', label: 'Movement', type: 'number', aliases: ['movement', 'net movement', 'change'] },
+        { key: 'closing', label: 'Closing balance', type: 'number', aliases: ['closing balance', 'closing'] },
+      ],
+      requiredKey: 'account',
+      guessSelect: { movementType: (row) => {
+        const a = (row.account || '').toLowerCase();
+        if (/opening/.test(a)) return 'Opening Balance';
+        if (/closing/.test(a)) return 'Closing Balance';
+        if (/(current year earning|profit for|net profit|retained earnings? movement)/.test(a)) return 'Profit for the Period';
+        if (/(drawing|distribution|dividend)/.test(a)) return 'Distributions';
+        if (/(contribution|capital injection|share issue|paid.?in capital)/.test(a)) return 'Contributions';
+        return 'Other Movements';
+      } },
+      computeTotals: (rows) => {
+        const sum = (k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+        const byType = (t) => rows.filter((r) => r.movementType === t).reduce((a, r) => a + (Number(r.movement) || 0), 0);
+        // Opening/closing equity: prefer an explicit "Opening/Closing
+        // Balance" row if the export has one; otherwise fall back to
+        // summing every account's own opening/closing column, which is
+        // the correct total regardless of how the report is laid out.
+        const explicitOpening = rows.find((r) => r.movementType === 'Opening Balance');
+        const explicitClosing = rows.find((r) => r.movementType === 'Closing Balance');
+        const totalOpening = explicitOpening ? Number(explicitOpening.opening || explicitOpening.closing || 0) : sum('opening');
+        const totalClosing = explicitClosing ? Number(explicitClosing.closing || 0) : sum('closing');
+        return {
+          totalOpening, totalClosing,
+          profitForPeriod: byType('Profit for the Period'),
+          contributions: byType('Contributions'),
+          distributions: byType('Distributions'),
+          otherMovements: byType('Other Movements'),
+          netMovement: totalClosing - totalOpening,
+        };
+      },
+      renderTotals: (t) => ([
+        { label: 'Opening equity', value: t.totalOpening, money: true, tone: 'navy' },
+        { label: 'Profit for the period', value: t.profitForPeriod, money: true, tone: t.profitForPeriod >= 0 ? 'success' : 'danger' },
+        { label: 'Contributions / (Distributions)', value: t.contributions - t.distributions, money: true, tone: 'navy' },
+        { label: 'Closing equity', value: t.totalClosing, money: true, tone: 'navy' },
+      ]),
+    },
   };
 
   const ASAT_TYPES = new Set(['balanceSheet', 'trialBalance', 'agedReceivables', 'agedPayables', 'bankReconciliation']);

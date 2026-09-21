@@ -289,6 +289,10 @@
     { key: 'trialBalance', label: 'Trial Balance', settings: 'As at month-end', purpose: 'Control check that ApexFin totals agree with Xero' },
     { key: 'agedReceivables', label: 'Aged Receivables Detail', settings: 'As at month-end', purpose: 'Customer amounts outstanding and expected cash receipts' },
     { key: 'agedPayables', label: 'Aged Payables Detail', settings: 'As at month-end', purpose: 'Supplier amounts due and upcoming cash payments' },
+    // Added 2026-09-21 (client ask: Director's Report PDF must include
+    // a "Statement of Changes in Equity" page comparing this-year-to-
+    // date vs last year) — Xero calls this report "Movement in Equity".
+    { key: 'equityMovement', label: 'Statement of Changes in Equity', settings: 'FY-to-date · compare with same period last year', purpose: 'Opening equity, profit for the period, contributions/distributions, closing equity' },
   ];
   // Every seed array below starts empty ("start fresh" principle — no
   // fabricated Xero data). The team imports real exports via the UI.
@@ -302,6 +306,7 @@
   const seedTrialBalance = [];
   const seedAgedReceivables = [];
   const seedAgedPayables = [];
+  const seedEquityMovement = [];
   // "Documents outside Xero" — generic supporting-document register
   // (bank statements, facility/loan agreements, board resolutions, audit
   // letters, etc). Static hosting stores METADATA only (name, category,
@@ -352,6 +357,7 @@
     trialBalance: seedTrialBalance,
     agedReceivables: seedAgedReceivables,
     agedPayables: seedAgedPayables,
+    equityMovement: seedEquityMovement,
     supportingDocuments: seedSupportingDocuments,
     // Arsela Resources' reporting currency is AUD; MYR remains available
     // as a display option via the currency switcher (CURRENCY_CONFIG
@@ -395,6 +401,7 @@
   if (!state.trialBalance) state.trialBalance = seedTrialBalance;
   if (!state.agedReceivables) state.agedReceivables = seedAgedReceivables;
   if (!state.agedPayables) state.agedPayables = seedAgedPayables;
+  if (!state.equityMovement) state.equityMovement = seedEquityMovement;
   if (!state.supportingDocuments) state.supportingDocuments = seedSupportingDocuments;
   if (!state.currency) state.currency = 'AUD';
   // Force-correct the period label to the live current date on every
@@ -729,9 +736,36 @@
       candidates.sort((a, b) => (a.key !== b.key ? b.key.localeCompare(a.key) : new Date(b.rec.importedAt) - new Date(a.rec.importedAt)));
       return candidates.length ? { ...candidates[0].rec, isExactMonth: false } : null;
     },
+    /** ---- Year-over-year lookup (2026-09-21 client ask: Director's
+     *  Report PDF pages need "this year up to [month] vs LAST YEAR's
+     *  figure" — a full 12-month-back comparison that `priorXeroImport`
+     *  (immediately-preceding snapshot) and `balanceSheet`'s own `prior`
+     *  field (prior MONTH-end) cannot supply. This assumes the client
+     *  has imported the same month a year ago as its own dated Xero
+     *  snapshot (e.g. imported "August 2025" P&L the same way "August
+     *  2026" was imported) — there is no other source for a genuine
+     *  same-period-last-year figure in this app. `monthKey` is the
+     *  report month currently selected ("YYYY-MM"); this shifts it back
+     *  12 months and reuses the same exact-or-carried-forward matching
+     *  as `xeroImportForMonth`, so a close-but-not-exact prior-year
+     *  snapshot (e.g. only "July 2025" on file when viewing "August
+     *  2026") still surfaces rather than showing nothing. Returns null
+     *  if no snapshot exists that far back at all. */
+    xeroImportForYearAgo(type, monthKey) {
+      if (!monthKey) return null;
+      const [y, m] = monthKey.split('-').map(Number);
+      if (!y || !m) return null;
+      const yearAgoKey = `${y - 1}-${String(m).padStart(2, '0')}`;
+      return Store.xeroImportForMonth(type, yearAgoKey);
+    },
 
     // ---- supporting documents outside Xero (metadata only — see
-    // seedSupportingDocuments comment; no raw file bytes persisted) ----
+    // seedSupportingDocuments comment; no raw file bytes persisted).
+    // `amount` (2026-09-21 client ask: "make sure supporting docs
+    // uploaded is reconciled with the figure in xero") is OPTIONAL —
+    // older records logged before this field existed simply have no
+    // amount and are treated as "not yet checked" rather than
+    // "unmatched", see reconcileSupportingDocuments() below. ----
     addSupportingDocument(doc) {
       const id = 'DOC-' + Date.now();
       const currentUser = Store.getCurrentUser();
@@ -743,6 +777,63 @@
     deleteSupportingDocument(id) {
       setState({ supportingDocuments: state.supportingDocuments.filter((d) => d.id !== id) });
       toast('Document removed', 'warning');
+    },
+    /** ---- Supporting-document ↔ Xero reconciliation (2026-09-21
+     *  client ask: "make sure supporting docs uploaded is reconciled
+     *  with the figure in xero"). Scans every transaction-level row
+     *  across every dated snapshot of the three Xero import types that
+     *  actually carry individual transaction amounts — Account
+     *  Transactions, General Ledger Detail, Bank Reconciliation
+     *  (Account Transactions/General Ledger use separate debit/credit
+     *  columns rather than one signed amount, so both are summed to a
+     *  single comparable magnitude per row) — and looks for one whose
+     *  amount is within `AMOUNT_TOLERANCE` of the document's logged
+     *  amount, optionally also requiring the dates to be close (this
+     *  is a fuzzy support-level check, not a strict ledger match, since
+     *  a document date and the Xero posting date are not always the
+     *  same day). Returns one status per document:
+     *    'unchecked'  — the document has no amount logged yet (older
+     *                   records, or the user chose not to enter one)
+     *    'matched'    — at least one Xero transaction within tolerance
+     *                   was found (closest match returned as `match`)
+     *    'unmatched'  — an amount was logged but nothing in any Xero
+     *                   import lines up with it
+     *  This is intentionally read-only / non-destructive — it never
+     *  changes stored data, only annotates documents for display in
+     *  SupportingDocumentsSection. */
+    reconcileSupportingDocuments() {
+      const AMOUNT_TOLERANCE = 0.5; // cents-level rounding slack only
+      const candidates = [];
+      ['accountTransactions', 'generalLedger', 'bankReconciliation'].forEach((type) => {
+        (state[type] || []).forEach((snapshot) => {
+          (snapshot.rows || []).forEach((r) => {
+            let amount = null;
+            if (type === 'bankReconciliation') amount = Number(r.amount) || 0;
+            else amount = (Number(r.debit) || 0) || (Number(r.credit) || 0);
+            if (!amount) return;
+            candidates.push({
+              type, period: snapshot.period, date: r.date || snapshot.period,
+              description: r.description || r.account || '', amount: Math.abs(amount),
+            });
+          });
+        });
+      });
+      const parseDoc = (v) => { const d = new Date(v); return isNaN(d.getTime()) ? null : d; };
+      return state.supportingDocuments.map((doc) => {
+        const docAmount = Number(doc.amount);
+        if (!doc.amount || isNaN(docAmount) || docAmount === 0) {
+          return { ...doc, reconcileStatus: 'unchecked', match: null };
+        }
+        const docDate = parseDoc(doc.date);
+        let best = null, bestDateDelta = Infinity;
+        candidates.forEach((c) => {
+          if (Math.abs(c.amount - Math.abs(docAmount)) > AMOUNT_TOLERANCE) return;
+          const cDate = parseDoc(c.date);
+          const delta = (docDate && cDate) ? Math.abs(cDate - docDate) : Number.MAX_SAFE_INTEGER;
+          if (!best || delta < bestDateDelta) { best = c; bestDateDelta = delta; }
+        });
+        return { ...doc, reconcileStatus: best ? 'matched' : 'unmatched', match: best };
+      });
     },
 
     // ---- taxonomy management: departments / categories / budget codes ----

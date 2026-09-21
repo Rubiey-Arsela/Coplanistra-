@@ -683,6 +683,60 @@ function deriveSectionOverrides(rawRows, sectionHeaderMap) {
   return { sections, skipIndexes };
 }
 
+/* ---- multi-period column detection (client ask, 2026-09-21: "I would
+   like to import 1 year details or ranging 4 months. not only 1 month
+   data"). Xero's "compare with N previous periods" export for P&L /
+   Balance Sheet / Movement in Equity puts ONE COLUMN PER MONTH (e.g.
+   "Jul 2026", "Aug 2026", ... or "31 Jul 2026", "31 Aug 2026", ...)
+   instead of the single-period column the existing schemas expect.
+   detectPeriodColumns scans a header row and returns every column that
+   looks like a genuine month/point-in-time label — NOT a plain number,
+   not a known non-date column word ("Total", "Account", "GST Rate",
+   "Debit - Year to date") and not a date RANGE ("1 July-25 Aug 2026",
+   which is a single FY-to-date column, already handled by the existing
+   single-period schemas via the amount-column fallback). Returns []
+   (not a partial/wrong guess) if fewer than 2 columns look like
+   distinct months, so a normal single-period file is completely
+   unaffected and falls through to the existing single-period import
+   path. ---- */
+function parsePeriodHeaderCell(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return null;
+  // A plain amount ("2,900.00") or a bare small number is never a
+  // period header, even though `new Date('26')` would otherwise parse.
+  if (/^-?\$?\(?[\d,]+(\.\d+)?\)?$/.test(s)) return null;
+  // A date RANGE ("1 July-25 Aug 2026") is a single FY-to-date period,
+  // not one of several distinct months — leave it for the existing
+  // single-period fallback rather than misreading it as one endpoint.
+  if (/\d+\s*[A-Za-z]{3,}[a-z]*\s*[-\u2013]\s*\d+\s*[A-Za-z]{3,}/.test(s)) return null;
+  let d = new Date(s);
+  if (isNaN(d.getTime())) {
+    // "Jul-26" / "Jul 26" / "Jul/26" short-year form — JS Date can't
+    // parse this directly (it reads '26' as 1926), so build it by hand.
+    const m = s.match(/^([A-Za-z]{3,9})[\s\-\/]+(\d{2,4})$/);
+    if (m) {
+      const yr = m[2].length === 2 ? '20' + m[2] : m[2];
+      d = new Date(`${m[1]} 1, ${yr}`);
+    }
+  }
+  if (isNaN(d.getTime())) return null;
+  return { key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: s };
+}
+function detectPeriodColumns(headerRow) {
+  const out = [];
+  (headerRow || []).forEach((cell, idx) => {
+    const parsed = parsePeriodHeaderCell(cell);
+    if (parsed) out.push({ idx, ...parsed });
+  });
+  // Require at least 2 DISTINCT months and no duplicate month sharing
+  // two columns (a genuine single-period export can still contain one
+  // stray date-like cell — e.g. Trial Balance's prior-period column —
+  // which is exactly 1 hit and correctly ignored here).
+  const distinctKeys = new Set(out.map((c) => c.key));
+  if (out.length < 2 || distinctKeys.size < 2) return [];
+  return out;
+}
+
 /* Xero's "Reconciliation Reports" pack export (and, separately, the
    standalone Bank Reconciliation export) are multi-sheet workbooks
    where the one sheet relevant to the report type currently being
@@ -814,5 +868,5 @@ Object.assign(window, {
   fmtMYR, fmtAUD, fmtPct, curLabel, ArsModal, ArsConfirmDialog, ArsField, arsFieldInputStyle,
     exportRowsToCSV, parseCSVText, parseImportFile, findHeaderRowIndex,
     detectColumnsWithFallback, classifyHeaderlessRow, buildHeaderlessRows,
-    deriveSectionOverrides,
+    deriveSectionOverrides, detectPeriodColumns, parsePeriodHeaderCell, pickSheetName,
   });
