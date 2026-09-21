@@ -185,7 +185,13 @@
       guessSelect: { activity: (row) => {
         const d = (row.description || '').toLowerCase();
         if (/(invest|capex|asset purchase|equipment)/.test(d)) return 'Investing';
-        if (/(loan|financing|dividend|share issue|borrowing)/.test(d)) return 'Financing';
+        // Broadened to catch shareholder/related-party equity & debt
+        // movements (confirmed missing: a real "Shareholder capital
+        // injection" line was misclassified as Operating in an earlier
+        // test, understating Financing inflows and overstating Operating
+        // cash generation \u2014 a materially misleading split for a
+        // director's report).
+        if (/(loan|financing|dividend|share issue|borrowing|shareholder|capital injection|capital contribution|equity injection|drawdown|drawn)/.test(d)) return 'Financing';
         return 'Operating';
       } },
       computeTotals: (rows) => {
@@ -456,17 +462,39 @@
       computeTotals: (rows) => {
         const totalDebit = rows.reduce((a, r) => a + (Number(r.debit) || 0), 0);
         const totalCredit = rows.reduce((a, r) => a + (Number(r.credit) || 0), 0);
-        return { totalDebit, totalCredit, balanced: Math.abs(totalDebit - totalCredit) < 1 };
+        // Guard against a false-positive "Balanced" claim: if BOTH sides
+        // are exactly 0 despite real rows being present, that is a sign
+        // column detection failed (e.g. Xero's PDF export wraps "Debit -
+        // Year to Date"/"Credit - Year to Date" across several physical
+        // lines, so the header-matching never locates those columns and
+        // every amount silently defaults to 0) \u2014 confirmed via an
+        // end-to-end test importing the client's real Trial Balance PDF,
+        // which previously showed "Balanced \u2014 agrees with Xero" while
+        // every single figure was actually 0. A genuine zero/zero result
+        // only happens with an empty report, which is also not something
+        // that should be labelled "Balanced" with confidence.
+        const balanced = (totalDebit > 0 || totalCredit > 0) && Math.abs(totalDebit - totalCredit) < 1;
+        return { totalDebit, totalCredit, balanced, zeroParse: rows.length > 0 && totalDebit === 0 && totalCredit === 0 };
       },
       renderTotals: (t) => ([
         { label: 'Total debit', value: t.totalDebit, money: true, tone: 'navy' },
         { label: 'Total credit', value: t.totalCredit, money: true, tone: 'navy' },
-        { label: 'Control check', value: t.balanced ? 'Balanced \u2014 agrees with Xero' : 'Out of balance', money: false, tone: t.balanced ? 'success' : 'danger' },
+        { label: 'Control check', value: t.zeroParse ? 'Check file \u2014 no amounts detected' : (t.balanced ? 'Balanced \u2014 agrees with Xero' : 'Out of balance'), money: false, tone: t.zeroParse ? 'warning' : (t.balanced ? 'success' : 'danger') },
       ]),
     },
     agedReceivables: {
       icon: 'IconArrowDown',
       hint: 'Reports \u2192 Aged Receivables Detail \u2192 as at month-end \u2192 Export \u2192 CSV.',
+      // sheetHints lets this schema also pull the "Aged Receivables
+      // Summary" sheet straight out of the combined Reconciliation
+      // Reports pack \u2014 without this, pickSheetName silently falls
+      // back to the pack's FIRST sheet ("Trial Balance") and this
+      // schema would import completely wrong figures (balance-sheet
+      // account balances misread as customer ageing buckets) with no
+      // error shown, since Trial Balance's columns happen to loosely
+      // alias-match some of this schema's number fields. Confirmed via
+      // an end-to-end import test against the real combined pack.
+      sheetHints: ['aged receivables'],
       fields: [
         { key: 'customer', label: 'Customer', type: 'text', aliases: ['customer', 'contact', 'name'] },
         { key: 'current', label: 'Current', type: 'number', aliases: ['current', 'not yet due'] },
@@ -491,6 +519,10 @@
     agedPayables: {
       icon: 'IconArrowUp',
       hint: 'Reports \u2192 Aged Payables Detail \u2192 as at month-end \u2192 Export \u2192 CSV.',
+      // sheetHints \u2014 see agedReceivables above for why this is required
+      // to avoid silently importing the wrong sheet from the combined
+      // Reconciliation Reports pack.
+      sheetHints: ['aged payables'],
       fields: [
         { key: 'supplier', label: 'Supplier', type: 'text', aliases: ['supplier', 'contact', 'name'] },
         { key: 'current', label: 'Current', type: 'number', aliases: ['current', 'not yet due'] },
@@ -726,6 +758,16 @@
     const toggleAll = (include) => setRows((rs) => rs.map((r) => ({ ...r, include })));
     const includedRows = rows ? rows.filter((r) => r.include) : [];
     const liveTotals = rows ? schema.computeTotals(includedRows, metaValues) : null;
+    // Generic safety net (all report types, not just Trial Balance):
+    // if every number-typed field across every selected row parsed to
+    // exactly 0, that's a strong sign column detection failed silently
+    // (e.g. a wrapped/split header row not recognised) rather than the
+    // report genuinely having no figures \u2014 confirmed by an end-to-end
+    // test importing a real Xero PDF export where this happened. Warn
+    // before the user commits an import that looks fine but is empty.
+    const numberFieldKeys = schema.fields.filter((f) => f.type === 'number').map((f) => f.key);
+    const allNumbersZero = includedRows.length > 0 && numberFieldKeys.length > 0 &&
+      includedRows.every((r) => numberFieldKeys.every((k) => !Number(r[k])));
 
     const reset = () => { setRows(null); setFileName(''); setError(''); if (fileRef.current) fileRef.current.value = ''; };
 
@@ -827,6 +869,11 @@
                 </tbody>
               </table>
             </div>
+            {allNumbersZero && (
+              <div style={{ marginTop: 12, background: '#FFF6E5', border: '1px solid #F0D28A', borderRadius: 8, padding: 10, fontSize: 12, color: '#8A5A00', lineHeight: 1.4 }}>
+                <b>All amounts read as 0 for the selected rows.</b> This usually means the column headers weren't detected correctly (common with PDF exports where headers wrap across lines) rather than the report genuinely being empty. Check the figures below carefully, or try a CSV/Excel export of the same report instead.
+              </div>
+            )}
             {liveTotals && <TotalsStrip reportKey={reportKey} totals={liveTotals}/>}
           </>
         )}
