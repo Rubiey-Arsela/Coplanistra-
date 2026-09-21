@@ -709,17 +709,26 @@ function parsePeriodHeaderCell(raw) {
   // not one of several distinct months — leave it for the existing
   // single-period fallback rather than misreading it as one endpoint.
   if (/\d+\s*[A-Za-z]{3,}[a-z]*\s*[-\u2013]\s*\d+\s*[A-Za-z]{3,}/.test(s)) return null;
-  let d = new Date(s);
-  if (isNaN(d.getTime())) {
-    // "Jul-26" / "Jul 26" / "Jul/26" short-year form — JS Date can't
-    // parse this directly (it reads '26' as 1926), so build it by hand.
-    const m = s.match(/^([A-Za-z]{3,9})[\s\-\/]+(\d{2,4})$/);
-    if (m) {
-      const yr = m[2].length === 2 ? '20' + m[2] : m[2];
-      d = new Date(`${m[1]} 1, ${yr}`);
-    }
+  // "Jul-26" / "Jul 26" / "Jul/26" short-year month-label form — the
+  // exact shape of a Xero "compare with N previous periods" column
+  // header — is checked FIRST and takes priority over the native
+  // Date parser below: `new Date('Jul-25')` does NOT fail, it silently
+  // (mis)parses '25' as a DAY-of-month in some default year (25 Jul,
+  // year unspecified -> often 2001), which would corrupt every month
+  // key if this ran after a bare `new Date(s)` attempt. Confirmed via
+  // a direct `node -e "new Date('Jul-25')"` check during testing.
+  let d = null;
+  const shortForm = s.match(/^([A-Za-z]{3,9})[\s\-\/]+(\d{2,4})$/);
+  if (shortForm) {
+    const yr = shortForm[2].length === 2 ? '20' + shortForm[2] : shortForm[2];
+    const candidate = new Date(`${shortForm[1]} 1, ${yr}`);
+    if (!isNaN(candidate.getTime())) d = candidate;
   }
-  if (isNaN(d.getTime())) return null;
+  if (!d) {
+    const generic = new Date(s);
+    if (!isNaN(generic.getTime())) d = generic;
+  }
+  if (!d || isNaN(d.getTime())) return null;
   return { key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: s };
 }
 function detectPeriodColumns(headerRow) {

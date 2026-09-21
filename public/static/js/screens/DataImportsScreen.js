@@ -91,6 +91,14 @@
         { key: 'ytd', label: 'Amount', type: 'number', aliases: [] },
       ],
       requiredKey: 'account',
+      // Marks which field holds "the" per-period figure — used by the
+      // multi-period import path (client ask 2026-09-21: "import 1 year
+      // details or ranging 4 months, not only 1 month data") to know
+      // which column to re-point at each detected month column when a
+      // single Xero export has one column PER MONTH (Xero's own
+      // "Compare with N previous periods" export option) instead of the
+      // usual single value column.
+      periodValueField: 'ytd',
       sectionHeaderMap: {
         'trading income': 'Revenue', 'income': 'Revenue', 'revenue': 'Revenue', 'sales': 'Revenue',
         'cost of sales': 'Cost of Sales', 'cost of goods sold': 'Cost of Sales',
@@ -139,6 +147,8 @@
         { key: 'prior', label: 'Prior month-end', type: 'number', aliases: ['prior', 'previous month', 'last month'] },
       ],
       requiredKey: 'account',
+      periodValueField: 'current', // see profitAndLoss.periodValueField comment
+
       // Xero's Balance Sheet export groups rows under literal section
       // headers ("Assets", "Liabilities", "Equity" — a standalone line
       // with no figure). Confirmed against the user's real export that
@@ -608,9 +618,18 @@
   };
 
   const ASAT_TYPES = new Set(['balanceSheet', 'trialBalance', 'agedReceivables', 'agedPayables', 'bankReconciliation']);
+  // equityMovement is neither a point-in-time snapshot ("As at...") nor
+  // a single calendar month — Xero's own Statement of Changes in Equity
+  // is always FY-to-date, so its default label spells out the FY start
+  // (1 July) through today, matching how the report is actually run.
+  const FY_TO_DATE_TYPES = new Set(['equityMovement']);
   function defaultPeriodFor(key) {
     const today = window.Store.today();
     if (ASAT_TYPES.has(key)) return `As at ${today.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+    if (FY_TO_DATE_TYPES.has(key)) {
+      const fyStart = window.Store.fyStartDate ? window.Store.fyStartDate(today) : new Date(today.getMonth() >= 6 ? today.getFullYear() : today.getFullYear() - 1, 6, 1);
+      return `1 Jul ${fyStart.getFullYear()} to ${today.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+    }
     return today.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
   }
 
@@ -652,6 +671,18 @@
     const fileRef = useRef(null);
 
     const [parsing, setParsing] = useState(false);
+    // Multi-period import (client ask 2026-09-21: "import 1 year details
+    // or ranging 4 months, not only 1 month data") — when the uploaded
+    // file is Xero's own "compare with N previous periods" export (one
+    // column PER MONTH instead of the usual single value column),
+    // `multiPeriod` holds { columns: [{key,label,rows,totals}], selected:
+    // Set<key> } and the modal shows a per-month checklist + totals
+    // instead of the normal single-snapshot row-editor. Only schemas
+    // with `periodValueField` set (profitAndLoss, balanceSheet so far)
+    // are checked for this — every other report type keeps behaving
+    // exactly as before.
+    const [multiPeriod, setMultiPeriod] = useState(null);
+    const [importingMulti, setImportingMulti] = useState(false);
 
     // Shared row-finalizer used by both the normal (header-found) path
     // and the headerless-PDF fallback path below — fills select/guess
@@ -702,8 +733,31 @@
       return nameVal.length > 0 || hasNumber;
     };
 
+    // Builds one row-set for a single value column index — shared by
+    // both the normal single-period path AND the multi-period split
+    // path (each detected month column reuses this with its own idx).
+    const buildRowsForValueColumn = (dataRows, sections, skipIndexes, cols, valueColIdx) => {
+      return dataRows.map((r, i) => {
+        if (skipIndexes.has(i)) return null;
+        const row = {};
+        schema.fields.forEach((f) => {
+          if (schema.periodValueField && f.key === schema.periodValueField) {
+            row[f.key] = parseAmountCell(valueColIdx !== -1 ? r[valueColIdx] : '');
+            return;
+          }
+          const idx = cols[f.key];
+          const raw = idx !== -1 ? r[idx] : '';
+          if (f.type === 'number') row[f.key] = parseAmountCell(raw);
+          else if (f.type === 'date') row[f.key] = parseDateCell(raw) || period;
+          else if (f.fromSection || f.type === 'select') row[f.key] = sections[i] || '';
+          else row[f.key] = String(raw || '').trim();
+        });
+        return finalizeRow(row, sections[i]);
+      }).filter(Boolean).filter(rowHasContent);
+    };
+
     const handleFile = (file) => {
-      setError(''); setFileName(file.name); setParsing(true);
+      setError(''); setFileName(file.name); setParsing(true); setMultiPeriod(null);
       // Some report types are multi-sheet workbooks (standalone Bank
       // Reconciliation exports, and the combined 7-sheet Reconciliation
       // Reports pack) where the sheet relevant to THIS report type isn't
@@ -733,6 +787,35 @@
           let built;
           if (headerIdx !== -1) {
             const header = parsed[headerIdx];
+            // Multi-period detection (client ask 2026-09-21) — ONLY for
+            // schemas that declare periodValueField (profitAndLoss,
+            // balanceSheet so far). Xero's "compare with N previous
+            // periods" export puts one amount column per month instead
+            // of the usual single value column; detectPeriodColumns
+            // rejects single date-RANGE headers ("1 July-25 Aug 2026")
+            // and lone prior-period date columns (Trial Balance), so it
+            // only fires for genuine multi-month files.
+            if (schema.periodValueField) {
+              const periodCols = detectPeriodColumns(header);
+              if (periodCols.length >= 2) {
+                const nonValueFields = schema.fields.filter((f) => f.key !== schema.periodValueField);
+                const cols = detectColumns(header, nonValueFields);
+                const dataRows = parsed.slice(headerIdx + 1);
+                const { sections, skipIndexes } = deriveSectionOverrides(dataRows, schema.sectionHeaderMap);
+                const columns = periodCols.map((pc) => {
+                  const colRows = buildRowsForValueColumn(dataRows, sections, skipIndexes, cols, pc.idx);
+                  const totals = colRows.length ? schema.computeTotals(colRows.filter((r) => r.include), {}) : null;
+                  return { key: pc.key, label: pc.label, rows: colRows, totals };
+                }).filter((c) => c.rows.length > 0);
+                if (columns.length >= 2) {
+                  setMultiPeriod({ columns, selected: new Set(columns.map((c) => c.key)) });
+                  setRows(null);
+                  return;
+                }
+                // Fewer than 2 columns actually produced usable rows —
+                // fall through to the normal single-period path below.
+              }
+            }
             // Some Xero point-in-time reports (Balance Sheet, Trial
             // Balance) label their one figure column with a literal date
             // ("31 Aug 2026") rather than a generic word, so alias
@@ -847,9 +930,49 @@
       onClose();
     };
 
+    // Confirms the multi-period split: one addXeroImport() snapshot per
+    // SELECTED detected month column, each stamped with that month's own
+    // label as its `period` (so monthKeyOf/xeroImportMonths correctly
+    // treats each as an independent monthly snapshot afterwards, exactly
+    // like a normal single-month import would). Columns the user
+    // unchecked are simply skipped.
+    const toggleMultiPeriodColumn = (key) => {
+      setMultiPeriod((mp) => {
+        if (!mp) return mp;
+        const selected = new Set(mp.selected);
+        if (selected.has(key)) selected.delete(key); else selected.add(key);
+        return { ...mp, selected };
+      });
+    };
+    const doImportMulti = () => {
+      if (!multiPeriod) return;
+      const chosen = multiPeriod.columns.filter((c) => multiPeriod.selected.has(c.key));
+      if (chosen.length === 0) { window.Store.toast('Select at least one month to import', 'danger'); return; }
+      setImportingMulti(true);
+      chosen.forEach((c) => {
+        const cleanRows = c.rows.filter((r) => r.include).map((r) => {
+          const rest = {};
+          Object.keys(r).forEach((k) => { if (k !== 'include') rest[k] = r[k]; });
+          return rest;
+        });
+        const totals = schema.computeTotals(cleanRows, {});
+        window.Store.addXeroImport(reportKey, { period: c.label, fileName, meta: {}, rows: cleanRows, totals });
+      });
+      setImportingMulti(false);
+      window.Store.toast(`Imported ${chosen.length} month${chosen.length === 1 ? '' : 's'} as separate snapshots`, 'success');
+      onClose();
+    };
+
     return (
-      <ArsModal open onClose={onClose} title={`Import ${meta.label} from Xero`} subtitle="No Xero login needed \u2014 export from Xero as CSV, Excel or PDF and upload it here" width={rows ? 820 : 480}
-        footer={rows ? (
+      <ArsModal open onClose={onClose} title={`Import ${meta.label} from Xero`} subtitle="No Xero login needed \u2014 export from Xero as CSV, Excel or PDF and upload it here" width={multiPeriod ? 720 : (rows ? 820 : 480)}
+        footer={multiPeriod ? (
+          <>
+            <ArsButton variant="secondary" onClick={reset}>Choose a different file</ArsButton>
+            <ArsButton onClick={doImportMulti} disabled={importingMulti || multiPeriod.selected.size === 0}>
+              {importingMulti ? 'Importing\u2026' : `Import ${multiPeriod.selected.size} month${multiPeriod.selected.size === 1 ? '' : 's'} as separate snapshots`}
+            </ArsButton>
+          </>
+        ) : rows ? (
           <>
             <ArsButton variant="secondary" onClick={reset}>Choose a different file</ArsButton>
             <ArsButton onClick={doImport} disabled={importing || includedRows.length === 0}>
@@ -859,7 +982,40 @@
         ) : (
           <ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton>
         )}>
-        {!rows ? (
+        {multiPeriod ? (
+          <>
+            <div style={{ background: '#EEF3FF', border: '1px solid #D6E1FF', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12.5, color: 'var(--arsela-navy)', lineHeight: 1.5 }}>
+              <b>Multi-month file detected.</b> {fileName} has a separate column for each of the {multiPeriod.columns.length} months below {'\u2014'} pick which ones to import. Each is stored as its own monthly snapshot, exactly as if you'd imported it separately.
+            </div>
+            <div style={{ border: '1px solid var(--arsela-border)', borderRadius: 8, overflow: 'hidden' }}>
+              {multiPeriod.columns.map((c, i) => {
+                const checked = multiPeriod.selected.has(c.key);
+                const netLabel = c.totals && (c.totals.netProfitYTD != null ? 'Net profit/(loss)' : c.totals.totalAssets != null ? 'Total assets' : null);
+                const netValue = c.totals && (c.totals.netProfitYTD != null ? c.totals.netProfitYTD : c.totals.totalAssets != null ? c.totals.totalAssets : null);
+                return (
+                  <label key={c.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: i < multiPeriod.columns.length - 1 ? '1px solid var(--arsela-border)' : 'none', cursor: 'pointer', background: checked ? '#fff' : '#FAFBFD' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type="checkbox" checked={checked} onChange={() => toggleMultiPeriodColumn(c.key)}/>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>{c.label}</div>
+                        <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)' }}>{c.rows.filter((r) => r.include).length} rows</div>
+                      </div>
+                    </div>
+                    {netLabel && (
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>{netLabel}</div>
+                        <div className="arsela-num" style={{ fontSize: 13.5, fontWeight: 700, color: netValue >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmtAUD(netValue, { compact: true })}</div>
+                      </div>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.4 }}>
+              Rows within each month keep the same include/exclude logic as a normal import (subtotal rows are dropped automatically) {'\u2014'} review them individually afterwards from each month's snapshot if needed.
+            </div>
+          </>
+        ) : !rows ? (
           <>
             <div style={{ background: '#EEF3FF', border: '1px solid #D6E1FF', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12.5, color: 'var(--arsela-navy)', lineHeight: 1.5 }}>
               <b>How to export from Xero:</b> {schema.hint}

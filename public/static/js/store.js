@@ -78,20 +78,33 @@
   }
 
   /** Turn a Xero import snapshot's free-text `period` label (e.g.
-   *  "August 2026", "As at 31 Aug 2026", "As of 30/06/2026") or its
-   *  reliable `importedAt` ISO timestamp into a sortable "YYYY-MM" key.
+   *  "August 2026", "As at 31 Aug 2026", "As of 30/06/2026", or a
+   *  multi-period column label like "Jul-25" from the split-import
+   *  flow — see detectPeriodColumns in primitives.js) or its reliable
+   *  `importedAt` ISO timestamp into a sortable "YYYY-MM" key.
    *  `period` is a free-editable text field (see DataImportsScreen's
-   *  defaultPeriodFor), so it is NOT trusted blindly: we try to parse
-   *  it as a date first (stripping a leading "As at "/"As of "), and
-   *  only fall back to `importedAt` if that fails or looks nonsensical
-   *  (e.g. "Q1 FY2027", "Current month and FY-to-date" -> Invalid Date).
-   *  Returns null only if neither input yields a usable date at all. */
+   *  defaultPeriodFor), so it is NOT trusted blindly: the short "Mon-YY"
+   *  / "Mon YY" form is checked FIRST (native `new Date('Jul-25')` does
+   *  NOT fail — it silently misreads '25' as a DAY rather than a
+   *  2-digit year, landing on some unrelated default year — confirmed
+   *  via an end-to-end test that a multi-period P&L split-import with
+   *  "Jul-25"/"Aug-25"/"Sep-25" column labels produced garbage months
+   *  until this ordering was fixed), then the general date parser
+   *  (stripping a leading "As at "/"As of "), and only falls back to
+   *  `importedAt` if neither yields a usable date at all (e.g. "Q1
+   *  FY2027", "Current month and FY-to-date" -> Invalid Date). Returns
+   *  null only if nothing at all is usable. */
   function monthKeyOf(period, importedAt) {
     const toKey = (d) => (d && !isNaN(d.getTime())) ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : null;
     if (period && typeof period === 'string') {
       const cleaned = period.trim().replace(/^as\s+(at|of)\s+/i, '');
-      const parsed = new Date(cleaned);
-      const key = toKey(parsed);
+      const shortForm = cleaned.match(/^([A-Za-z]{3,9})[\s\-\/]+(\d{2,4})$/);
+      if (shortForm) {
+        const yr = shortForm[2].length === 2 ? '20' + shortForm[2] : shortForm[2];
+        const key = toKey(new Date(`${shortForm[1]} 1, ${yr}`));
+        if (key) return key;
+      }
+      const key = toKey(new Date(cleaned));
       if (key) return key;
     }
     return toKey(importedAt ? new Date(importedAt) : null);
