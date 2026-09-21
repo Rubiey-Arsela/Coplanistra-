@@ -10,9 +10,27 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://d17dd003.coplanistra.pages.dev (latest deploy — Director's Report month selector; see session update "part 7" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
+- **Production**: https://c2065036.coplanistra.pages.dev (latest deploy — Task 14/15 foundation: multi-period Xero import, equityMovement schema, YoY lookup, doc reconciliation; see session update "part 8" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-09-21, part 8) — Multi-period Xero import + Statement of Changes in Equity + supporting-doc reconciliation (FOUNDATION ONLY — see "Not yet done" below)
+
+**Client ask (verbatim)**: *"also I would like to import 1 year details or ranging 4 months. not only 1 month data. the app should be organise the numbers by months and years and make comparisons as well. also make sure supporting docs uploaded is reconciled with the figure in xero."* — plus a follow-up request for a 5-page structured Director's Report PDF (cover / P&L vs last year / monthly FY trend / Statement of Changes in Equity vs last year / Balance Sheet vs last year).
+
+**What's shipped and working:**
+- **Multi-period import** (`primitives.js` `detectPeriodColumns`/`parsePeriodHeaderCell`, wired into `DataImportsScreen.js`'s `ImportReportModal`): uploading a Xero "compare with N previous periods" export (one column per month, e.g. "Jul-25", "Aug-25", "Sep-25") for **Profit and Loss** or **Balance Sheet** now shows a per-month checklist with each month's net result, and imports the selected months as separate dated snapshots in one action — instead of requiring one file per month. Carefully guards against false positives: a normal single-period P&L file (labelled with a literal date RANGE like "1 July-25 Aug 2026") and Trial Balance's lone prior-period date column are both correctly left alone.
+  - **Bug found and fixed during testing**: JavaScript's native `new Date("Jul-25")` misreads short month-year labels — it parses "25" as a *day* of an unrelated default year, not "2025" — which corrupted every detected month key. Fixed in both `parsePeriodHeaderCell` and `monthKeyOf` (store.js) by trying a manual "Mon-YY" regex first.
+- **New Xero report type: Statement of Changes in Equity** (`equityMovement`) registered end-to-end (Data Imports card, import schema with Opening/Movement/Closing equity fields, FY-to-date period labelling). **No real client sample file exists for this report** — the schema is built from Xero's documented report shape only and should be treated as best-effort until tested against a genuine export.
+- **Year-over-year lookup**: `Store.xeroImportForYearAgo(type, monthKey)` — finds the snapshot for the same month 12 months earlier (relies on the client having imported last year's same-period data as its own dated snapshot).
+- **Supporting-document reconciliation**: `Store.reconcileSupportingDocuments()` fuzzy-matches each logged supporting document's amount (when present) against Account Transactions / General Ledger / Bank Reconciliation import rows, returning `matched` / `unmatched` / `unchecked` status.
+- Verified via Playwright end-to-end: uploaded a synthetic 3-month P&L CSV, confirmed the multi-month detection UI, imported all 3, and confirmed 3 correctly-dated separate snapshots (July/August/September 2025) landed in `xeroImportMonths()`. Zero console errors.
+
+**Not yet done (next session):**
+1. Supporting documents have no `amount` field in the "Log document" form yet, and `reconcileSupportingDocuments()`'s matched/unmatched status is not yet surfaced anywhere in the UI.
+2. No month/year comparison trend table or chart view has been built yet (Task 14b) — the data (`xeroImportMonths()`) is available but there's no screen showing several months side-by-side.
+3. The 5-page structured Director's Report PDF (cover / P&L-vs-last-year / monthly-trend / equity-vs-last-year / balance-sheet-vs-last-year) has **not been started** — `ReportsScreen.js`'s `exportPDF()` is still the original single-flow version.
+4. The `equityMovement` schema needs validation against a real Xero "Movement in Equity" export as soon as the client can provide one.
 
 ## Session update (2026-09-21, part 7) — Director's Report: select by month
 
