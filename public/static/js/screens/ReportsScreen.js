@@ -98,7 +98,26 @@
      autoTable client-side (no backend — Cloudflare Pages is static),
      "Export CSV" uses the same exportRowsToCSV pattern as every other
      screen. This is a real, data-driven report, not a static template. ---- */
-  const DirectorsReportScreen = ({ s }) => {
+  const DirectorsReportScreen = ({ s, monthKey }) => {
+    // ---- Client ask (2026-09-21): "director report - should be able to
+    // select by month". Every Xero-import-backed figure in this report
+    // (the three questions, Xero control checks, ledger activity) is
+    // pulled through `xero(type)` below instead of calling
+    // window.Store.latestXeroImport(type) directly, so the WHOLE report
+    // can be pointed at any month that has Xero data via the month
+    // picker in the parent ReportsScreen's top bar. When `monthKey` is
+    // the current/latest month (the default) this behaves exactly as
+    // before. When an EXACT snapshot for the selected month doesn't
+    // exist, the most recent PRIOR snapshot is carried forward
+    // (isExactMonth: false) — same convention Xero itself uses for a
+    // month with no new close — and the UI below flags this so a
+    // director never mistakes a carried-forward figure for a fresh one.
+    // NOTE: budgets/approvals/CAPEX/cash-flow-scenario sections further
+    // down are intentionally NOT month-filtered — the Budgets module
+    // has no per-month history in its data model (it tracks a single
+    // live "as of now" position per line), so those sections always
+    // show the current live position regardless of the month selected.
+    const xero = (type) => (window.Store.xeroImportForMonth ? window.Store.xeroImportForMonth(type, monthKey) : (window.Store.latestXeroImport ? window.Store.latestXeroImport(type) : null));
     const budgets = s.budgets || [];
     const approvals = s.approvals || [];
     const expenses = s.expenses || [];
@@ -158,11 +177,11 @@
     // Each pulls from the latest Xero Data Imports snapshot for its
     // report type and shows an honest empty state until that report has
     // been imported at least once — no fabricated numbers.
-    const latestPL = window.Store.latestXeroImport ? window.Store.latestXeroImport('profitAndLoss') : null;
-    const latestBS = window.Store.latestXeroImport ? window.Store.latestXeroImport('balanceSheet') : null;
-    const latestAR = window.Store.latestXeroImport ? window.Store.latestXeroImport('agedReceivables') : null;
-    const latestAP = window.Store.latestXeroImport ? window.Store.latestXeroImport('agedPayables') : null;
-    const latestCFA = window.Store.latestXeroImport ? window.Store.latestXeroImport('cashFlowActuals') : null;
+    const latestPL = xero('profitAndLoss');
+    const latestBS = xero('balanceSheet');
+    const latestAR = xero('agedReceivables');
+    const latestAP = xero('agedPayables');
+    const latestCFA = xero('cashFlowActuals');
     // ---- 2026-08-26 fix: the report above only ever read 5 of the 10
     // Xero report types the Data Imports hub actually supports, so
     // anything imported as Account Transactions / Bank Summary / Bank
@@ -172,13 +191,18 @@
     // pulls, plus the completeness banner and activity cards further
     // below, close that gap so every imported Xero report is surfaced
     // here automatically, with no re-entry required.
-    const latestAT = window.Store.latestXeroImport ? window.Store.latestXeroImport('accountTransactions') : null;
-    const latestBSum = window.Store.latestXeroImport ? window.Store.latestXeroImport('bankSummary') : null;
-    const latestBR = window.Store.latestXeroImport ? window.Store.latestXeroImport('bankReconciliation') : null;
-    const latestGL = window.Store.latestXeroImport ? window.Store.latestXeroImport('generalLedger') : null;
-    const latestTB = window.Store.latestXeroImport ? window.Store.latestXeroImport('trialBalance') : null;
+    const latestAT = xero('accountTransactions');
+    const latestBSum = xero('bankSummary');
+    const latestBR = xero('bankReconciliation');
+    const latestGL = xero('generalLedger');
+    const latestTB = xero('trialBalance');
     const xeroTypeList = window.Store.xeroReportTypes ? window.Store.xeroReportTypes() : [];
-    const xeroStatus = xeroTypeList.map((t) => ({ ...t, latest: window.Store.latestXeroImport ? window.Store.latestXeroImport(t.key) : null }));
+    const xeroStatus = xeroTypeList.map((t) => ({ ...t, latest: xero(t.key) }));
+    // True if ANY Xero-backed figure shown above was carried forward
+    // from a prior month rather than being an exact match for the
+    // selected month — drives the "carried forward" banner in the JSX.
+    const anyCarriedForward = [latestPL, latestBS, latestAR, latestAP, latestCFA, latestAT, latestBSum, latestBR, latestGL, latestTB]
+      .some((rec) => rec && rec.isExactMonth === false);
     const xeroImportedCount = xeroStatus.filter((t) => t.latest).length;
     const xeroMissing = xeroStatus.filter((t) => !t.latest);
     // Real bank cash position (Bank Summary) — when available this
@@ -381,14 +405,25 @@
       .sort((a, b) => Math.abs(b.forecastVariance) - Math.abs(a.forecastVariance));
 
     const REPORT_DATE = window.Store.today();
-    const monthLabel = REPORT_DATE.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+    // "Report month" (what this report is ABOUT) vs. "prepared" date
+    // (when it was generated — always today, since the app always
+    // compiles the report on demand). Viewing a past month via the
+    // picker changes monthLabel/isCurrentMonth but never dateLabel —
+    // a director should always see when a snapshot was actually pulled.
+    const [reportMonthY, reportMonthM] = (monthKey || '').split('-').map(Number);
+    const reportMonthDate = (reportMonthY && reportMonthM) ? new Date(reportMonthY, reportMonthM - 1, 1) : REPORT_DATE;
+    const monthLabel = reportMonthDate.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
     const dateLabel = REPORT_DATE.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+    const isCurrentMonth = !monthKey || monthKey === `${REPORT_DATE.getFullYear()}-${String(REPORT_DATE.getMonth() + 1).padStart(2, '0')}`;
     // An incomplete month/period must be labeled a preliminary snapshot,
     // not presented as a complete closed-period report. Now also folds
     // in real imported bank-reconciliation items (see combinedPendingCount
     // above) so this can't say "Reconciled" while a real Xero import
-    // shows unreconciled bank lines.
-    const isPreliminary = combinedPendingCount > 0 || fyPct < 1;
+    // shows unreconciled bank lines. A past month being VIEWED is never
+    // "preliminary" in the fyPct-incomplete sense (that only applies to
+    // the current, still-in-progress month) — only its own reconciliation
+    // state matters.
+    const isPreliminary = combinedPendingCount > 0 || (isCurrentMonth && fyPct < 1);
 
     const exportCSV = () => {
       exportRowsToCSV(
@@ -617,7 +652,7 @@
       <div>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
           <div>
-            <div className="arsela-h1" style={{ fontSize: 20, letterSpacing: -0.3 }}>Monthly Director's Report — {monthLabel}</div>
+            <div className="arsela-h1" style={{ fontSize: 20, letterSpacing: -0.3, display: 'flex', alignItems: 'center', gap: 10 }}>Monthly Director's Report — {monthLabel}{!isCurrentMonth && <ArsBadge tone="neutral" size="sm">Viewing past month</ArsBadge>}</div>
             <div style={{ fontSize: 13, color: 'var(--arsela-text-muted)', marginTop: 4 }}>Auto-compiled from live budget, approvals, CAPEX and cash flow data · prepared {dateLabel} · {FY_PERIOD_LABEL}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -625,6 +660,31 @@
             <ArsButton size="md" icon={<IconExport size={15}/>} onClick={exportPDF}>Export PDF</ArsButton>
           </div>
         </div>
+
+        {/* ---- Month-selector context banner (client ask, 2026-09-21):
+            "director report - should be able to select by month". Only
+            the Xero-import-backed sections below (three questions, Xero
+            control checks, ledger activity) actually change with the
+            month picker in the top bar — Budgets/Approvals/CAPEX/Cash
+            Flow have no per-month history in their data model and
+            always show the current live position, so that split is
+            called out explicitly here to avoid any ambiguity. ---- */}
+        {!isCurrentMonth && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 10, marginBottom: 20,
+            background: '#EEF3FF', border: '1px solid #D6E1FF',
+          }}>
+            <ArsBadge tone="neutral" dot size="sm">Historical view</ArsBadge>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>
+                Viewing Xero data for {monthLabel}{anyCarriedForward ? ' (some figures carried forward from the last import before this month)' : ''}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>
+                The three questions, Xero control checks and ledger activity below reflect {monthLabel}. Budgets, approvals, CAPEX and cash flow sections always show the current live position — those have no month-by-month history yet.
+              </div>
+            </div>
+          </div>
+        )}
 
         <div onClick={() => window.Router.go('/reconciliations')} title="Click to open the Reconciliations module" style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 10, cursor: 'pointer', marginBottom: 20,
@@ -1127,9 +1187,33 @@
     const [showPeriodMenu, setShowPeriodMenu] = React.useState(false);
     const periodRef = React.useRef(null);
 
+    // ---- Director's Report month picker (client ask, 2026-09-21):
+    // "director report - should be able to select by month". Options
+    // come from window.Store.xeroImportMonths() — every month that has
+    // at least one Xero import across any of the 10 report types, plus
+    // the current real month so the list is never empty. Defaults to
+    // the newest (current) month, matching the report's prior always-
+    // latest behaviour until a director actively picks a past month.
+    const xeroMonths = window.Store.xeroImportMonths ? window.Store.xeroImportMonths() : [];
+    const [reportMonthKey, setReportMonthKey] = React.useState(xeroMonths[0] ? xeroMonths[0].key : null);
+    const [showMonthMenu, setShowMonthMenu] = React.useState(false);
+    const monthRef = React.useRef(null);
+    // If a new (newer) month becomes available — e.g. the director just
+    // imported this month's Xero reports for the first time — track the
+    // newest key so the picker's default keeps pace, but never override
+    // a month the user has deliberately selected.
+    const newestMonthKey = xeroMonths[0] ? xeroMonths[0].key : null;
+    const reportMonthKeyRef = React.useRef(reportMonthKey);
+    React.useEffect(() => {
+      if (reportMonthKeyRef.current == null && newestMonthKey) setReportMonthKey(newestMonthKey);
+    }, [newestMonthKey]);
+    React.useEffect(() => { reportMonthKeyRef.current = reportMonthKey; }, [reportMonthKey]);
+    const selectedMonthLabel = (xeroMonths.find((m) => m.key === reportMonthKey) || {}).label || 'Select month';
+
     React.useEffect(() => {
       const onDoc = (e) => {
         if (periodRef.current && !periodRef.current.contains(e.target)) setShowPeriodMenu(false);
+        if (monthRef.current && !monthRef.current.contains(e.target)) setShowMonthMenu(false);
       };
       document.addEventListener('mousedown', onDoc);
       return () => document.removeEventListener('mousedown', onDoc);
@@ -1200,7 +1284,40 @@
         title="Reports & Analytics"
         breadcrumb={['Arsela Resources','Analyse','Reports']}
         topActions={
-          activeTab === 'Director\'s report' ? null : (
+          activeTab === 'Director\'s report' ? (
+            // ---- Month picker (client ask, 2026-09-21): "director
+            // report - should be able to select by month" — lets a
+            // director view the report for any month that has Xero
+            // data imported, not just the latest one. Distinct from
+            // the quarter/FY PERIODS picker used by the other tabs
+            // (this one is grained to actual Xero-import months).
+            <div style={{ display: 'flex', gap: 8, position: 'relative' }} ref={monthRef}>
+              <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => setShowMonthMenu(v => !v)}>{selectedMonthLabel}</ArsButton>
+              {showMonthMenu && (
+                <div style={{
+                  position: 'absolute', top: 42, right: 0, background: '#fff',
+                  border: '1px solid var(--arsela-border)', borderRadius: 10, boxShadow: 'var(--arsela-shadow-card)',
+                  zIndex: 20, minWidth: 200, maxHeight: 320, overflowY: 'auto', padding: 6,
+                }}>
+                  {xeroMonths.length === 0 && (
+                    <div style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--arsela-text-muted)' }}>No months available yet</div>
+                  )}
+                  {xeroMonths.map((m) => (
+                    <div key={m.key} onClick={() => { setReportMonthKey(m.key); setShowMonthMenu(false); }} style={{
+                      padding: '8px 10px', fontSize: 13, borderRadius: 6, cursor: 'pointer',
+                      color: m.key === reportMonthKey ? 'var(--arsela-blue)' : 'var(--arsela-navy)',
+                      fontWeight: m.key === reportMonthKey ? 700 : 500,
+                      background: m.key === reportMonthKey ? 'var(--arsela-blue-50)' : 'transparent',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                    }}>
+                      {m.label}
+                      {m.key === newestMonthKey && <span style={{ fontSize: 10, color: 'var(--arsela-text-muted)', fontWeight: 500 }}>Latest</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
             <div style={{ display: 'flex', gap: 8, position: 'relative' }} ref={periodRef}>
               <ArsButton variant="secondary" size="md" icon={<IconCalendar size={15}/>} onClick={() => setShowPeriodMenu(v => !v)}>{period}</ArsButton>
               {showPeriodMenu && (
@@ -1238,7 +1355,7 @@
         </div>
 
         {activeTab === 'Director\'s report' ? (
-          <DirectorsReportScreen s={s}/>
+          <DirectorsReportScreen s={s} monthKey={reportMonthKey}/>
         ) : activeTab !== 'Variance analysis' ? (
           <ArsCard>
             <ArsEmpty

@@ -77,6 +77,26 @@
     return `FY${fyYearOf(date)}`;
   }
 
+  /** Turn a Xero import snapshot's free-text `period` label (e.g.
+   *  "August 2026", "As at 31 Aug 2026", "As of 30/06/2026") or its
+   *  reliable `importedAt` ISO timestamp into a sortable "YYYY-MM" key.
+   *  `period` is a free-editable text field (see DataImportsScreen's
+   *  defaultPeriodFor), so it is NOT trusted blindly: we try to parse
+   *  it as a date first (stripping a leading "As at "/"As of "), and
+   *  only fall back to `importedAt` if that fails or looks nonsensical
+   *  (e.g. "Q1 FY2027", "Current month and FY-to-date" -> Invalid Date).
+   *  Returns null only if neither input yields a usable date at all. */
+  function monthKeyOf(period, importedAt) {
+    const toKey = (d) => (d && !isNaN(d.getTime())) ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : null;
+    if (period && typeof period === 'string') {
+      const cleaned = period.trim().replace(/^as\s+(at|of)\s+/i, '');
+      const parsed = new Date(cleaned);
+      const key = toKey(parsed);
+      if (key) return key;
+    }
+    return toKey(importedAt ? new Date(importedAt) : null);
+  }
+
   function loadPersisted() {
     try {
       const raw = localStorage.getItem(LS_KEY);
@@ -665,6 +685,49 @@
     priorXeroImport(type) {
       const arr = state[type];
       return arr && arr.length > 1 ? arr[1] : null;
+    },
+    /** ---- Director's Report month selection (2026-09-21 client ask:
+     *  "director report - should be able to select by month"). Every
+     *  Xero import snapshot already carries a free-text `period` label
+     *  (e.g. "August 2026", "As at 31 Aug 2026") plus a reliable
+     *  `importedAt` timestamp — monthKeyOf() turns either into a sortable
+     *  "YYYY-MM" key so a report month can be matched against whichever
+     *  snapshot actually covers it, across all 10 report types. */
+    monthKeyOf,
+    /** Every month that has at least one Xero import across any report
+     *  type, newest first, plus the current real month so the selector
+     *  is never empty before anything has been imported. Each entry is
+     *  { key: 'YYYY-MM', label: 'August 2026' }. */
+    xeroImportMonths() {
+      const keys = new Set();
+      XERO_REPORT_TYPES.forEach((t) => {
+        (state[t.key] || []).forEach((rec) => {
+          const k = monthKeyOf(rec.period, rec.importedAt);
+          if (k) keys.add(k);
+        });
+      });
+      const now = APP_TODAY();
+      keys.add(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+      return Array.from(keys).sort().reverse().map((key) => {
+        const [y, m] = key.split('-').map(Number);
+        return { key, label: new Date(y, m - 1, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }) };
+      });
+    },
+    /** The best snapshot for a report type for a given "YYYY-MM" report
+     *  month: an exact month match if one exists (isExactMonth: true),
+     *  else the most recent snapshot AT OR BEFORE that month (carried
+     *  forward, isExactMonth: false — e.g. viewing September with only
+     *  an August import still shows August's real figures rather than
+     *  nothing), else null if no snapshot exists that early at all. */
+    xeroImportForMonth(type, monthKey) {
+      const arr = state[type];
+      if (!arr || !arr.length || !monthKey) return null;
+      const withKeys = arr.map((rec) => ({ rec, key: monthKeyOf(rec.period, rec.importedAt) }));
+      const exact = withKeys.find((x) => x.key === monthKey);
+      if (exact) return { ...exact.rec, isExactMonth: true };
+      const candidates = withKeys.filter((x) => x.key && x.key <= monthKey);
+      candidates.sort((a, b) => (a.key !== b.key ? b.key.localeCompare(a.key) : new Date(b.rec.importedAt) - new Date(a.rec.importedAt)));
+      return candidates.length ? { ...candidates[0].rec, isExactMonth: false } : null;
     },
 
     // ---- supporting documents outside Xero (metadata only — see
