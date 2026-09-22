@@ -1168,7 +1168,7 @@
     };
 
     return (
-      <ArsModal open onClose={onClose} title={`Import ${meta.label} from Xero`} subtitle="No Xero login needed \u2014 export from Xero as CSV, Excel or PDF and upload it here" width={multiPeriod ? 720 : (rows ? 820 : 480)}
+      <ArsModal open onClose={onClose} title={`Import ${meta.label} from Xero`} subtitle={"No Xero login needed \u2014 export from Xero as CSV, Excel or PDF and upload it here"} width={multiPeriod ? 720 : (rows ? 820 : 480)}
         footer={multiPeriod ? (
           <>
             <ArsButton variant="secondary" onClick={reset}>Choose a different file</ArsButton>
@@ -1327,7 +1327,7 @@
                     <IconChevronDown size={13} style={{ transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)', color: 'var(--arsela-text-muted)', flexShrink: 0 }}/>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--arsela-navy)' }}>{snap.period}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)' }}>{snap.fileName} \u2014 imported {new Date(snap.importedAt).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })} \u2014 {snap.rows.length} rows</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)' }}>{snap.fileName} {'\u2014'} imported {new Date(snap.importedAt).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })} {'\u2014'} {snap.rows.length} rows</div>
                     </div>
                     <button onClick={(e) => { e.stopPropagation(); if (confirm(`Remove this ${meta.label} snapshot (${snap.period})? This cannot be undone.`)) window.Store.deleteXeroImport(reportKey, snap.id); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-danger)', display: 'flex', flexShrink: 0 }}><IconTrash size={14}/></button>
                   </div>
@@ -1460,18 +1460,18 @@
       onClose();
     };
     return (
-      <ArsModal open onClose={onClose} title="Log a supporting document" subtitle="Outside Xero \u2014 attach the file, we'll try to read the amount off a PDF automatically"
+      <ArsModal open onClose={onClose} title="Log a supporting document" subtitle={"Outside Xero \u2014 attach the file, we'll try to read the amount off a PDF automatically"}
         footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={submit} disabled={reading}>{isReupload ? 'Save as new version' : 'Add document'}</ArsButton></>}>
         <div style={{ background: '#FFF8E6', border: '1px solid #F5E0A3', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12, color: '#7A5B0A', lineHeight: 1.5 }}>
-          The file itself is stored (not just its name) so it can be reopened later via the View button. PDF uploads are scanned for a total/amount automatically \u2014 always double-check the figure before saving. Max file size 5MB.
+          The file itself is stored (not just its name) so it can be reopened later via the View button. PDF uploads are scanned for a total/amount automatically {'\u2014'} always double-check the figure before saving. Max file size 5MB.
         </div>
         {isReupload && (
           <div style={{ background: 'var(--arsela-blue-50)', border: '1px solid var(--arsela-blue)', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: 'var(--arsela-blue)', lineHeight: 1.5 }}>
-            <IconRefresh size={12} style={{ marginRight: 5, verticalAlign: 'text-bottom' }}/>A document named "{form.name.trim()}" is already logged \u2014 this will be saved as a new version (or merged if the figure is unchanged), keeping full history.
+            <IconRefresh size={12} style={{ marginRight: 5, verticalAlign: 'text-bottom' }}/>A document named "{form.name.trim()}" is already logged {'\u2014'} this will be saved as a new version (or merged if the figure is unchanged), keeping full history.
           </div>
         )}
         <ArsField label="Document name" hint="Re-using the same name as an existing document logs this as a new version of it, instead of a separate document.">
-          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Westpac facility agreement \u2014 renewal 2026" style={arsFieldInputStyle}/>
+          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={"e.g. Westpac facility agreement \u2014 renewal 2026"} style={arsFieldInputStyle}/>
         </ArsField>
         <input ref={fileRef} type="file" onChange={onFilePick} style={{ display: 'none' }}/>
         <button onClick={() => fileRef.current && fileRef.current.click()} disabled={reading} style={{ border: '1px dashed var(--arsela-border-strong)', borderRadius: 8, padding: '8px 12px', background: '#FAFBFD', fontSize: 12, color: 'var(--arsela-text-muted)', cursor: reading ? 'default' : 'pointer', width: '100%', textAlign: 'left', marginBottom: 12, fontFamily: 'inherit' }}>
@@ -1491,7 +1491,7 @@
         <ArsField label="Amount (optional)" hint={amountAuto ? 'Auto-read from the PDF \u2014 please verify this is correct before saving.' : "Enter the amount on this document so it can be checked against imported Xero transactions, and so re-uploads can be compared version-to-version. Leave blank if this document doesn't correspond to a single figure."}>
           <input type="number" step="0.01" value={form.amount} onChange={(e) => { setForm({ ...form, amount: e.target.value }); setAmountAuto(false); }} placeholder="e.g. 2900.00" style={arsFieldInputStyle}/>
         </ArsField>
-        <ArsField label="Note" hint="Optional \u2014 where it's actually kept, who to ask, key terms, etc.">
+        <ArsField label="Note" hint={"Optional \u2014 where it's actually kept, who to ask, key terms, etc."}>
           <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={3} style={{ ...arsFieldInputStyle, height: 'auto', paddingTop: 8, paddingBottom: 8, resize: 'vertical' }}/>
         </ArsField>
       </ArsModal>
@@ -1538,7 +1538,7 @@
     const unmatchedCount = docs.filter((d) => d.reconcileStatus === 'unmatched').length;
     return (
       <ArsCard>
-        <ArsSectionHeader title="Supporting documents (outside Xero)" subtitle="Bank statements, facility agreements, board resolutions, audit letters, etc \u2014 file + amount register, reconciled against imported Xero transactions, with full version history on re-upload" action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => setAddOpen(true)}>Log document</ArsButton>}/>
+        <ArsSectionHeader title="Supporting documents (outside Xero)" subtitle={"Bank statements, facility agreements, board resolutions, audit letters, etc \u2014 file + amount register, reconciled against imported Xero transactions, with full version history on re-upload"} action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => setAddOpen(true)}>Log document</ArsButton>}/>
         {docs.length === 0 ? (
           <ArsEmpty icon={<IconFile size={20}/>} title="No documents logged yet" body="Log board resolutions, loan agreements, bank statements or other non-Xero documents your director's report should reference. Attach a PDF to have the amount auto-read, and to have it checked against your Xero imports."/>
         ) : (
@@ -1568,7 +1568,7 @@
                             </button>
                           )}
                         </div>
-                        <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{d.category} \u2022 {d.date} {d.addedBy ? `\u2022 logged by ${d.addedBy}` : ''}{d.note ? ` \u2014 ${d.note}` : ''}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{d.category} {'\u2022'} {d.date} {d.addedBy ? `\u2022 logged by ${d.addedBy}` : ''}{d.note ? ` \u2014 ${d.note}` : ''}</div>
                       </div>
                       <ArsBadge tone={badge.tone} size="sm"><BadgeIcon size={11} style={{ marginRight: 3, verticalAlign: 'text-bottom' }}/>{badge.label}</ArsBadge>
                       <button onClick={() => viewSupportingDocumentFile(d.versions[0])} title={d.fileDataUrl ? 'View the attached file' : 'No file attached to this version'} disabled={!d.fileDataUrl} style={{ border: '1px solid var(--arsela-border-strong)', background: '#fff', borderRadius: 6, padding: '4px 9px', cursor: d.fileDataUrl ? 'pointer' : 'not-allowed', color: d.fileDataUrl ? 'var(--arsela-blue)' : 'var(--arsela-text-subtle)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600, flexShrink: 0 }}>
