@@ -192,7 +192,35 @@
         { key: 'ytd', label: 'YTD', type: 'number', aliases: ['ytd', 'year to date'] },
       ],
       requiredKey: 'description',
+      // Confirmed 2026-09-22 against the client's real
+      // Statement_of_Cash_Flows.xlsx: it's the SAME Xero "compare with N
+      // previous periods" multi-month export shape as Profit and Loss /
+      // Balance Sheet (one amount column per month). Without this flag,
+      // detectPeriodColumns never even ran here, so the multi-period
+      // checklist never appeared — the file silently fell through to the
+      // normal single-period path, which grabbed only the LAST TWO
+      // columns present as "current"/"ytd" and dropped the other 3
+      // months' figures with no error or warning. periodValueField:
+      // 'current' turns on the same per-month split-import UI already
+      // shipped for profitAndLoss/balanceSheet, so every month in the
+      // file is preserved as its own dated snapshot instead of 3 of 5
+      // months being silently discarded.
+      periodValueField: 'current',
+      // "Operating Activities" / "Investing Activities" / "Financing
+      // Activities" appear as standalone section-header rows (no figure
+      // of their own) in the real export \u2014 without this map they'd be
+      // imported as spurious extra rows (description-only, amount 0,
+      // defaulting to Operating via guessSelect). Harmless to totals
+      // (0 contributes nothing) but clutters the review checklist, so
+      // skip them the same way Balance Sheet skips "Assets"/"Liabilities".
+      sectionHeaderMap: { 'operating activities': 'Operating', 'investing activities': 'Investing', 'financing activities': 'Financing' },
       guessSelect: { activity: (row) => {
+        // Section header ("Operating/Investing/Financing Activities")
+        // already gave this row a reliable activity via sectionHeaderMap
+        // above \u2014 keep it, same pattern as Balance Sheet/P&L's
+        // classification guessers, instead of letting the keyword guess
+        // below clobber a value we already trust more.
+        if (row.activity) return row.activity;
         const d = (row.description || '').toLowerCase();
         if (/(invest|capex|asset purchase|equipment)/.test(d)) return 'Investing';
         // Broadened to catch shareholder/related-party equity & debt
