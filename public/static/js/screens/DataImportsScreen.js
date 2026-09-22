@@ -1197,7 +1197,7 @@
   /* ---- supporting documents outside Xero (metadata only) ---- */
   const DOC_CATEGORIES = ['Bank Statement', 'Facility / Loan Agreement', 'Board Resolution', 'Audit Letter', 'Insurance Policy', 'Contract', 'Other'];
   function AddDocumentModal({ onClose }) {
-    const [form, setForm] = useState({ name: '', category: DOC_CATEGORIES[0], date: window.Store.today().toISOString().slice(0, 10), note: '' });
+    const [form, setForm] = useState({ name: '', category: DOC_CATEGORIES[0], date: window.Store.today().toISOString().slice(0, 10), note: '', amount: '' });
     const fileRef = useRef(null);
     const onFilePick = (e) => {
       const f = e.target.files && e.target.files[0];
@@ -1205,11 +1205,11 @@
     };
     const submit = () => {
       if (!form.name.trim()) { window.Store.toast('Document name is required', 'danger'); return; }
-      window.Store.addSupportingDocument({ name: form.name.trim(), category: form.category, date: form.date, note: form.note.trim() });
+      window.Store.addSupportingDocument({ name: form.name.trim(), category: form.category, date: form.date, note: form.note.trim(), amount: form.amount === '' ? null : Number(form.amount) });
       onClose();
     };
     return (
-      <ArsModal open onClose={onClose} title="Log a supporting document" subtitle="Outside Xero \u2014 metadata only (name, category, date, note)"
+      <ArsModal open onClose={onClose} title="Log a supporting document" subtitle="Outside Xero \u2014 metadata only (name, category, date, note, optional amount)"
         footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={submit}>Add document</ArsButton></>}>
         <div style={{ background: '#FFF8E6', border: '1px solid #F5E0A3', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12, color: '#7A5B0A', lineHeight: 1.5 }}>
           ApexFin is a static, backend-free app \u2014 it can log that a document exists (name, category, date, note) but cannot store the raw file itself. Keep the actual file in your usual shared drive and reference it here.
@@ -1231,6 +1231,9 @@
             <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} style={arsFieldInputStyle}/>
           </ArsField></div>
         </div>
+        <ArsField label="Amount (optional)" hint="Client ask (2026-09-21): 'make sure supporting docs uploaded is reconciled with the figure in xero' \u2014 enter the amount on this document so it can be checked against imported Xero transactions. Leave blank if this document doesn't correspond to a single figure.">
+          <input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="e.g. 2900.00" style={arsFieldInputStyle}/>
+        </ArsField>
         <ArsField label="Note" hint="Optional \u2014 where it's actually kept, who to ask, key terms, etc.">
           <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={3} style={{ ...arsFieldInputStyle, height: 'auto', paddingTop: 8, paddingBottom: 8, resize: 'vertical' }}/>
         </ArsField>
@@ -1238,27 +1241,63 @@
     );
   }
 
+  // Reconciliation-status badge (client ask 2026-09-21: "make sure
+  // supporting docs uploaded is reconciled with the figure in xero") \u2014
+  // shared between the register row and its expanded match detail.
+  const RECON_BADGE = {
+    matched: { tone: 'success', label: 'Matched to Xero', icon: IconCheck },
+    unmatched: { tone: 'danger', label: 'No Xero match found', icon: IconHelp },
+    unchecked: { tone: 'neutral', label: 'No amount logged', icon: IconClock },
+  };
   function SupportingDocumentsSection({ s }) {
     const [addOpen, setAddOpen] = useState(false);
-    const docs = s.supportingDocuments || [];
+    // reconcileSupportingDocuments() is read-only/derived \u2014 recomputed
+    // every render off the latest Xero imports + doc register, so it's
+    // always in sync with whatever was most recently imported.
+    const docs = window.Store.reconcileSupportingDocuments();
+    const matchedCount = docs.filter((d) => d.reconcileStatus === 'matched').length;
+    const uncheckedCount = docs.filter((d) => d.reconcileStatus === 'unchecked').length;
+    const unmatchedCount = docs.filter((d) => d.reconcileStatus === 'unmatched').length;
     return (
       <ArsCard>
-        <ArsSectionHeader title="Supporting documents (outside Xero)" subtitle="Bank statements, facility agreements, board resolutions, audit letters, etc \u2014 metadata register only" action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => setAddOpen(true)}>Log document</ArsButton>}/>
+        <ArsSectionHeader title="Supporting documents (outside Xero)" subtitle="Bank statements, facility agreements, board resolutions, audit letters, etc \u2014 metadata register, reconciled against imported Xero transactions where an amount is logged" action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => setAddOpen(true)}>Log document</ArsButton>}/>
         {docs.length === 0 ? (
-          <ArsEmpty icon={<IconFile size={20}/>} title="No documents logged yet" body="Log board resolutions, loan agreements, bank statements or other non-Xero documents your director's report should reference."/>
+          <ArsEmpty icon={<IconFile size={20}/>} title="No documents logged yet" body="Log board resolutions, loan agreements, bank statements or other non-Xero documents your director's report should reference. Add an amount to have it automatically checked against your Xero imports."/>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {docs.map((d) => (
-              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--arsela-border)' }}>
-                <div style={{ width: 32, height: 32, borderRadius: 7, background: '#F1F3F7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--arsela-text-muted)' }}><IconFile size={15}/></div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{d.category} \u2022 {d.date} {d.addedBy ? `\u2022 logged by ${d.addedBy}` : ''}{d.note ? ` \u2014 ${d.note}` : ''}</div>
-                </div>
-                <button onClick={() => { if (confirm(`Remove "${d.name}" from the register?`)) window.Store.deleteSupportingDocument(d.id); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-danger)', display: 'flex', flexShrink: 0 }}><IconTrash size={14}/></button>
-              </div>
-            ))}
-          </div>
+          <>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid var(--arsela-border)', flexWrap: 'wrap' }}>
+              <ArsBadge tone="success" dot>{matchedCount} matched</ArsBadge>
+              <ArsBadge tone="danger" dot>{unmatchedCount} unmatched</ArsBadge>
+              <ArsBadge tone="neutral" dot>{uncheckedCount} no amount logged</ArsBadge>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {docs.map((d) => {
+                const badge = RECON_BADGE[d.reconcileStatus] || RECON_BADGE.unchecked;
+                const BadgeIcon = badge.icon;
+                return (
+                  <div key={d.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 0', borderBottom: '1px solid var(--arsela-border)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ width: 32, height: 32, borderRadius: 7, background: '#F1F3F7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--arsela-text-muted)' }}><IconFile size={15}/></div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</div>
+                          {d.amount != null && <span className="arsela-num" style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)' }}>{fmtAUD(d.amount, { compact: true })}</span>}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{d.category} \u2022 {d.date} {d.addedBy ? `\u2022 logged by ${d.addedBy}` : ''}{d.note ? ` \u2014 ${d.note}` : ''}</div>
+                      </div>
+                      <ArsBadge tone={badge.tone} size="sm"><BadgeIcon size={11} style={{ marginRight: 3, verticalAlign: 'text-bottom' }}/>{badge.label}</ArsBadge>
+                      <button onClick={() => { if (confirm(`Remove "${d.name}" from the register?`)) window.Store.deleteSupportingDocument(d.id); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-danger)', display: 'flex', flexShrink: 0 }}><IconTrash size={14}/></button>
+                    </div>
+                    {d.reconcileStatus === 'matched' && d.match && (
+                      <div style={{ marginLeft: 44, fontSize: 11, color: 'var(--arsela-success)', background: 'var(--arsela-success-50)', borderRadius: 6, padding: '4px 8px', display: 'inline-block', width: 'fit-content' }}>
+                        Matched: {d.match.description || '(no description)'} {'\u2014'} {fmtAUD(d.match.amount, { compact: true })} {'\u2014'} {d.match.date} ({window.Store.xeroReportTypes().find((t) => t.key === d.match.type)?.label || d.match.type})
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
         {addOpen && <AddDocumentModal onClose={() => setAddOpen(false)}/>}
       </ArsCard>

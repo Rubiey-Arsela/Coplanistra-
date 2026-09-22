@@ -92,6 +92,149 @@
     );
   };
 
+  /* ---- Task #14/#15 shared helpers (client ask, 2026-09-21): "import 1
+     year details or ranging 4 months... organise the numbers by months
+     and years and make comparisons" + the 5-page structured Director's
+     Report PDF spec. All pure functions of window.Store, so they can be
+     called from both the on-screen comparison table and the PDF export
+     without duplicating logic. ---- */
+
+  /** "YYYY-07" for the first month of the fiscal year containing
+   *  `monthKey` ("YYYY-MM") — Arsela's FY starts 1 July, via the single
+   *  source of truth window.Store.fyStartDate (never hardcoded here). */
+  function fyStartKeyForMonthKey(monthKey) {
+    if (!monthKey) return null;
+    const [y, m] = monthKey.split('-').map(Number);
+    if (!y || !m) return null;
+    const fyStart = window.Store.fyStartDate(new Date(y, m - 1, 1));
+    return `${fyStart.getFullYear()}-07`;
+  }
+  /** Every month (ascending, oldest first) that has an EXACT Xero import
+   *  snapshot for `type` — deliberately excludes carried-forward months
+   *  (xeroImportForMonth's isExactMonth: false) so a comparison table
+   *  never repeats the same figure across several months just because
+   *  only one of them was actually imported. */
+  function exactMonthlySeries(type) {
+    const months = window.Store.xeroImportMonths ? window.Store.xeroImportMonths() : [];
+    const asc = [...months].sort((a, b) => a.key.localeCompare(b.key));
+    return asc.map((m) => {
+      const rec = window.Store.xeroImportForMonth(type, m.key);
+      return (rec && rec.isExactMonth) ? { key: m.key, label: m.label, rec } : null;
+    }).filter(Boolean);
+  }
+  /** Subset of exactMonthlySeries scoped to the current fiscal year, from
+   *  July through the selected `monthKey` — feeds Page 3 of the 5-page
+   *  Director's Report PDF ("Monthly period comparisons... starting
+   *  from July"). */
+  function fyMonthlySeries(type, monthKey) {
+    const fyStartKey = fyStartKeyForMonthKey(monthKey);
+    if (!fyStartKey) return [];
+    return exactMonthlySeries(type).filter((m) => m.key >= fyStartKey && (!monthKey || m.key <= monthKey));
+  }
+  /** Builds a two-column (this-period vs comparison-period) account-level
+   *  statement table for P&L/Balance Sheet-shaped schemas: groups rows by
+   *  `classifications` (in the given order) with a bold section header
+   *  and a bold subtotal row per group, matching prior-period rows by
+   *  account name. Returns { rows, boldIdx } ready for jsPDF-autoTable's
+   *  body + didParseCell bolding. Used by both Page 2 (P&L) and Page 5
+   *  (Balance Sheet) of the structured PDF. */
+  function buildStatementRows(curRec, priorRec, classifications, valueField) {
+    const curRows = (curRec && curRec.rows) || [];
+    const priorRows = (priorRec && priorRec.rows) || [];
+    const priorByKey = {};
+    priorRows.forEach((r) => { priorByKey[(r.account || '').trim().toLowerCase()] = r; });
+    const rows = [];
+    const boldIdx = [];
+    classifications.forEach((cls) => {
+      const rowsForCls = curRows.filter((r) => r.classification === cls);
+      if (!rowsForCls.length) return;
+      boldIdx.push(rows.length);
+      rows.push({ account: cls.toUpperCase(), current: null, prior: null, isHeader: true });
+      let curSum = 0, priorSum = 0, anyPrior = false;
+      rowsForCls.forEach((r) => {
+        const p = priorByKey[(r.account || '').trim().toLowerCase()];
+        const curVal = Number(r[valueField]) || 0;
+        const priorVal = p ? (Number(p[valueField]) || 0) : null;
+        curSum += curVal;
+        if (priorVal != null) { priorSum += priorVal; anyPrior = true; }
+        rows.push({ account: '   ' + r.account, current: curVal, prior: priorVal });
+      });
+      boldIdx.push(rows.length);
+      rows.push({ account: `Total ${cls}`, current: curSum, prior: anyPrior ? priorSum : null });
+    });
+    return { rows, boldIdx };
+  }
+
+  /** ---- Month-by-month comparison (client ask, 2026-09-21): "organise
+   *  the numbers by months and years and make comparisons as well" — a
+   *  standalone card on the Director's Report screen showing every month
+   *  that has an exact Xero import on file for Profit & Loss and Balance
+   *  Sheet, side by side, oldest to newest. Independent of the month
+   *  picker (it always shows every available month, not just the one
+   *  currently selected) so a director can see the trend at a glance. ---- */
+  const MonthlyTrendSection = () => {
+    const plSeries = exactMonthlySeries('profitAndLoss');
+    const bsSeries = exactMonthlySeries('balanceSheet');
+    const plMetrics = [
+      ['Revenue', (t) => t.totalRevenueYTD || 0, false],
+      ['Cost of Sales', (t) => t.totalCostOfSalesYTD || 0, false],
+      ['Gross Profit', (t) => t.grossProfitYTD || 0, true],
+      ['Total Expenses', (t) => t.totalExpenseYTD || 0, false],
+      ['Net Profit / (Loss)', (t) => t.netProfitYTD || 0, true],
+    ];
+    const bsMetrics = [
+      ['Total Assets', (t) => t.totalAssets || 0, false],
+      ['Total Liabilities', (t) => t.totalLiabilities || 0, false],
+      ['Total Equity', (t) => t.totalEquity || 0, false],
+      ['Working Capital', (t) => t.workingCapital || 0, true],
+    ];
+    const renderTable = (series, metrics, emptyBody) => {
+      if (series.length < 2) {
+        return (
+          <ArsEmpty icon={<IconTrend size={20}/>} title="Not enough months to compare yet" body={emptyBody}
+            action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => window.Router.go('/dataimports')}>Import a report</ArsButton>}
+          />
+        );
+      }
+      return (
+        <div className="coplan-scrollx">
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 480 }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: 'var(--arsela-text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                <th style={{ padding: '8px 12px' }}>Metric</th>
+                {series.map((m) => <th key={m.key} style={{ padding: '8px 12px', textAlign: 'right' }}>{m.label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.map(([label, fn, bold]) => (
+                <tr key={label} style={{ borderTop: '1px solid var(--arsela-border)' }}>
+                  <td style={{ padding: '8px 12px', fontWeight: bold ? 700 : 500, color: 'var(--arsela-navy)' }}>{label}</td>
+                  {series.map((m) => {
+                    const v = fn(m.rec.totals || {});
+                    return <td key={m.key} className="arsela-num" style={{ padding: '8px 12px', textAlign: 'right', fontWeight: bold ? 700 : 500, color: bold && v < 0 ? 'var(--danger)' : 'var(--arsela-navy)' }}>{fmtAUD(v, { compact: true })}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    };
+    return (
+      <ArsCard style={{ marginBottom: 20 }}>
+        <ArsSectionHeader title="Month-by-month comparison" subtitle={'Every month with an exact Xero import on file, oldest to newest ' + '\u2014' + ' import a multi-month export from Data Imports to fill in more months'}/>
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--arsela-navy)', marginBottom: 8 }}>Profit &amp; Loss</div>
+          {renderTable(plSeries, plMetrics, 'Import Profit & Loss for at least two different months (or a Xero "compare with previous periods" export) to see a trend here.')}
+        </div>
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--arsela-navy)', marginBottom: 8 }}>Balance Sheet</div>
+          {renderTable(bsSeries, bsMetrics, 'Import a Balance Sheet for at least two different months to see a trend here.')}
+        </div>
+      </ArsCard>
+    );
+  };
+
   /* ---- Monthly Director's Report — pulls live figures straight out of
      window.Store (budgets, approvals, expenses, CAPEX, cash flow) into a
      single-page executive summary. "Export PDF" renders it with jsPDF +
@@ -648,6 +791,222 @@
       window.Store.toast('Director\'s report exported as PDF', 'success');
     };
 
+    /* ---- Task #15 (client spec, 2026-09-21, verbatim structure):
+       "Name of company, Management Accounts: Profit and Loss statement,
+       Profit and Loss statement (periodic), Statement of Changes in
+       Equity and Balance Sheet... Page 2: P&L for period ending [month]
+       will have 2 column — compare this year up to [month] and last
+       year figure. Page 3: monthly period comparisons for this year
+       starting from July. Page 4: Statement of Changes in Equity —
+       compare with last year, 2 columns. Page 5: Balance Sheet — 2
+       columns, compare this year vs last year." The report-ending date
+       is ALWAYS the month selected via the Task #11 month picker
+       (monthLabel/monthKey) — never hardcoded, per the client's own
+       "31 August — date can change depending on months" caveat. ---- */
+    const exportManagementAccountsPDF = () => {
+      if (!window.jspdf) { window.Store.toast('PDF library still loading — try again in a moment', 'warning'); return; }
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const COMPANY_NAME = 'Arsela Resources (Group)';
+      // Client spec (2026-09-21): "FOR THE PERIOD ENDING: FOLLOW MONTHLY
+      // PERIOD, LET SAY AUGUST... 31 AUGUST 2026... 31 AUGUST — DATE CAN
+      // CHANGE DEPENDING ON MONTHS" — the report-ending date is always the
+      // LAST calendar day of the selected month (reportMonthDate itself is
+      // the 1st, used elsewhere for label/FY-year math), not the 1st.
+      const periodEndDate = new Date(reportMonthDate.getFullYear(), reportMonthDate.getMonth() + 1, 0);
+      const periodEndLabel = periodEndDate.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+      const priorYearPL = window.Store.xeroImportForYearAgo('profitAndLoss', monthKey);
+      const priorYearBS = window.Store.xeroImportForYearAgo('balanceSheet', monthKey);
+      const priorYearEQ = window.Store.xeroImportForYearAgo('equityMovement', monthKey);
+      const latestEQ = xero('equityMovement');
+      const fyLabelStr = window.Store.fyLabel(reportMonthDate);
+      const priorFyLabelStr = window.Store.fyLabel(new Date(reportMonthDate.getFullYear() - 1, reportMonthDate.getMonth(), 1));
+
+      const pageFooter = (pageNum) => {
+        doc.setFontSize(8); doc.setFont(undefined, 'normal'); doc.setTextColor(150);
+        doc.text(`${COMPANY_NAME} — Management Accounts for the period ending ${periodEndLabel}`, 40, pageH - 24);
+        doc.text(`Page ${pageNum} of 5`, pageW - 40, pageH - 24, { align: 'right' });
+        doc.setTextColor(0);
+      };
+      const twoColHead = (thisLabel, lastLabel) => [['Account', thisLabel, lastLabel]];
+      const twoColRow = (r) => [
+        r.account,
+        r.isHeader ? '' : (r.current == null ? '—' : fmtAUD(r.current, { compact: true })),
+        r.isHeader ? '' : (r.prior == null ? 'Not on file' : fmtAUD(r.prior, { compact: true })),
+      ];
+      const didParseBold = (boldIdx) => (data) => {
+        if (data.section === 'body' && boldIdx.includes(data.row.index)) {
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.fillColor = [238, 243, 255];
+        }
+      };
+
+      /* ---- Page 1: cover ---- */
+      let y = 140;
+      doc.setFontSize(22); doc.setFont(undefined, 'bold'); doc.setTextColor(19, 67, 203);
+      doc.text(COMPANY_NAME, pageW / 2, y, { align: 'center' }); doc.setTextColor(0);
+      y += 40;
+      doc.setFontSize(16); doc.setFont(undefined, 'bold');
+      doc.text('Management Accounts', pageW / 2, y, { align: 'center' });
+      y += 30;
+      doc.setFontSize(12); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
+      const coverLines = [
+        'Profit and Loss Statement',
+        'Profit and Loss Statement (Periodic)',
+        'Statement of Changes in Equity',
+        'Balance Sheet',
+      ];
+      coverLines.forEach((l) => { doc.text(l, pageW / 2, y, { align: 'center' }); y += 20; });
+      doc.setTextColor(0);
+      y += 30;
+      doc.setFontSize(13); doc.setFont(undefined, 'bold');
+      doc.text(`For the period ending: ${periodEndLabel}`, pageW / 2, y, { align: 'center' });
+      y += 22;
+      doc.setFontSize(10.5); doc.setFont(undefined, 'normal'); doc.setTextColor(120);
+      doc.text(`Prepared ${dateLabel} · ${fyLabelStr}${isPreliminary ? ' · Preliminary snapshot' : ' · Reconciled'}`, pageW / 2, y, { align: 'center' });
+      doc.setTextColor(0);
+      pageFooter(1);
+
+      /* ---- Page 2: Profit & Loss, this year vs same period last year ---- */
+      doc.addPage(); y = 50;
+      doc.setFontSize(15); doc.setFont(undefined, 'bold');
+      doc.text('Profit and Loss Statement', 40, y); y += 6;
+      doc.setFontSize(10.5); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
+      doc.text(`For the period ending ${periodEndLabel}`, 40, y + 14); doc.setTextColor(0);
+      y += 30;
+      if (latestPL) {
+        const { rows: plRows, boldIdx: plBold } = buildStatementRows(
+          latestPL, priorYearPL, ['Revenue', 'Other Income', 'Cost of Sales', 'Operating Expense', 'Other Expense'], 'ytd'
+        );
+        doc.autoTable({
+          startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
+          head: twoColHead(`This year to date\n(${latestPL.period})`, `Last year\n(${priorYearPL ? priorYearPL.period : 'not on file'})`),
+          body: plRows.map(twoColRow),
+          styles: { fontSize: 9 }, headStyles: { fillColor: [19, 67, 203], fontSize: 8.5 },
+          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+          didParseCell: didParseBold(plBold),
+        });
+        y = doc.lastAutoTable.finalY + 16;
+        const t = latestPL.totals || {};
+        const pt = (priorYearPL && priorYearPL.totals) || null;
+        doc.autoTable({
+          startY: y, margin: { left: 40, right: 40 }, theme: 'plain',
+          body: [
+            ['Gross Profit', fmtAUD(t.grossProfitYTD || 0, { compact: true }), pt ? fmtAUD(pt.grossProfitYTD || 0, { compact: true }) : 'Not on file'],
+            ['Net Profit / (Loss)', fmtAUD(t.netProfitYTD || 0, { compact: true }), pt ? fmtAUD(pt.netProfitYTD || 0, { compact: true }) : 'Not on file'],
+          ],
+          styles: { fontSize: 10, fontStyle: 'bold', fillColor: [238, 243, 255] },
+          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+        });
+      } else {
+        doc.setFontSize(10.5); doc.setFont(undefined, 'normal');
+        doc.text('No Profit & Loss has been imported for this period — import one from Data Imports to populate this page.', 40, y, { maxWidth: pageW - 80 });
+      }
+      pageFooter(2);
+
+      /* ---- Page 3: monthly period comparisons for this FY, from July ---- */
+      doc.addPage(); y = 50;
+      doc.setFontSize(15); doc.setFont(undefined, 'bold');
+      doc.text('Profit and Loss Statement (Periodic)', 40, y); y += 6;
+      doc.setFontSize(10.5); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
+      doc.text(`Monthly comparison, ${fyLabelStr} to date (from July)`, 40, y + 14); doc.setTextColor(0);
+      y += 30;
+      const plMonthly = fyMonthlySeries('profitAndLoss', monthKey);
+      if (plMonthly.length) {
+        const plMonthlyMetrics = [
+          ['Revenue', (t) => t.totalRevenueYTD || 0],
+          ['Cost of Sales', (t) => t.totalCostOfSalesYTD || 0],
+          ['Gross Profit', (t) => t.grossProfitYTD || 0],
+          ['Total Expenses', (t) => t.totalExpenseYTD || 0],
+          ['Net Profit / (Loss)', (t) => t.netProfitYTD || 0],
+        ];
+        doc.autoTable({
+          startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
+          head: [['Metric', ...plMonthly.map((m) => m.label)]],
+          body: plMonthlyMetrics.map(([label, fn]) => [label, ...plMonthly.map((m) => fmtAUD(fn(m.rec.totals || {}), { compact: true }))]),
+          styles: { fontSize: 8.5 }, headStyles: { fillColor: [19, 67, 203], fontSize: 8 },
+          columnStyles: plMonthly.reduce((acc, _, i) => { acc[i + 1] = { halign: 'right' }; return acc; }, {}),
+          didParseCell: (data) => { if (data.section === 'body' && (data.row.index === 2 || data.row.index === 4)) { data.cell.styles.fontStyle = 'bold'; data.cell.styles.fillColor = [238, 243, 255]; } },
+        });
+      } else {
+        doc.setFontSize(10.5); doc.setFont(undefined, 'normal');
+        doc.text(`No exact monthly Profit & Loss imports exist for ${fyLabelStr} yet (from July). Import each month individually, or a Xero "compare with previous periods" multi-month export, from Data Imports to populate this page.`, 40, y, { maxWidth: pageW - 80 });
+      }
+      pageFooter(3);
+
+      /* ---- Page 4: Statement of Changes in Equity, this year vs last ---- */
+      doc.addPage(); y = 50;
+      doc.setFontSize(15); doc.setFont(undefined, 'bold');
+      doc.text('Statement of Changes in Equity', 40, y); y += 6;
+      doc.setFontSize(10.5); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
+      doc.text(`For the period ending ${periodEndLabel} — compared with the same period last year`, 40, y + 14); doc.setTextColor(0);
+      y += 30;
+      if (latestEQ) {
+        const eqOrder = ['Opening Balance', 'Profit for the Period', 'Contributions', 'Distributions', 'Other Movements', 'Closing Balance'];
+        const curByType = {}; (latestEQ.rows || []).forEach((r) => { curByType[r.movementType] = (curByType[r.movementType] || 0) + (Number(r.movement || r.closing || 0) || 0); });
+        const priorByType = {}; if (priorYearEQ) (priorYearEQ.rows || []).forEach((r) => { priorByType[r.movementType] = (priorByType[r.movementType] || 0) + (Number(r.movement || r.closing || 0) || 0); });
+        const t = latestEQ.totals || {}; const pt = (priorYearEQ && priorYearEQ.totals) || null;
+        const eqBody = [
+          ['Opening equity', fmtAUD(t.totalOpening || 0, { compact: true }), pt ? fmtAUD(pt.totalOpening || 0, { compact: true }) : 'Not on file'],
+          ['Profit for the period', fmtAUD(t.profitForPeriod || 0, { compact: true }), pt ? fmtAUD(pt.profitForPeriod || 0, { compact: true }) : 'Not on file'],
+          ['Contributions', fmtAUD(t.contributions || 0, { compact: true }), pt ? fmtAUD(pt.contributions || 0, { compact: true }) : 'Not on file'],
+          ['Distributions', fmtAUD(-(t.distributions || 0), { compact: true }), pt ? fmtAUD(-(pt.distributions || 0), { compact: true }) : 'Not on file'],
+          ['Other movements', fmtAUD(t.otherMovements || 0, { compact: true }), pt ? fmtAUD(pt.otherMovements || 0, { compact: true }) : 'Not on file'],
+        ];
+        doc.autoTable({
+          startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
+          head: twoColHead(`This year\n(${latestEQ.period})`, `Last year\n(${priorYearEQ ? priorYearEQ.period : 'not on file'})`),
+          body: eqBody, styles: { fontSize: 9.5 }, headStyles: { fillColor: [19, 67, 203], fontSize: 8.5 },
+          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+        });
+        y = doc.lastAutoTable.finalY + 12;
+        doc.autoTable({
+          startY: y, margin: { left: 40, right: 40 }, theme: 'plain',
+          body: [['Closing equity', fmtAUD(t.totalClosing || 0, { compact: true }), pt ? fmtAUD(pt.totalClosing || 0, { compact: true }) : 'Not on file']],
+          styles: { fontSize: 10, fontStyle: 'bold', fillColor: [238, 243, 255] },
+          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+        });
+        y = doc.lastAutoTable.finalY + 18;
+        doc.setFontSize(8.5); doc.setFont(undefined, 'italic'); doc.setTextColor(140);
+        doc.text('Note: Statement of Changes in Equity import is a best-effort schema not yet validated against a live Xero export — figures should be checked against the source report.', 40, y, { maxWidth: pageW - 80 });
+        doc.setTextColor(0); doc.setFont(undefined, 'normal');
+      } else {
+        doc.setFontSize(10.5); doc.setFont(undefined, 'normal');
+        doc.text('No Statement of Changes in Equity has been imported for this period — import one from Data Imports (report type "Statement of Changes in Equity") to populate this page.', 40, y, { maxWidth: pageW - 80 });
+      }
+      pageFooter(4);
+
+      /* ---- Page 5: Balance Sheet, this year vs last year ---- */
+      doc.addPage(); y = 50;
+      doc.setFontSize(15); doc.setFont(undefined, 'bold');
+      doc.text('Balance Sheet', 40, y); y += 6;
+      doc.setFontSize(10.5); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
+      doc.text(`As at ${periodEndLabel} — compared with the same period last year`, 40, y + 14); doc.setTextColor(0);
+      y += 30;
+      if (latestBS) {
+        const { rows: bsRows, boldIdx: bsBold } = buildStatementRows(
+          latestBS, priorYearBS, ['Asset', 'Liability', 'Equity'], 'current'
+        );
+        doc.autoTable({
+          startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
+          head: twoColHead(`This year\n(${latestBS.period})`, `Last year\n(${priorYearBS ? priorYearBS.period : 'not on file'})`),
+          body: bsRows.map(twoColRow),
+          styles: { fontSize: 9 }, headStyles: { fillColor: [19, 67, 203], fontSize: 8.5 },
+          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+          didParseCell: didParseBold(bsBold),
+        });
+      } else {
+        doc.setFontSize(10.5); doc.setFont(undefined, 'normal');
+        doc.text('No Balance Sheet has been imported for this period — import one from Data Imports to populate this page.', 40, y, { maxWidth: pageW - 80 });
+      }
+      pageFooter(5);
+
+      doc.save(`${COMPANY_NAME.replace(/[^A-Za-z0-9]+/g, '-')}-Management-Accounts-${monthLabel.replace(/\s+/g, '-')}.pdf`);
+      window.Store.toast('5-page Management Accounts PDF exported', 'success');
+    };
+
     return (
       <div>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -657,7 +1016,8 @@
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={exportCSV}>Export CSV</ArsButton>
-            <ArsButton size="md" icon={<IconExport size={15}/>} onClick={exportPDF}>Export PDF</ArsButton>
+            <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={exportPDF}>Export PDF (summary)</ArsButton>
+            <ArsButton size="md" icon={<IconFile size={15}/>} onClick={exportManagementAccountsPDF}>Management Accounts PDF</ArsButton>
           </div>
         </div>
 
@@ -1032,6 +1392,8 @@
             </div>
           </div>
         </ArsCard>
+
+        <MonthlyTrendSection/>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 16, marginBottom: 20 }}>
           <ArsCard padded={false}>
@@ -1460,5 +1822,5 @@
     );
   };
 
-  Object.assign(window, { ReportsScreen, VarianceBar, TrendChart, HeatmapCell });
+  Object.assign(window, { ReportsScreen, VarianceBar, TrendChart, HeatmapCell, MonthlyTrendSection });
 })();
