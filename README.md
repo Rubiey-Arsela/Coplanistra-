@@ -10,9 +10,71 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://345a7556.coplanistra.pages.dev (latest deploy — Task 14/15 COMPLETE: monthly comparison view + 5-page Management Accounts PDF; see session update "part 9" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
+- **Production**: https://15d8dbe9.coplanistra.pages.dev (latest deploy — Task #13 RESOLVED: real-file investigation found and fixed a silent multi-month data-loss bug in the Cash Flow import; see session update "part 10" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-09-22, part 10) — Task #13 RESOLVED: real client files found and fixed a silent Cash Flow multi-month data-loss bug
+
+**Client ask (verbatim)**: *"I want to upload this"* — accompanying 4 new real
+Xero export files for Arsela Resources (Management_Report.xlsx,
+Profit_and_Loss.xlsx, Statement_of_Cash_Flows.xlsx, Balance_Sheet.xlsx),
+sent to unblock the previously-BLOCKED Task #13 ("P&L import showing A$0 for
+every account row on a genuine Xero export").
+
+**What was tested**: uploaded each real file through the actual app UI
+(genuine file-input element, not test data injected into the store) and
+watched the full import pipeline end to end.
+
+- **Profit and Loss** (real 5-month "compare with previous periods" export):
+  imported correctly. Multi-month checklist showed all 5 months (Sept/Aug/
+  July/June/May 2026) with accurate Net Profit/(Loss) figures matching the
+  raw spreadsheet by hand. Sept 2026 genuinely shows A$0 across the board —
+  confirmed against the raw file this is real data (the month has no
+  postings yet), not a parsing bug. **Completed a live import of all 5
+  months** as real dated snapshots.
+- **Balance Sheet** (real 5-month export): same result — imported correctly,
+  all 5 months detected, accurate figures. **Completed a live import.**
+- **Statement of Cash Flows** (real 5-month export): **found a real bug.**
+  This report type's schema had never been given the `periodValueField` flag
+  that turns on the multi-month split-import feature (Task #14a), even
+  though the file has the exact same Xero "compare with N previous periods"
+  shape as P&L/Balance Sheet. Without it, the file silently fell through to
+  the ordinary single-period import path, which grabbed only the LAST TWO
+  of the 5 real columns as "current month"/"YTD" — **discarding July, June
+  and May's figures with no error or warning shown to the user.** Fixed by
+  adding `periodValueField: 'current'` (mirrors the other two report types)
+  plus a small section-header map for the "Operating/Investing/Financing
+  Activities" standalone rows the export includes. Re-tested: all 5 months
+  now detected correctly, import completes cleanly, **completed a live
+  import.**
+- **Management_Report.xlsx** (combined 6-sheet workbook: Executive Summary,
+  Cash Summary, Profit and Loss, Balance Sheet, Aged Receivables/Payables
+  Summary): its Profit and Loss and Balance Sheet sub-sheets use a
+  **different shape** than the standalone files (3-column current/prior/YTD
+  for P&L, 2-column this-year/last-year for Balance Sheet, rather than the
+  5-month multi-period shape) and it also contains report types with no
+  existing schema at all (Executive Summary's KPI layout, Cash Summary).
+  **Not imported this session** — flagged below as a follow-up decision for
+  the client rather than guessed at.
+
+**Conclusion on the original Task #13 bug** ("P&L showing A$0 for every
+account row"): not reproduced by the P&L or Balance Sheet files — both
+import with fully correct, non-zero figures. The one genuine zero-data bug
+found this session was in a different report type (Cash Flow) and a
+different failure mode (silently dropping months, not zeroing every row),
+now fixed. If the original screenshot's exact scenario (every single row
+reading A$0, across a whole report) recurs, we'll need that specific file
+to diagnose further — none of the 4 files supplied this session reproduce
+it.
+
+**Follow-up decision needed from the client**: whether/how to bring in the
+Management_Report.xlsx pack — options are (a) add `sheetHints` so the
+existing Profit and Loss / Balance Sheet import cards can also pull from
+this pack's own P&L/Balance Sheet sub-sheets, (b) leave it out of scope
+since the standalone files already cover P&L/Balance Sheet in more detail,
+or (c) build new report types for Executive Summary / Cash Summary if the
+client wants those KPIs tracked in the app.
 
 ## Session update (2026-09-22, part 9) — Monthly comparison view + 5-page structured Management Accounts PDF (Task #14/#15 COMPLETE)
 
