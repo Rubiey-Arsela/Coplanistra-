@@ -85,6 +85,19 @@
       // formula-driven subtotal rows (stale-cached, often literally 0)
       // and are excluded via EXCLUDE_ROW_RE so real totals are always
       // recomputed here from the underlying account lines.
+      // sheetHints (added 2026-09-22) lets this same card also pull the
+      // "Profit and Loss" sheet straight out of the combined
+      // Management_Report.xlsx pack (6-sheet workbook: Executive
+      // Summary/Cash Summary/Profit and Loss/Balance Sheet/Aged
+      // Receivables Summary/Aged Payables Summary), which has a 3-column
+      // current-month/prior-month/YTD shape rather than the standalone
+      // export's 5-month "compare with previous periods" shape \u2014 both
+      // are still >= 2 real month columns, so detectPeriodColumns and
+      // the existing multi-period split-import path handle it exactly
+      // the same way. Matching by substring means a standalone single-
+      // sheet Profit_and_Loss.xlsx (sheet literally named "Profit and
+      // Loss") is unaffected \u2014 pickSheetName still picks its only sheet.
+      sheetHints: ['profit and loss'],
       fields: [
         { key: 'account', label: 'Account', type: 'text', aliases: ['account', 'line item', 'account name', 'name'] },
         { key: 'classification', label: 'Classification', type: 'select', options: ['Revenue', 'Other Income', 'Cost of Sales', 'Operating Expense', 'Other Expense'], aliases: [] },
@@ -140,6 +153,14 @@
     balanceSheet: {
       icon: 'IconBuilding',
       hint: 'Reports \u2192 Balance Sheet \u2192 set date to month-end, tick "Compare with a prior period" for the previous month \u2192 Export \u2192 CSV.',
+      // sheetHints (added 2026-09-22) \u2014 see profitAndLoss.sheetHints
+      // comment above; this schema's "This month-end"/"Prior month-end"
+      // fields (aliases 'current'/'prior') already work unchanged for
+      // the pack's Balance Sheet sub-sheet even though it's a 2-column
+      // this-year-vs-last-year comparison rather than the standalone
+      // export's month-vs-month comparison \u2014 same 2-real-columns shape
+      // either way.
+      sheetHints: ['balance sheet'],
       fields: [
         { key: 'account', label: 'Account', type: 'text', aliases: ['account', 'line item', 'account name'] },
         { key: 'classification', label: 'Classification', type: 'select', options: ['Asset', 'Liability', 'Equity'], aliases: [] },
@@ -582,6 +603,98 @@
         { label: '90+ days overdue', value: t.d90plus, money: true, tone: t.d90plus > 0 ? 'danger' : 'success' },
       ]),
     },
+    executiveSummary: {
+      icon: 'IconCompass',
+      hint: 'Reports \u2192 Executive Summary \u2192 set the date range to current month, tick "Compare with previous periods" \u2192 Export \u2192 CSV or Excel.',
+      // Added 2026-09-22 (client ask: "I want to import management
+      // reports as well") to give Xero's combined "Management Report"
+      // pack a home for its Executive Summary sheet \u2014 confirmed against
+      // the client's real Management_Report.xlsx: a fixed list of ~24
+      // named KPI rows (not free-form accounts) grouped under standalone
+      // section headers (Cash / Profitability / Balance Sheet / Sales /
+      // Performance / Position), with one value column PER MONTH (same
+      // "compare with N previous periods" shape as Profit and Loss /
+      // Balance Sheet / Cash Flow). `indicator` has no fixed option list
+      // (Xero's own wording, e.g. "Return on investment (p.a.) (%)", is
+      // kept verbatim as free text) so every KPI Xero includes is
+      // preserved even if the exact set varies release to release.
+      sheetHints: ['executive summary'],
+      fields: [
+        { key: 'section', label: 'Section', type: 'text', fromSection: true, aliases: [] },
+        { key: 'indicator', label: 'Key indicator', type: 'text', aliases: ['key indicator', 'indicator'] },
+        { key: 'value', label: 'Amount', type: 'number', aliases: [] },
+      ],
+      requiredKey: 'indicator',
+      periodValueField: 'value',
+      sectionHeaderMap: 'freeform',
+      // "Net assets" / "Net profit margin (%)" are genuine standalone
+      // KPI rows on this report, not Xero subtotal rows for other lines
+      // on the same sheet — without this override the generic
+      // EXCLUDE_ROW_RE (built for the P&L/Balance Sheet/General Ledger
+      // shape, where "Net {word}" always means a stale formula-driven
+      // subtotal) would silently drop them from every import.
+      keepRowRe: /^net assets$|^net profit margin/i,
+      // A handful of KPI rows are percentages/ratios/counts rather than
+      // dollar amounts \u2014 tracked here purely for renderTotals/PDF
+      // display so they're never run through fmtAUD as if they were
+      // money. Matched case-insensitively against the indicator label.
+      nonMoneyIndicatorRe: /\(%\)|ratio|days|number of|assets to liabilities/i,
+      computeTotals: (rows) => {
+        const find = (label) => { const r = rows.find((x) => (x.indicator || '').toLowerCase() === label); return r ? Number(r.value) || 0 : 0; };
+        return {
+          closingBankBalance: find('closing bank balance'),
+          profitLoss: find('profit (loss)'),
+          netAssets: find('net assets'),
+          roi: find('return on investment (p.a.) (%)'),
+          rowCount: rows.length,
+        };
+      },
+      renderTotals: (t) => ([
+        { label: 'Closing bank balance', value: t.closingBankBalance, money: true, tone: 'navy' },
+        { label: 'Profit / (loss)', value: t.profitLoss, money: true, tone: t.profitLoss >= 0 ? 'success' : 'danger' },
+        { label: 'Net assets', value: t.netAssets, money: true, tone: t.netAssets >= 0 ? 'success' : 'danger' },
+        { label: 'Return on investment (p.a.)', value: t.roi ? t.roi.toFixed(1) + '%' : '\u2014', money: false, tone: 'navy' },
+      ]),
+    },
+    cashSummary: {
+      icon: 'IconWallet',
+      hint: 'Reports \u2192 Cash Summary \u2192 current month \u2192 Export \u2192 CSV or Excel.',
+      // Added 2026-09-22, same client ask as executiveSummary above.
+      // Confirmed against the client's real Management_Report.xlsx: a
+      // cash-movement breakdown grouped under standalone section headers
+      // ("Less Expenses" / "Plus Other Cash Movements" / "Summary"),
+      // ONE real month column (the report's own "Monthly average (YTD)"
+      // and "Variance" columns are Xero's own derived figures, not a
+      // second real period \u2014 excluded the same way P&L/Balance Sheet
+      // exclude their own stale subtotal rows, via EXCLUDE_ROW_RE
+      // catching "Total Expenses"/"Surplus (Deficit)"/"Total Other Cash
+      // Movements"/"Net Cash Movement"/"Cash Balance"/"Opening Balance").
+      // Real per-account figures are always recomputed here from the
+      // underlying lines rather than trusted from Xero's own (frequently
+      // stale-cached) subtotal cells \u2014 same reasoning as every other
+      // schema on this page.
+      fields: [
+        { key: 'section', label: 'Section', type: 'text', fromSection: true, aliases: [] },
+        { key: 'account', label: 'Account', type: 'text', aliases: ['account'] },
+        { key: 'current', label: 'This month', type: 'number', aliases: [] },
+      ],
+      requiredKey: 'account',
+      sectionHeaderMap: 'freeform',
+      computeTotals: (rows) => {
+        const sum = (sec) => rows.filter((r) => (r.section || '').toLowerCase() === sec).reduce((a, r) => a + (Number(r.current) || 0), 0);
+        const totalExpenses = sum('less expenses');
+        const otherCashMovements = sum('plus other cash movements');
+        return {
+          totalExpenses, otherCashMovements,
+          netCashMovement: otherCashMovements - totalExpenses,
+        };
+      },
+      renderTotals: (t) => ([
+        { label: 'Total expenses', value: t.totalExpenses, money: true, tone: 'danger' },
+        { label: 'Other cash movements', value: t.otherCashMovements, money: true, tone: 'navy' },
+        { label: 'Net cash movement', value: t.netCashMovement, money: true, tone: t.netCashMovement >= 0 ? 'success' : 'danger' },
+      ]),
+    },
     equityMovement: {
       icon: 'IconBuilding',
       hint: 'Reports \u2192 Statement of Changes in Equity (Xero calls this "Movement in Equity") \u2192 set the date range to FY-to-date \u2192 Export \u2192 CSV or Excel.',
@@ -746,13 +859,22 @@
     // to keep only the genuine "Plus Unreconciled Statement Lines"
     // transactions and drop the "Totals Summary"/"Balance in Xero"/
     // "Statement Balances" recap rows that share the same sheet.
+    // keepRowRe (optional, per-schema): the generic EXCLUDE_ROW_RE above
+    // was written for reports where "Net {word}"/"Total {word}" always
+    // means a Xero-computed subtotal row — but the Executive Summary's
+    // fixed KPI list genuinely includes standalone indicators like "Net
+    // assets" and "Net profit margin (%)" that read as real, independently
+    // meaningful figures, not a roll-up of other rows on the same sheet.
+    // Any indicator label matching keepRowRe is kept even if it would
+    // otherwise be caught by EXCLUDE_ROW_RE.
     const finalizeRow = (row, section) => {
       if (schema.guessSelect) {
         Object.keys(schema.guessSelect).forEach((k) => { row[k] = schema.guessSelect[k](row); });
       }
       const nameVal = row[schema.requiredKey] || '';
       const sectionExcluded = schema.sectionFilter ? !schema.sectionFilter(section || '') : false;
-      row.include = nameVal.length > 0 && !EXCLUDE_ROW_RE.test(nameVal.trim()) && !sectionExcluded;
+      const forcedKeep = schema.keepRowRe ? schema.keepRowRe.test(nameVal.trim()) : false;
+      row.include = nameVal.length > 0 && (forcedKeep || !EXCLUDE_ROW_RE.test(nameVal.trim())) && !sectionExcluded;
       return row;
     };
     const rowHasContent = (r) => {
