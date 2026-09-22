@@ -10,9 +10,101 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://15d8dbe9.coplanistra.pages.dev (latest deploy — Task #13 RESOLVED: real-file investigation found and fixed a silent multi-month data-loss bug in the Cash Flow import; see session update "part 10" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
+- **Production**: https://f9d0e6ec.coplanistra.pages.dev (latest deploy — Supporting Documents now have a View button, auto-read PDF amounts, and full version history; the Management_Report.xlsx pack is now wired into Profit and Loss / Balance Sheet plus two brand-new report types (Executive Summary, Cash Summary); see session update "part 11" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+
+## Session update (2026-09-22, part 11) — Supporting Documents: View button, PDF amount auto-read, full version history + Management_Report.xlsx wired into P&L/Balance Sheet plus two new report types
+
+**Client ask (verbatim)**: *"when importing docs, make sure there is botton
+to view it. also for supporting docs, make sure the apps can read pdf and
+can lodged the amount as per pdf. and when I import another document,
+please keep all version. if figure is similar, keep one. if figure
+changes, keep the updated figure."*
+
+**1. View button** — Data Imports → Supporting Documents rows previously
+only stored metadata (name/category/date/amount) with an explicit
+disclosure that the raw file could not be opened. Now, on upload, the file
+is read client-side as a base64 `data:` URL (there's no Cloudflare R2
+binding configured for this project, so the pragmatic no-backend-change
+option was to persist the file inline in the existing `localStorage`-backed
+Store record) and capped at 5MB per file to stay well inside the browser's
+per-origin storage quota (a friendly warning is shown instead of silently
+failing if a file is larger). Each document row — and each entry in its
+version history — has a **View** button that opens the stored file in a
+new browser tab (`<iframe>` for PDFs, `<img>` for images); it's disabled
+with a tooltip if no file was attached to that version.
+
+**2. PDF amount auto-read** — mirrors the existing Tesseract-OCR
+auto-fill already used for receipt images in Expenses, but for PDFs
+specifically (Tesseract only reads images, not PDF text layers). Uses
+`pdfjsLib` (already loaded for the existing PDF-import parsing in Data
+Imports) to extract all text from every page, then runs it through the
+same "total / amount due / grand total / balance due" detection regex
+already proven out in the receipt-OCR flow. The Amount field auto-fills
+the moment a PDF is attached, with a clear "Auto-read from the PDF —
+please verify" hint so the user always has final say. Verified end-to-end
+with a real generated test PDF containing "Total Amount Due: $3456.78" —
+the field correctly auto-filled `3456.78`.
+
+**3. Version history (keep-all / collapse-if-same / update-if-changed)** —
+supporting documents are now grouped by name (case-insensitive match).
+Re-uploading a document with the **same name**:
+   - if the newly-read amount is within 1 cent of the current version's
+     amount → treated as the same figure, **no new version is created**
+     (the file/date/note on the existing current version are refreshed);
+   - if the amount is different → a **brand-new version is prepended**
+     and becomes "current", while every prior version is kept in full,
+     viewable history (expandable "N versions" panel on each row, each
+     entry showing its own date/amount/filename/View button).
+
+All three pieces were tested through the real app UI with Playwright: a
+genuine test PDF was generated with Python's `reportlab` and uploaded
+through the actual file input (not injected test data); re-uploading it
+with a changed amount correctly created a 2nd version and switched the
+submit button to "Save as new version"; re-uploading again with the same
+amount correctly stayed at 2 versions; clicking View opened a real new
+browser tab whose title matched the uploaded file's name, confirming the
+stored data-URL round-trips correctly. Zero console errors throughout.
+
+**Bug found and fixed along the way**: a handful of JSX strings (one
+pre-existing, several newly added this session) used a literal `\u2014`/
+`\u2022` escape directly inside bare JSX text or a JSX attribute string —
+JSX does not decode `\uXXXX` escapes outside of real JS string/template
+literals, so these were rendering as literal backslash-u-hex text instead
+of an em-dash/bullet. Fixed by wrapping the affected strings in `{"..."}`
+or the specific character in `{'\u2014'}` so JavaScript processes the
+escape before JSX renders it. Confirmed no other instances remain
+anywhere in the codebase.
+
+**Also completed this session (carried over from the Task #13 follow-up
+decision in part 10 below)**: the Management_Report.xlsx combined pack is
+now wired into the app —
+- `sheetHints` added to the existing Profit and Loss / Balance Sheet
+  schemas so those import cards can also pull from this pack's own P&L /
+  Balance Sheet sub-sheets (which use a 3-column current/prior/YTD and
+  2-column this-year/last-year shape respectively, different from the
+  standalone 5-month files).
+- Two brand-new report types registered end-to-end (Data Imports card +
+  `XERO_REPORT_TYPES` schema in the Store): **Executive Summary** and
+  **Cash Summary**, covering the two sub-sheets that previously had no
+  schema at all.
+- A new `keepRowRe` schema-override was added to the shared row-parsing
+  function to support report-specific "keep this row even though it
+  doesn't match the usual account-name pattern" cases needed by the new
+  schemas.
+- **Known gap, not yet resolved**: Cash Summary's totals row (Total
+  Expenses / Other Cash Movements / Net Cash Movement) currently computes
+  to A$0 in the preview despite non-zero underlying row data elsewhere on
+  the same sheet (e.g. Closing bank balance shows correctly) — flagged for
+  the next session, not yet root-caused.
+- **Known gap, not yet resolved**: the Management_Report.xlsx-sourced
+  Balance Sheet / Executive Summary / Cash Summary sheets have only been
+  **previewed** in the import UI, not actually committed via the Import
+  button into real dated Store snapshots — needs a decision from the
+  client (or explicit go-ahead) before finalizing, since it would create
+  overlapping snapshots with the already-imported standalone Balance Sheet
+  file from part 10.
 
 ## Session update (2026-09-22, part 10) — Task #13 RESOLVED: real client files found and fixed a silent Cash Flow multi-month data-loss bug
 
