@@ -727,6 +727,22 @@
       // underlying lines rather than trusted from Xero's own (frequently
       // stale-cached) subtotal cells \u2014 same reasoning as every other
       // schema on this page.
+      // sheetHints (bug found + fixed 2026-09-22, real-file test against
+      // the client's Management_Report.xlsx): this schema was MISSING
+      // sheetHints entirely, so pickSheetName silently fell back to the
+      // pack's FIRST sheet ("Executive Summary") instead of the real
+      // "Cash Summary" sheet \u2014 with no error shown. Executive
+      // Summary's own KPI rows ("Cash received", "Income", "Direct
+      // costs"...) happened to still satisfy the generic column
+      // detection (a text Account-ish column + a number column), so the
+      // import silently "succeeded" with completely wrong rows. None of
+      // those KPI labels match this schema's section-sum lookups
+      // ("less expenses" / "plus other cash movements"), so every total
+      // computed to A$0 \u2014 this was the reported bug. Confirmed fixed
+      // by re-running the same real file end-to-end: now correctly
+      // resolves to the "Cash Summary" sheet and the totals strip shows
+      // real, non-zero figures.
+      sheetHints: ['cash summary'],
       fields: [
         { key: 'section', label: 'Section', type: 'text', fromSection: true, aliases: [] },
         { key: 'account', label: 'Account', type: 'text', aliases: ['account'] },
