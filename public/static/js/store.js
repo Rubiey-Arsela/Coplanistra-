@@ -306,6 +306,16 @@
     // a "Statement of Changes in Equity" page comparing this-year-to-
     // date vs last year) — Xero calls this report "Movement in Equity".
     { key: 'equityMovement', label: 'Statement of Changes in Equity', settings: 'FY-to-date · compare with same period last year', purpose: 'Opening equity, profit for the period, contributions/distributions, closing equity' },
+    // Added 2026-09-22 (client ask: "I want to import management
+    // reports as well") — Xero's combined "Management Report" pack
+    // includes two sheets with no home in the 11 types above: a
+    // fixed-list KPI dashboard (Executive Summary) and a cash-movement
+    // breakdown (Cash Summary). The pack's own Profit and Loss/Balance
+    // Sheet sheets reuse the existing profitAndLoss/balanceSheet cards
+    // via sheetHints (see DataImportsScreen.js REPORT_SCHEMAS) rather
+    // than needing new types of their own.
+    { key: 'executiveSummary', label: 'Executive Summary', settings: 'Current month · compare with previous periods', purpose: 'Cash, profitability, balance sheet, sales and performance KPIs in one dashboard' },
+    { key: 'cashSummary', label: 'Cash Summary', settings: 'Current month', purpose: 'Cash movement breakdown \u2014 expenses, other cash movements, opening/closing balance' },
   ];
   // Every seed array below starts empty ("start fresh" principle — no
   // fabricated Xero data). The team imports real exports via the UI.
@@ -320,13 +330,51 @@
   const seedAgedReceivables = [];
   const seedAgedPayables = [];
   const seedEquityMovement = [];
+  const seedExecutiveSummary = [];
+  const seedCashSummary = [];
   // "Documents outside Xero" — generic supporting-document register
   // (bank statements, facility/loan agreements, board resolutions, audit
-  // letters, etc). Static hosting stores METADATA only (name, category,
-  // note, date, who attached it) — no backend/R2 wired up yet to persist
-  // raw file bytes, so the browser File object itself is not retained
-  // across reloads. This is disclosed in the UI upload dialog.
+  // letters, etc). No Cloudflare R2 bucket is wired up (static Pages
+  // hosting) so raw file bytes are stored as a base64 data URL directly
+  // inside this record (persisted to localStorage like everything else
+  // in this store) rather than server-side — capped client-side at 5MB
+  // per file so the register doesn't blow past the browser's per-origin
+  // storage quota. This is disclosed in the UI upload dialog.
+  //
+  // Each record is a VERSIONED document group (added 2026-09-22, client
+  // ask: "when I import another document, please keep all version. if
+  // figure is similar, keep one. if figure changes, keep the updated
+  // figure"): { id, name, versions: [ {versionId, category, date, note,
+  // amount, fileName, fileType, fileDataUrl, importedAt, addedBy}, ... ]
+  // } with versions newest-first — versions[0] is always "current" for
+  // display/reconciliation. See normalizeDocument() below for the
+  // migration that lifts any pre-existing flat (non-versioned) record
+  // persisted before this change into the same shape.
   const seedSupportingDocuments = [];
+  const DOC_AMOUNT_TOLERANCE = 0.01; // treat as "same figure" within a cent
+
+  /** Back-compat migration: documents persisted before 2026-09-22 are
+   *  flat records — { id, name, category, date, note, amount, addedAt,
+   *  addedBy }, no file, no versions[]. Lifts any such record into the
+   *  new { id, name, versions: [...] } shape (old fields become version
+   *  1) so nothing already logged is lost or duplicated when this runs
+   *  against previously-persisted state. Already-versioned records pass
+   *  through unchanged. */
+  function normalizeDocument(doc) {
+    if (doc && Array.isArray(doc.versions)) return doc;
+    const rest = doc || {};
+    return {
+      id: rest.id || ('DOC-' + Date.now()),
+      name: rest.name || 'Untitled document',
+      versions: [{
+        versionId: (rest.id || 'V0') + '-v1',
+        category: rest.category, date: rest.date, note: rest.note || '',
+        amount: rest.amount != null ? rest.amount : null,
+        fileName: rest.fileName || null, fileType: rest.fileType || null, fileDataUrl: rest.fileDataUrl || null,
+        importedAt: rest.addedAt || new Date().toISOString(), addedBy: rest.addedBy || null,
+      }],
+    };
+  }
 
   /* ----------------------------------------------------------
      Multi-currency support. RM (MYR) is the base/default unit
@@ -371,6 +419,8 @@
     agedReceivables: seedAgedReceivables,
     agedPayables: seedAgedPayables,
     equityMovement: seedEquityMovement,
+    executiveSummary: seedExecutiveSummary,
+    cashSummary: seedCashSummary,
     supportingDocuments: seedSupportingDocuments,
     // Arsela Resources' reporting currency is AUD; MYR remains available
     // as a display option via the currency switcher (CURRENCY_CONFIG
@@ -415,7 +465,14 @@
   if (!state.agedReceivables) state.agedReceivables = seedAgedReceivables;
   if (!state.agedPayables) state.agedPayables = seedAgedPayables;
   if (!state.equityMovement) state.equityMovement = seedEquityMovement;
+  if (!state.executiveSummary) state.executiveSummary = seedExecutiveSummary;
+  if (!state.cashSummary) state.cashSummary = seedCashSummary;
   if (!state.supportingDocuments) state.supportingDocuments = seedSupportingDocuments;
+  // Migrate any documents persisted before the 2026-09-22 versioning
+  // change (flat records) into the new { id, name, versions: [...] }
+  // shape so history/View/re-upload logic can assume versions[] always
+  // exists.
+  state.supportingDocuments = state.supportingDocuments.map(normalizeDocument);
   if (!state.currency) state.currency = 'AUD';
   // Force-correct the period label to the live current date on every
   // load (Arsela's FY starts 1 Jul, so this always reflects today's
@@ -779,17 +836,91 @@
     // older records logged before this field existed simply have no
     // amount and are treated as "not yet checked" rather than
     // "unmatched", see reconcileSupportingDocuments() below. ----
+    /** Logs a document, or — if a document with the same name (trimmed,
+     *  case-insensitive) already exists — treats this as a RE-UPLOAD of
+     *  that same logical document (2026-09-22 client ask: "when I import
+     *  another document, please keep all version. if figure is similar,
+     *  keep one. if figure changes, keep the updated figure"):
+     *   - no matching document yet -> creates a new group, version 1.
+     *   - matching document, new amount within DOC_AMOUNT_TOLERANCE of
+     *     the current version's amount (or both null/blank) -> collapses
+     *     to the existing version: no duplicate entry is added, but the
+     *     file/date/note on that version are refreshed with whatever was
+     *     just uploaded (so re-attaching a clearer scan of the same
+     *     figure still updates the file behind the View button).
+     *   - matching document, amount differs -> pushes a NEW version onto
+     *     the front of versions[] (so it becomes "current" for display
+     *     and reconciliation) while every prior version is kept in
+     *     history, unmodified.
+     *  `doc` accepts: name, category, date, note, amount, and optionally
+     *  fileName/fileType/fileDataUrl (the base64 data URL read from the
+     *  picked file — see AddDocumentModal's readFileAsDataUrl). Returns
+     *  the full updated document GROUP (not just the version). */
     addSupportingDocument(doc) {
-      const id = 'DOC-' + Date.now();
       const currentUser = Store.getCurrentUser();
-      const record = { id, addedAt: window.Store.today().toISOString(), addedBy: currentUser ? currentUser.name : null, ...doc };
-      setState({ supportingDocuments: [record, ...state.supportingDocuments] });
-      toast(`Document logged: ${doc.name}`, 'success');
-      return record;
+      const nowIso = window.Store.today().toISOString();
+      const matchKey = String(doc.name || '').trim().toLowerCase();
+      const existingIdx = state.supportingDocuments.findIndex((d) => String(d.name || '').trim().toLowerCase() === matchKey);
+      const newAmount = doc.amount === '' || doc.amount == null ? null : Number(doc.amount);
+      const versionPayload = {
+        category: doc.category, date: doc.date, note: doc.note || '',
+        amount: newAmount,
+        fileName: doc.fileName || null, fileType: doc.fileType || null, fileDataUrl: doc.fileDataUrl || null,
+        importedAt: nowIso, addedBy: currentUser ? currentUser.name : null,
+      };
+      if (existingIdx === -1) {
+        const group = { id: 'DOC-' + Date.now(), name: doc.name, versions: [{ versionId: 'V' + Date.now(), ...versionPayload }] };
+        setState({ supportingDocuments: [group, ...state.supportingDocuments] });
+        toast(`Document logged: ${doc.name}`, 'success');
+        return group;
+      }
+      const existing = state.supportingDocuments[existingIdx];
+      const current = existing.versions[0];
+      const currentAmount = current.amount == null ? null : Number(current.amount);
+      const sameFigure = (currentAmount == null && newAmount == null) || (currentAmount != null && newAmount != null && Math.abs(currentAmount - newAmount) <= DOC_AMOUNT_TOLERANCE);
+      let updatedGroup;
+      if (sameFigure) {
+        // Same figure as the current version — collapse into it instead
+        // of logging a duplicate, but still refresh the file/date/note
+        // in case a better copy of the same document was re-uploaded.
+        const mergedCurrent = {
+          ...current,
+          date: doc.date || current.date, note: doc.note || current.note,
+          fileName: doc.fileName || current.fileName, fileType: doc.fileType || current.fileType, fileDataUrl: doc.fileDataUrl || current.fileDataUrl,
+          importedAt: nowIso, addedBy: currentUser ? currentUser.name : current.addedBy,
+        };
+        updatedGroup = { ...existing, versions: [mergedCurrent, ...existing.versions.slice(1)] };
+        toast(`Same figure as before \u2014 kept one version of "${doc.name}"`, 'info');
+      } else {
+        // Figure changed since the last version — keep the old version
+        // in history and make this new upload the current one.
+        updatedGroup = { ...existing, versions: [{ versionId: 'V' + Date.now(), ...versionPayload }, ...existing.versions] };
+        toast(`New version logged \u2014 figure updated for "${doc.name}" (${existing.versions.length + 1} versions on file)`, 'success');
+      }
+      const nextDocs = state.supportingDocuments.slice();
+      nextDocs[existingIdx] = updatedGroup;
+      setState({ supportingDocuments: nextDocs });
+      return updatedGroup;
     },
+    /** Removes an entire document group (all versions). */
     deleteSupportingDocument(id) {
       setState({ supportingDocuments: state.supportingDocuments.filter((d) => d.id !== id) });
       toast('Document removed', 'warning');
+    },
+    /** Removes a single version from a document's history. If the
+     *  version removed was the current (versions[0]) one, the next
+     *  newest version automatically becomes current. Removing the last
+     *  remaining version removes the whole group. */
+    deleteSupportingDocumentVersion(docId, versionId) {
+      const doc = state.supportingDocuments.find((d) => d.id === docId);
+      if (!doc) return;
+      const remaining = doc.versions.filter((v) => v.versionId !== versionId);
+      if (remaining.length === 0) {
+        setState({ supportingDocuments: state.supportingDocuments.filter((d) => d.id !== docId) });
+      } else {
+        setState({ supportingDocuments: state.supportingDocuments.map((d) => d.id === docId ? { ...d, versions: remaining } : d) });
+      }
+      toast('Version removed', 'warning');
     },
     /** ---- Supporting-document ↔ Xero reconciliation (2026-09-21
      *  client ask: "make sure supporting docs uploaded is reconciled
@@ -832,9 +963,18 @@
         });
       });
       const parseDoc = (v) => { const d = new Date(v); return isNaN(d.getTime()) ? null : d; };
-      return state.supportingDocuments.map((doc) => {
+      // NOTE (2026-09-22 versioning change): each document is now a
+      // { id, name, versions: [...] } group — reconciliation checks the
+      // CURRENT version (versions[0]) and flattens its fields onto the
+      // returned object (category/date/note/amount/fileName/etc) so
+      // existing UI code that reads doc.amount/doc.category/etc keeps
+      // working unchanged; doc.versions (full history) is also passed
+      // through for the version-history UI.
+      return state.supportingDocuments.map((group) => {
+        const current = group.versions[0];
+        const doc = { ...group, ...current };
         const docAmount = Number(doc.amount);
-        if (!doc.amount || isNaN(docAmount) || docAmount === 0) {
+        if (doc.amount == null || isNaN(docAmount) || docAmount === 0) {
           return { ...doc, reconcileStatus: 'unchecked', match: null };
         }
         const docDate = parseDoc(doc.date);

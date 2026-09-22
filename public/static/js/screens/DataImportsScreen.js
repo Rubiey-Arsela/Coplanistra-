@@ -53,6 +53,60 @@
     if (/\.(xlsx|xls)$/.test(n)) return 'Excel file';
     return 'CSV';
   }
+
+  /* ---- Supporting-doc helpers (added 2026-09-22, client ask: "make
+     sure the apps can read pdf and can lodged the amount as per pdf" +
+     "make sure there is botton to view it" + document versioning). ---- */
+  const DOC_FILE_MAX_BYTES = 5 * 1024 * 1024; // 5MB — kept well under localStorage's per-origin quota
+
+  /** Reads a File into a base64 data: URL — this is what actually lets
+      the register store (and a later "View" button re-open) the raw
+      file, since there's no Cloudflare R2/backend to hold it server-
+      side on this static Pages deploy. Resolves { fileName, fileType,
+      fileDataUrl }, or rejects if the file is too large. */
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      if (file.size > DOC_FILE_MAX_BYTES) {
+        reject(new Error(`"${file.name}" is too large to store (max 5MB) — the document will still be logged, but the amount can\u2019t be auto-read and there\u2019ll be nothing for the View button to open.`));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => resolve({ fileName: file.name, fileType: file.type || '', fileDataUrl: String(reader.result || '') });
+      reader.onerror = () => reject(new Error('Could not read this file.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  /** Extracts a likely dollar/total amount straight out of a PDF's text
+      content, using pdfjsLib (already loaded globally — see
+      parseImportFile's PDF branch below for the same dependency).
+      Mirrors the regex approach ExpensesScreen.js already uses for
+      Tesseract-OCR'd image receipts, but reads real embedded PDF text
+      instead of OCR-ing pixels (Tesseract only reads images — text-
+      based Xero/invoice PDFs need this route instead). Returns a number
+      or null if nothing that looks like an amount was found. */
+  async function extractAmountFromPdf(file) {
+    if (!window.pdfjsLib) return null;
+    try {
+      const buf = await file.arrayBuffer();
+      const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+      let text = '';
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        text += content.items.map((it) => it.str).join(' ') + '\n';
+      }
+      const totalMatch = text.match(/(?:total|amount due|grand total|balance due)[^\d]{0,10}([\d,]+\.\d{2})/i)
+        || text.match(/(?:RM|MYR|A\$|AUD|\$)\s?([\d,]+\.\d{2})/i)
+        || text.match(/([\d,]{2,}\.\d{2})/);
+      if (!totalMatch) return null;
+      const clean = totalMatch[1].replace(/,/g, '');
+      const n = Number(clean);
+      return n > 0 ? n : null;
+    } catch (e) {
+      return null;
+    }
+  }
   function detectColumns(headerRow, fields) {
     const norm = headerRow.map((h) => String(h || '').trim().toLowerCase());
     const result = {};
@@ -1344,32 +1398,85 @@
     );
   }
 
-  /* ---- supporting documents outside Xero (metadata only) ---- */
+  /* ---- supporting documents outside Xero ----
+     Updated 2026-09-22 (client ask: "make sure there is botton to view
+     it. also for supporting docs, make sure the apps can read pdf and
+     can lodged the amount as per pdf. and when I import another
+     document, please keep all version..."):
+       - the picked file is now actually stored (base64 data URL, see
+         readFileAsDataUrl) so a later "View" button has something to
+         open — previously only the file NAME was captured.
+       - PDF uploads are run through extractAmountFromPdf to auto-fill
+         the Amount field, mirroring ExpensesScreen's image-OCR pattern.
+       - submitting under a name that already exists in the register is
+         handled as a new VERSION by Store.addSupportingDocument, not a
+         separate independent document (see that function for the
+         same-figure-collapses / changed-figure-keeps-both logic). ---- */
   const DOC_CATEGORIES = ['Bank Statement', 'Facility / Loan Agreement', 'Board Resolution', 'Audit Letter', 'Insurance Policy', 'Contract', 'Other'];
-  function AddDocumentModal({ onClose }) {
+  function AddDocumentModal({ onClose, existingNames }) {
     const [form, setForm] = useState({ name: '', category: DOC_CATEGORIES[0], date: window.Store.today().toISOString().slice(0, 10), note: '', amount: '' });
+    const [file, setFile] = useState(null); // { fileName, fileType, fileDataUrl }
+    const [reading, setReading] = useState(false);
+    const [amountAuto, setAmountAuto] = useState(false);
     const fileRef = useRef(null);
-    const onFilePick = (e) => {
+
+    const onFilePick = async (e) => {
       const f = e.target.files && e.target.files[0];
-      if (f) setForm((s) => ({ ...s, name: s.name || f.name }));
+      if (!f) return;
+      setForm((s) => ({ ...s, name: s.name || f.name.replace(/\.[^.]+$/, '') }));
+      setReading(true);
+      setAmountAuto(false);
+      try {
+        const stored = await readFileAsDataUrl(f);
+        setFile(stored);
+        window.Store.toast(`File attached: ${f.name}`, 'success');
+        if (/\.pdf$/i.test(f.name)) {
+          const amt = await extractAmountFromPdf(f);
+          if (amt != null) {
+            setForm((s) => ({ ...s, amount: String(amt) }));
+            setAmountAuto(true);
+            window.Store.toast('Amount read from PDF \u2014 please check it before saving', 'success');
+          } else {
+            window.Store.toast('Couldn\u2019t auto-read an amount from this PDF \u2014 please enter it manually', 'warning');
+          }
+        }
+      } catch (err) {
+        setFile(null);
+        window.Store.toast(err.message || 'Could not read this file', 'danger');
+      } finally {
+        setReading(false);
+      }
     };
+
+    const isReupload = existingNames.has(form.name.trim().toLowerCase());
+
     const submit = () => {
       if (!form.name.trim()) { window.Store.toast('Document name is required', 'danger'); return; }
-      window.Store.addSupportingDocument({ name: form.name.trim(), category: form.category, date: form.date, note: form.note.trim(), amount: form.amount === '' ? null : Number(form.amount) });
+      window.Store.addSupportingDocument({
+        name: form.name.trim(), category: form.category, date: form.date, note: form.note.trim(),
+        amount: form.amount === '' ? null : Number(form.amount),
+        fileName: file ? file.fileName : null, fileType: file ? file.fileType : null, fileDataUrl: file ? file.fileDataUrl : null,
+      });
       onClose();
     };
     return (
-      <ArsModal open onClose={onClose} title="Log a supporting document" subtitle="Outside Xero \u2014 metadata only (name, category, date, note, optional amount)"
-        footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={submit}>Add document</ArsButton></>}>
+      <ArsModal open onClose={onClose} title="Log a supporting document" subtitle="Outside Xero \u2014 attach the file, we'll try to read the amount off a PDF automatically"
+        footer={<><ArsButton variant="secondary" onClick={onClose}>Cancel</ArsButton><ArsButton onClick={submit} disabled={reading}>{isReupload ? 'Save as new version' : 'Add document'}</ArsButton></>}>
         <div style={{ background: '#FFF8E6', border: '1px solid #F5E0A3', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12, color: '#7A5B0A', lineHeight: 1.5 }}>
-          ApexFin is a static, backend-free app \u2014 it can log that a document exists (name, category, date, note) but cannot store the raw file itself. Keep the actual file in your usual shared drive and reference it here.
+          The file itself is stored (not just its name) so it can be reopened later via the View button. PDF uploads are scanned for a total/amount automatically \u2014 always double-check the figure before saving. Max file size 5MB.
         </div>
-        <ArsField label="Document name">
+        {isReupload && (
+          <div style={{ background: 'var(--arsela-blue-50)', border: '1px solid var(--arsela-blue)', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: 'var(--arsela-blue)', lineHeight: 1.5 }}>
+            <IconRefresh size={12} style={{ marginRight: 5, verticalAlign: 'text-bottom' }}/>A document named "{form.name.trim()}" is already logged \u2014 this will be saved as a new version (or merged if the figure is unchanged), keeping full history.
+          </div>
+        )}
+        <ArsField label="Document name" hint="Re-using the same name as an existing document logs this as a new version of it, instead of a separate document.">
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Westpac facility agreement \u2014 renewal 2026" style={arsFieldInputStyle}/>
         </ArsField>
         <input ref={fileRef} type="file" onChange={onFilePick} style={{ display: 'none' }}/>
-        <button onClick={() => fileRef.current && fileRef.current.click()} style={{ border: '1px dashed var(--arsela-border-strong)', borderRadius: 8, padding: '8px 12px', background: '#FAFBFD', fontSize: 12, color: 'var(--arsela-text-muted)', cursor: 'pointer', width: '100%', textAlign: 'left', marginBottom: 12, fontFamily: 'inherit' }}>
-          <IconFile size={13} style={{ marginRight: 6, verticalAlign: 'text-bottom' }}/>Pick a file just to auto-fill the name (not uploaded/stored)
+        <button onClick={() => fileRef.current && fileRef.current.click()} disabled={reading} style={{ border: '1px dashed var(--arsela-border-strong)', borderRadius: 8, padding: '8px 12px', background: '#FAFBFD', fontSize: 12, color: 'var(--arsela-text-muted)', cursor: reading ? 'default' : 'pointer', width: '100%', textAlign: 'left', marginBottom: 12, fontFamily: 'inherit' }}>
+          <IconFile size={13} style={{ marginRight: 6, verticalAlign: 'text-bottom' }}/>
+          {reading ? 'Reading file\u2026' : file ? `Attached: ${file.fileName} (click to replace)` : 'Attach the document (PDF, image, or any file)'}
         </button>
         <div style={{ display: 'flex', gap: 12 }}>
           <div style={{ flex: 1 }}><ArsField label="Category">
@@ -1381,14 +1488,31 @@
             <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} style={arsFieldInputStyle}/>
           </ArsField></div>
         </div>
-        <ArsField label="Amount (optional)" hint="Client ask (2026-09-21): 'make sure supporting docs uploaded is reconciled with the figure in xero' \u2014 enter the amount on this document so it can be checked against imported Xero transactions. Leave blank if this document doesn't correspond to a single figure.">
-          <input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="e.g. 2900.00" style={arsFieldInputStyle}/>
+        <ArsField label="Amount (optional)" hint={amountAuto ? 'Auto-read from the PDF \u2014 please verify this is correct before saving.' : "Enter the amount on this document so it can be checked against imported Xero transactions, and so re-uploads can be compared version-to-version. Leave blank if this document doesn't correspond to a single figure."}>
+          <input type="number" step="0.01" value={form.amount} onChange={(e) => { setForm({ ...form, amount: e.target.value }); setAmountAuto(false); }} placeholder="e.g. 2900.00" style={arsFieldInputStyle}/>
         </ArsField>
         <ArsField label="Note" hint="Optional \u2014 where it's actually kept, who to ask, key terms, etc.">
           <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={3} style={{ ...arsFieldInputStyle, height: 'auto', paddingTop: 8, paddingBottom: 8, resize: 'vertical' }}/>
         </ArsField>
       </ArsModal>
     );
+  }
+
+  /** Opens a stored supporting-document file in a new tab (PDFs/images
+      render inline via the browser's native viewer; other file types
+      trigger a normal download) \u2014 the "View" button target. */
+  function viewSupportingDocumentFile(version) {
+    if (!version || !version.fileDataUrl) {
+      window.Store.toast('No file was attached to this version \u2014 nothing to view', 'warning');
+      return;
+    }
+    const w = window.open('', '_blank');
+    if (w) {
+      w.document.write(`<title>${(version.fileName || 'Document').replace(/</g, '&lt;')}</title><style>html,body{margin:0;height:100%;background:#525659}iframe,img{border:0;width:100%;height:100%;display:block;margin:auto}img{max-width:100%;max-height:100%;object-fit:contain}</style>` +
+        (/^image\//.test(version.fileType || '') ? `<img src="${version.fileDataUrl}"/>` : `<iframe src="${version.fileDataUrl}"></iframe>`));
+    } else {
+      window.Store.toast('Pop-up blocked \u2014 please allow pop-ups to view the file', 'warning');
+    }
   }
 
   // Reconciliation-status badge (client ask 2026-09-21: "make sure
@@ -1401,18 +1525,22 @@
   };
   function SupportingDocumentsSection({ s }) {
     const [addOpen, setAddOpen] = useState(false);
+    const [historyOpenId, setHistoryOpenId] = useState(null);
     // reconcileSupportingDocuments() is read-only/derived \u2014 recomputed
     // every render off the latest Xero imports + doc register, so it's
-    // always in sync with whatever was most recently imported.
+    // always in sync with whatever was most recently imported. Each
+    // returned item is a document GROUP flattened with its current
+    // (versions[0]) fields \u2014 d.versions holds the full history.
     const docs = window.Store.reconcileSupportingDocuments();
+    const existingNames = useMemo(() => new Set(docs.map((d) => String(d.name || '').trim().toLowerCase())), [docs]);
     const matchedCount = docs.filter((d) => d.reconcileStatus === 'matched').length;
     const uncheckedCount = docs.filter((d) => d.reconcileStatus === 'unchecked').length;
     const unmatchedCount = docs.filter((d) => d.reconcileStatus === 'unmatched').length;
     return (
       <ArsCard>
-        <ArsSectionHeader title="Supporting documents (outside Xero)" subtitle="Bank statements, facility agreements, board resolutions, audit letters, etc \u2014 metadata register, reconciled against imported Xero transactions where an amount is logged" action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => setAddOpen(true)}>Log document</ArsButton>}/>
+        <ArsSectionHeader title="Supporting documents (outside Xero)" subtitle="Bank statements, facility agreements, board resolutions, audit letters, etc \u2014 file + amount register, reconciled against imported Xero transactions, with full version history on re-upload" action={<ArsButton size="sm" icon={<IconPlus size={14}/>} onClick={() => setAddOpen(true)}>Log document</ArsButton>}/>
         {docs.length === 0 ? (
-          <ArsEmpty icon={<IconFile size={20}/>} title="No documents logged yet" body="Log board resolutions, loan agreements, bank statements or other non-Xero documents your director's report should reference. Add an amount to have it automatically checked against your Xero imports."/>
+          <ArsEmpty icon={<IconFile size={20}/>} title="No documents logged yet" body="Log board resolutions, loan agreements, bank statements or other non-Xero documents your director's report should reference. Attach a PDF to have the amount auto-read, and to have it checked against your Xero imports."/>
         ) : (
           <>
             <div style={{ display: 'flex', gap: 16, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid var(--arsela-border)', flexWrap: 'wrap' }}>
@@ -1424,6 +1552,8 @@
               {docs.map((d) => {
                 const badge = RECON_BADGE[d.reconcileStatus] || RECON_BADGE.unchecked;
                 const BadgeIcon = badge.icon;
+                const versionCount = (d.versions || []).length;
+                const historyOpen = historyOpenId === d.id;
                 return (
                   <div key={d.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 0', borderBottom: '1px solid var(--arsela-border)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1432,15 +1562,39 @@
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--arsela-navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</div>
                           {d.amount != null && <span className="arsela-num" style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)' }}>{fmtAUD(d.amount, { compact: true })}</span>}
+                          {versionCount > 1 && (
+                            <button onClick={() => setHistoryOpenId(historyOpen ? null : d.id)} style={{ border: 'none', background: 'var(--arsela-blue-50)', color: 'var(--arsela-blue)', borderRadius: 'var(--r-full)', padding: '2px 8px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              <IconClock size={10}/>{versionCount} versions<IconChevronDown size={10} style={{ transform: historyOpen ? 'rotate(180deg)' : 'none' }}/>
+                            </button>
+                          )}
                         </div>
                         <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{d.category} \u2022 {d.date} {d.addedBy ? `\u2022 logged by ${d.addedBy}` : ''}{d.note ? ` \u2014 ${d.note}` : ''}</div>
                       </div>
                       <ArsBadge tone={badge.tone} size="sm"><BadgeIcon size={11} style={{ marginRight: 3, verticalAlign: 'text-bottom' }}/>{badge.label}</ArsBadge>
-                      <button onClick={() => { if (confirm(`Remove "${d.name}" from the register?`)) window.Store.deleteSupportingDocument(d.id); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-danger)', display: 'flex', flexShrink: 0 }}><IconTrash size={14}/></button>
+                      <button onClick={() => viewSupportingDocumentFile(d.versions[0])} title={d.fileDataUrl ? 'View the attached file' : 'No file attached to this version'} disabled={!d.fileDataUrl} style={{ border: '1px solid var(--arsela-border-strong)', background: '#fff', borderRadius: 6, padding: '4px 9px', cursor: d.fileDataUrl ? 'pointer' : 'not-allowed', color: d.fileDataUrl ? 'var(--arsela-blue)' : 'var(--arsela-text-subtle)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600, flexShrink: 0 }}>
+                        <IconEye size={13}/>View
+                      </button>
+                      <button onClick={() => { if (confirm(`Remove "${d.name}" (and all ${versionCount} version${versionCount === 1 ? '' : 's'}) from the register?`)) window.Store.deleteSupportingDocument(d.id); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-danger)', display: 'flex', flexShrink: 0 }}><IconTrash size={14}/></button>
                     </div>
                     {d.reconcileStatus === 'matched' && d.match && (
                       <div style={{ marginLeft: 44, fontSize: 11, color: 'var(--arsela-success)', background: 'var(--arsela-success-50)', borderRadius: 6, padding: '4px 8px', display: 'inline-block', width: 'fit-content' }}>
                         Matched: {d.match.description || '(no description)'} {'\u2014'} {fmtAUD(d.match.amount, { compact: true })} {'\u2014'} {d.match.date} ({window.Store.xeroReportTypes().find((t) => t.key === d.match.type)?.label || d.match.type})
+                      </div>
+                    )}
+                    {historyOpen && versionCount > 1 && (
+                      <div style={{ marginLeft: 44, display: 'flex', flexDirection: 'column', gap: 4, background: '#FAFBFD', border: '1px solid var(--arsela-border)', borderRadius: 8, padding: 8 }}>
+                        {d.versions.map((v, i) => (
+                          <div key={v.versionId} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, padding: '3px 4px' }}>
+                            <ArsBadge tone={i === 0 ? 'blue' : 'neutral'} size="sm">{i === 0 ? 'Current' : `v${versionCount - i}`}</ArsBadge>
+                            <span style={{ color: 'var(--arsela-text-muted)', flexShrink: 0 }}>{new Date(v.importedAt).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                            <span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)', flexShrink: 0 }}>{v.amount != null ? fmtAUD(v.amount, { compact: true }) : '\u2014'}</span>
+                            <span style={{ color: 'var(--arsela-text-subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{v.fileName || 'no file attached'}{v.addedBy ? ` \u2022 ${v.addedBy}` : ''}</span>
+                            <button onClick={() => viewSupportingDocumentFile(v)} disabled={!v.fileDataUrl} title={v.fileDataUrl ? 'View this version\u2019s file' : 'No file attached'} style={{ border: 'none', background: 'transparent', cursor: v.fileDataUrl ? 'pointer' : 'not-allowed', color: v.fileDataUrl ? 'var(--arsela-blue)' : 'var(--arsela-text-subtle)', display: 'flex', flexShrink: 0 }}><IconEye size={13}/></button>
+                            {versionCount > 1 && (
+                              <button onClick={() => { if (confirm('Remove this version? This cannot be undone.')) window.Store.deleteSupportingDocumentVersion(d.id, v.versionId); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--arsela-danger)', display: 'flex', flexShrink: 0 }}><IconTrash size={12}/></button>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1449,7 +1603,7 @@
             </div>
           </>
         )}
-        {addOpen && <AddDocumentModal onClose={() => setAddOpen(false)}/>}
+        {addOpen && <AddDocumentModal onClose={() => setAddOpen(false)} existingNames={existingNames}/>}
       </ArsCard>
     );
   }
