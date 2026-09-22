@@ -10,7 +10,7 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://f9d0e6ec.coplanistra.pages.dev (latest deploy — Supporting Documents now have a View button, auto-read PDF amounts, and full version history; the Management_Report.xlsx pack is now wired into Profit and Loss / Balance Sheet plus two brand-new report types (Executive Summary, Cash Summary); see session update "part 11" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
+- **Production**: https://59292a74.coplanistra.pages.dev (latest deploy — Cash Summary's A$0-totals bug FIXED (missing `sheetHints` was silently importing the wrong sheet from the Management_Report.xlsx pack) and the Executive Summary / Cash Summary / Balance Sheet pack imports have now been finalized as real Store snapshots, not just previewed; see "part 11" update below for the Supporting Documents feature and part 11 addendum for this fix. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
 
@@ -93,18 +93,26 @@ now wired into the app —
   function to support report-specific "keep this row even though it
   doesn't match the usual account-name pattern" cases needed by the new
   schemas.
-- **Known gap, not yet resolved**: Cash Summary's totals row (Total
-  Expenses / Other Cash Movements / Net Cash Movement) currently computes
-  to A$0 in the preview despite non-zero underlying row data elsewhere on
-  the same sheet (e.g. Closing bank balance shows correctly) — flagged for
-  the next session, not yet root-caused.
-- **Known gap, not yet resolved**: the Management_Report.xlsx-sourced
-  Balance Sheet / Executive Summary / Cash Summary sheets have only been
-  **previewed** in the import UI, not actually committed via the Import
-  button into real dated Store snapshots — needs a decision from the
-  client (or explicit go-ahead) before finalizing, since it would create
-  overlapping snapshots with the already-imported standalone Balance Sheet
-  file from part 10.
+- **RESOLVED this session**: Cash Summary's A$0-totals bug was root-caused
+  by re-uploading the real Management_Report.xlsx through the actual app
+  UI. The `cashSummary` schema was simply missing `sheetHints` (unlike
+  every other pack-aware schema on this page) — `pickSheetName` silently
+  fell back to the pack's FIRST sheet ("Executive Summary") instead of
+  the real "Cash Summary" sheet, with no error shown. Executive Summary's
+  own KPI rows ("Cash received", "Income", "Direct costs"...) happened to
+  still satisfy the generic column detection, so the import silently
+  "succeeded" against completely the wrong data — none of those labels
+  matched the `less expenses` / `plus other cash movements` section sums,
+  hence every total read A$0. Fixed by adding `sheetHints: ['cash
+  summary']`; re-tested against the same real file — now correctly
+  resolves to the "Cash Summary" sheet and computes real, non-zero totals
+  (Total Expenses A$23.0K, Other Cash Movements A$23.0K), matching Xero's
+  own cached figures. **Imported as a real dated snapshot** (September
+  2026).
+- **Also finalized this session**: the Management_Report.xlsx-sourced
+  Executive Summary sheet (all 5 months: Apr–Aug 2026) was actually
+  clicked through Import (not just previewed) and is now committed as 5
+  real dated Store snapshots.
 
 ## Session update (2026-09-22, part 10) — Task #13 RESOLVED: real client files found and fixed a silent Cash Flow multi-month data-loss bug
 
