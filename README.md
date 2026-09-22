@@ -10,11 +10,30 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://c2065036.coplanistra.pages.dev (latest deploy — Task 14/15 foundation: multi-period Xero import, equityMovement schema, YoY lookup, doc reconciliation; see session update "part 8" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
+- **Production**: https://345a7556.coplanistra.pages.dev (latest deploy — Task 14/15 COMPLETE: monthly comparison view + 5-page Management Accounts PDF; see session update "part 9" immediately below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
 
-## Session update (2026-09-21, part 8) — Multi-period Xero import + Statement of Changes in Equity + supporting-doc reconciliation (FOUNDATION ONLY — see "Not yet done" below)
+## Session update (2026-09-22, part 9) — Monthly comparison view + 5-page structured Management Accounts PDF (Task #14/#15 COMPLETE)
+
+**Client ask (verbatim)**: *"PLEASE BUILD EVERYTHING. CONTINUE"* — completing the remaining pieces of Tasks #14 and #15 from part 8.
+
+**What's shipped and working:**
+- **Supporting document `amount` field + reconciliation UI** (`DataImportsScreen.js`): `AddDocumentModal` now has an optional "Amount" field; `SupportingDocumentsSection` calls `Store.reconcileSupportingDocuments()` on every render and shows summary badge counts (matched/unmatched/unchecked) plus a per-document status badge and a "Matched: ..." detail line when a match is found. Completes Task #14c.
+- **Month-by-month comparison view** (`ReportsScreen.js`, new `MonthlyTrendSection` component on the Director's Report screen): shows every month with an EXACT Xero import on file (never a carried-forward duplicate) for Profit & Loss (Revenue/Cost of Sales/Gross Profit/Expenses/Net Profit) and Balance Sheet (Assets/Liabilities/Equity/Working Capital), oldest to newest, independent of the month picker. Completes Task #14b.
+- **5-page structured "Management Accounts PDF"** (`ReportsScreen.js`, new `exportManagementAccountsPDF()`, new button next to the existing "Export PDF (summary)"): exact structure per client spec —
+  1. **Cover**: company name, "Management Accounts" title, list of the 4 statement types, "For the period ending: [dynamic month-end date]".
+  2. **Profit and Loss Statement**: 2 columns — this year to date vs the same period last year (via new `Store.xeroImportForYearAgo`).
+  3. **Profit and Loss Statement (Periodic)**: month-by-month table for the current FY starting July (via new `fyMonthlySeries` helper).
+  4. **Statement of Changes in Equity**: 2 columns, this year vs last year (uses the `equityMovement` schema from part 8 — still flagged best-effort/unvalidated in the PDF's own footnote).
+  5. **Balance Sheet**: 2 columns, this year vs last year.
+  Every page's date is driven by the existing Task #11 month-picker (`monthKey`/`reportMonthDate`) — never hardcoded. **Bug fixed during testing**: the period-ending date was showing the 1st of the selected month instead of its last calendar day (e.g. "1 September 2026" instead of client's own example "31 August 2026") — fixed by computing the true month-end date.
+- Verified end-to-end via Playwright: seeded two fiscal years of Profit & Loss, Balance Sheet and one Statement of Changes in Equity snapshot, used the month picker to switch to August 2026, downloaded the PDF, and confirmed all 5 pages render the correct dynamic date ("31 August 2026"), correct this-year/last-year figures, and the correct July→August monthly trend. Zero console errors throughout.
+
+**Known limitations carried forward:**
+- The `equityMovement` schema is still unvalidated against a real Xero export (Page 4 note says so explicitly in the PDF itself).
+- Year-over-year comparisons (Pages 2/4/5) only populate the "last year" column when the client has actually imported the same month from 12 months earlier as its own dated snapshot — otherwise the PDF honestly prints "Not on file" rather than fabricating a number.
+- Task #13 (P&L showing A$0 on the client's real export) remains blocked, awaiting the client's actual file.
 
 **Client ask (verbatim)**: *"also I would like to import 1 year details or ranging 4 months. not only 1 month data. the app should be organise the numbers by months and years and make comparisons as well. also make sure supporting docs uploaded is reconciled with the figure in xero."* — plus a follow-up request for a 5-page structured Director's Report PDF (cover / P&L vs last year / monthly FY trend / Statement of Changes in Equity vs last year / Balance Sheet vs last year).
 
