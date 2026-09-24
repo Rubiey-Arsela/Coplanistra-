@@ -10,7 +10,7 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://199afaf2.coplanistra.pages.dev (latest deploy — Data Imports is now the default landing screen and the sidebar only shows Data Imports/Reports by default, see "2026-09-24, part 2" update below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
+- **Production**: https://f32ec841.coplanistra.pages.dev (latest deploy — Data Imports is now the default landing screen and the sidebar only shows Data Imports/Reports by default, see "2026-09-24, part 2" update below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy` — now with a bound Cloudflare D1 database (`coplanistra-production`) for real cross-browser data persistence.
 
