@@ -31,6 +31,22 @@
     if (isNaN(n)) return 0;
     return negative ? -n : n;
   }
+  // ---- Director feedback 2026-09-24, Item 3 ("A blank July Balance
+  // Sheet is displayed as A$0, while August has figures... Display
+  // 'Not imported', not zero. Zero means Xero reported an actual zero
+  // balance."). Root cause confirmed against the client's real
+  // Balance_Sheet-2.xlsx multi-month export: parseAmountCell() above
+  // always returns 0 for a genuinely BLANK cell (raw == null / empty
+  // string — e.g. an account that didn't exist yet in an earlier
+  // month's column) with no way for a caller to tell that apart from
+  // Xero having literally exported a real "0" balance. isBlankCell
+  // lets column-level code (see columnHasAnyValue below) check the RAW
+  // cell before parsing, so a whole period column with no non-empty
+  // cells at all can be refused as a snapshot entirely, instead of
+  // silently becoming a fabricated all-zero month.
+  function isBlankCell(raw) {
+    return raw == null || String(raw).trim() === '';
+  }
   function parseDateCell(raw) {
     if (!raw) return '';
     const s = String(raw).trim();
@@ -225,14 +241,45 @@
       periodValueField: 'current', // see profitAndLoss.periodValueField comment
 
       // Xero's Balance Sheet export groups rows under literal section
-      // headers ("Assets", "Liabilities", "Equity" — a standalone line
-      // with no figure). Confirmed against the user's real export that
-      // these headers, tracked in order via deriveSectionOverrides, are
-      // the reliable source of truth for classification — per-account
-      // keyword guessing below is kept ONLY as a fallback for the rare
-      // case a section header isn't detected (row.classification stays
-      // '' from column-mapping, so guessSelect still fires for it).
-      sectionHeaderMap: { assets: 'Asset', liabilities: 'Liability', equity: 'Equity' },
+      // headers. Originally only 3 were recognised ("Assets",
+      // "Liabilities", "Equity"), which is why Working Capital below
+      // used to collapse to Total Equity (Director feedback 2026-09-24,
+      // Item 4: "'Working capital' appears to equal total equity" — by
+      // the accounting identity Assets \u2212 Liabilities = Equity, that
+      // is exactly what totalAssets - totalLiabilities always computes
+      // to). Confirmed against the client's real Balance_Sheet-2.xlsx
+      // that Xero ALSO prints "Current Liabilities" and "Non-current
+      // Liabilities" as their own literal sub-section headers under
+      // "Liabilities" (no equivalent "Current Assets" header was
+      // present in the real file \u2014 "Bank"/"Fixed Assets" sit directly
+      // under "Assets", and "Non-current Assets" is its own explicit
+      // sub-header for the rest). classification stays the coarse
+      // Asset/Liability/Equity bucket (still used by the PDF's 3-group
+      // statement layout); a SEPARATE currentBucket ('current'/
+      // 'noncurrent'/null) is derived from these sub-headers so Working
+      // Capital can be computed correctly without disturbing anything
+      // that already depends on `classification`. Any liability row
+      // with no matching current/non-current sub-header (or a schema
+      // exported without one) falls back to 'current' \u2014 the safer
+      // assumption for a payable/accrual than silently excluding it.
+      sectionHeaderMap: {
+        assets: 'Asset', liabilities: 'Liability', equity: 'Equity',
+        'current assets': 'Asset', 'non-current assets': 'Asset', 'noncurrent assets': 'Asset', 'fixed assets': 'Asset', 'bank': 'Asset',
+        'current liabilities': 'Liability', 'non-current liabilities': 'Liability', 'noncurrent liabilities': 'Liability',
+      },
+      // currentBucketMap is walked as a SECOND, independent
+      // deriveSectionOverrides() pass over the same raw rows (see
+      // handleFile below) \u2014 deriveSectionOverrides only tracks one
+      // "current section" per pass, so classification (Asset/Liability/
+      // Equity, from sectionHeaderMap above) and currentBucket (current/
+      // noncurrent, from this map) are resolved as two separate passes
+      // and merged onto each row afterwards.
+      currentBucketMap: {
+        'current assets': 'current', bank: 'current',
+        'fixed assets': 'noncurrent', 'non-current assets': 'noncurrent', 'noncurrent assets': 'noncurrent',
+        'current liabilities': 'current',
+        'non-current liabilities': 'noncurrent', 'noncurrent liabilities': 'noncurrent',
+      },
       guessSelect: { classification: (row) => {
         if (row.classification) return row.classification; // keep a section-derived value
         const a = (row.account || '').toLowerCase();
@@ -240,13 +287,38 @@
         if (/(equity|retained earnings|capital|share)/.test(a)) return 'Equity';
         return 'Asset';
       } },
+      // currentBucket: set per-row by handleFile/buildRowsForValueColumn
+      // below from the second deriveSectionOverrides() pass \u2014 bucketOf()
+      // defaults an unmatched Liability row to 'current' (the safer
+      // assumption for an unclassified payable/accrual) and an
+      // unmatched Asset row to 'noncurrent', so a Balance Sheet
+      // exported without current/non-current headers at all still
+      // yields SOME working-capital figure rather than silently zeroing
+      // it \u2014 hasCurrentSplit below flags whether that default had to be
+      // used.
       computeTotals: (rows) => {
         const sum = (cls, k) => rows.filter((r) => r.classification === cls).reduce((a, r) => a + (Number(r[k]) || 0), 0);
         const totalAssets = sum('Asset', 'current'), totalLiabilities = sum('Liability', 'current'), totalEquity = sum('Equity', 'current');
+        const bucketOf = (r) => r.currentBucket || (r.classification === 'Liability' ? 'current' : 'noncurrent');
+        const currentAssets = rows.filter((r) => r.classification === 'Asset' && bucketOf(r) === 'current').reduce((a, r) => a + (Number(r.current) || 0), 0);
+        const currentLiabilities = rows.filter((r) => r.classification === 'Liability' && bucketOf(r) === 'current').reduce((a, r) => a + (Number(r.current) || 0), 0);
+        const nonCurrentAssets = totalAssets - currentAssets;
+        const nonCurrentLiabilities = totalLiabilities - currentLiabilities;
+        // hasCurrentSplit: true only when at least one row was actually
+        // tagged via a real current/non-current sub-header (not just
+        // the classification-based default above) — the PDF/UI use
+        // this to show "current assets not broken out in this export"
+        // rather than silently trusting a possibly-wrong default split.
+        const hasCurrentSplit = rows.some((r) => r.currentBucket);
         return {
           totalAssets, totalLiabilities, totalEquity,
-          workingCapital: totalAssets - totalLiabilities,
-          currentRatio: totalLiabilities ? totalAssets / totalLiabilities : null,
+          currentAssets, currentLiabilities, nonCurrentAssets, nonCurrentLiabilities, hasCurrentSplit,
+          // Item 4 fix: Working Capital = Current Assets \u2212 Current
+          // Liabilities (the client's explicit required formula), not
+          // Total Assets \u2212 Total Liabilities (which is mathematically
+          // just Total Equity and was the bug).
+          workingCapital: currentAssets - currentLiabilities,
+          currentRatio: currentLiabilities ? currentAssets / currentLiabilities : null,
           priorAssets: sum('Asset', 'prior'), priorLiabilities: sum('Liability', 'prior'),
         };
       },
@@ -254,7 +326,8 @@
         { label: 'Total assets', value: t.totalAssets, money: true, tone: 'navy' },
         { label: 'Total liabilities', value: t.totalLiabilities, money: true, tone: 'navy' },
         { label: 'Total equity', value: t.totalEquity, money: true, tone: 'navy' },
-        { label: 'Current ratio (assets \u00f7 liabilities)', value: t.currentRatio != null ? t.currentRatio.toFixed(2) + 'x' : '\u2014', money: false, tone: t.currentRatio >= 1 ? 'success' : 'danger' },
+        { label: 'Working capital (current assets \u2212 current liabilities)', value: t.workingCapital, money: true, tone: t.workingCapital >= 0 ? 'success' : 'danger' },
+        { label: 'Current ratio (current assets \u00f7 current liabilities)', value: t.currentRatio != null ? t.currentRatio.toFixed(2) + 'x' : '\u2014', money: false, tone: t.currentRatio >= 1 ? 'success' : 'danger' },
       ]),
     },
     cashFlowActuals: {
@@ -956,10 +1029,15 @@
     // meaningful figures, not a roll-up of other rows on the same sheet.
     // Any indicator label matching keepRowRe is kept even if it would
     // otherwise be caught by EXCLUDE_ROW_RE.
-    const finalizeRow = (row, section) => {
+    const finalizeRow = (row, section, currentBucket) => {
       if (schema.guessSelect) {
         Object.keys(schema.guessSelect).forEach((k) => { row[k] = schema.guessSelect[k](row); });
       }
+      // Item 4 fix: stamp the current/non-current sub-classification
+      // (balanceSheet.currentBucketMap only \u2014 undefined/no-op for every
+      // other schema) so computeTotals can compute a real Working
+      // Capital instead of Total Assets \u2212 Total Liabilities.
+      if (currentBucket) row.currentBucket = currentBucket;
       const nameVal = row[schema.requiredKey] || '';
       const sectionExcluded = schema.sectionFilter ? !schema.sectionFilter(section || '') : false;
       const forcedKeep = schema.keepRowRe ? schema.keepRowRe.test(nameVal.trim()) : false;
@@ -975,7 +1053,13 @@
     // Builds one row-set for a single value column index — shared by
     // both the normal single-period path AND the multi-period split
     // path (each detected month column reuses this with its own idx).
-    const buildRowsForValueColumn = (dataRows, sections, skipIndexes, cols, valueColIdx) => {
+    // currentBuckets (optional, parallel to sections \u2014 Item 4 fix) is a
+    // second, independent deriveSectionOverrides() pass using
+    // schema.currentBucketMap (balanceSheet only) so each row can carry
+    // BOTH its Asset/Liability/Equity classification AND its current/
+    // non-current bucket without the two section-header maps
+    // interfering with each other.
+    const buildRowsForValueColumn = (dataRows, sections, skipIndexes, cols, valueColIdx, currentBuckets) => {
       return dataRows.map((r, i) => {
         if (skipIndexes.has(i)) return null;
         const row = {};
@@ -991,7 +1075,7 @@
           else if (f.fromSection || f.type === 'select') row[f.key] = sections[i] || '';
           else row[f.key] = String(raw || '').trim();
         });
-        return finalizeRow(row, sections[i]);
+        return finalizeRow(row, sections[i], currentBuckets ? currentBuckets[i] : null);
       }).filter(Boolean).filter(rowHasContent);
     };
 
@@ -1041,11 +1125,26 @@
                 const cols = detectColumns(header, nonValueFields);
                 const dataRows = parsed.slice(headerIdx + 1);
                 const { sections, skipIndexes } = deriveSectionOverrides(dataRows, schema.sectionHeaderMap);
+                // Item 4 fix: independent second pass for current/
+                // non-current sub-headers (balanceSheet.currentBucketMap
+                // only — undefined/no-op for every other schema).
+                const currentBuckets = schema.currentBucketMap ? deriveSectionOverrides(dataRows, schema.currentBucketMap).sections : null;
+                // Item 3 fix: a period column where every raw cell is
+                // genuinely blank (not even a "0") means Xero had
+                // nothing to report for that month at all — most often
+                // because the account didn't exist yet, or (as in the
+                // client's real file) the whole month's column was
+                // simply empty. That must become NO snapshot for that
+                // month, not a fabricated all-A$0 one. A column that
+                // has at least one real (possibly zero) figure is kept
+                // exactly as before.
+                const columnHasAnyValue = (idx) => dataRows.some((r, i) => !skipIndexes.has(i) && !isBlankCell(r[idx]));
                 const columns = periodCols.map((pc) => {
-                  const colRows = buildRowsForValueColumn(dataRows, sections, skipIndexes, cols, pc.idx);
+                  if (!columnHasAnyValue(pc.idx)) return { key: pc.key, label: pc.label, rows: [], totals: null, allBlank: true };
+                  const colRows = buildRowsForValueColumn(dataRows, sections, skipIndexes, cols, pc.idx, currentBuckets);
                   const totals = colRows.length ? schema.computeTotals(colRows.filter((r) => r.include), {}) : null;
                   return { key: pc.key, label: pc.label, rows: colRows, totals };
-                }).filter((c) => c.rows.length > 0);
+                }).filter((c) => c.rows.length > 0 && !c.allBlank);
                 if (columns.length >= 2) {
                   setMultiPeriod({ columns, selected: new Set(columns.map((c) => c.key)) });
                   setRows(null);
@@ -1069,6 +1168,9 @@
             // picks out just the account/amount cells), or the header
             // line collapses to a blank account and vanishes silently.
             const { sections, skipIndexes } = deriveSectionOverrides(dataRows, schema.sectionHeaderMap);
+            // Item 4 fix — see the multi-period branch above for the
+            // full explanation of this independent second pass.
+            const currentBucketsSingle = schema.currentBucketMap ? deriveSectionOverrides(dataRows, schema.currentBucketMap).sections : null;
             built = dataRows.map((r, i) => {
               if (skipIndexes.has(i)) return null; // the section-header row itself carries no data
               const row = {};
@@ -1087,7 +1189,7 @@
                 else if (f.fromSection || f.type === 'select') row[f.key] = sections[i] || '';
                 else row[f.key] = String(raw || '').trim();
               });
-              return finalizeRow(row, sections[i]);
+              return finalizeRow(row, sections[i], currentBucketsSingle ? currentBucketsSingle[i] : null);
             }).filter(Boolean).filter(rowHasContent);
           } else {
             // No header row found anywhere — this is normal for Xero's
