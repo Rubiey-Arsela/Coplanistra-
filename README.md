@@ -10,9 +10,124 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://59292a74.coplanistra.pages.dev (latest deploy — Cash Summary's A$0-totals bug FIXED (missing `sheetHints` was silently importing the wrong sheet from the Management_Report.xlsx pack) and the Executive Summary / Cash Summary / Balance Sheet pack imports have now been finalized as real Store snapshots, not just previewed; see "part 11" update below for the Supporting Documents feature and part 11 addendum for this fix. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
+- **Production**: https://9a98346d.coplanistra.pages.dev (latest deploy — now backed by a real Cloudflare D1 central database, so data syncs across browsers/devices/users instead of being trapped in one browser's `localStorage`; see "2026-09-24" session update below for full details. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
-- **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy`
+- **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy` — now with a bound Cloudflare D1 database (`coplanistra-production`) for real cross-browser data persistence.
+
+## Session update (2026-09-24) — Real cross-browser sync: migrated from localStorage-only to a Cloudflare D1 central database, resolved two Sept-2026 data conflicts, completed bulk Xero import (10 of 13 report types)
+
+**Client ask (verbatim, across this session)**: *"yes make sure all data is
+correctly sync"* → then, on being offered two options (A: user manually
+re-imports in their own browser, or B: build a real central database so
+data syncs across browsers/devices/users) → *"B"* → then, on two data
+conflicts being flagged for a decision: *"CASH FLOW - USE WITH FIGURE AND
+BALANCE SHEET USE UPDATED SEPT FIGURE."*
+
+### Root cause found
+Every previous "I imported your Xero files" claim in earlier sessions was
+only ever true **inside the one Playwright browser instance that did the
+import**. The app had no backend persistence at all — `store.js` read/wrote
+only `localStorage`, which is private per browser profile. So a
+Playwright-automated import never actually reached the user's own browser,
+and two different people (or the same person on two devices) would each
+see a different, disconnected copy of the data. This is the actual cause
+behind the recurring "the data isn't there" reports.
+
+### Fix — Cloudflare D1 central database (Option B)
+- Added a real D1 database, `coplanistra-production` (bound as `env.DB`),
+  with one table: `app_state (id INTEGER PRIMARY KEY CHECK (id=1), data
+  TEXT, updated_at TEXT)`. The app keeps its existing "one big shared
+  state object" design (no per-user rows) — this just moves that shared
+  blob from "whichever browser last wrote localStorage" to one real
+  database every browser reads from and writes to.
+- New Hono routes in `src/index.tsx`: `GET /api/state` (returns the stored
+  JSON blob) and `PUT /api/state` (upserts it).
+- `public/static/js/store.js`: extracted all state-migration/backfill
+  logic into a shared `buildState(persisted)` function so both the
+  `localStorage` fast-path and the D1 authoritative-path always produce an
+  identically-shaped, validated state. Added a push/pull sync layer:
+  - Every state change schedules a debounced (500ms) `PUT /api/state`.
+  - On page load, `pullRemote()` fetches `GET /api/state` and merges it
+    into the live state.
+  - Login/session fields (`authenticated`, `currentUserEmail`, `role`,
+    plus UI-only `toasts`/`notifOpen`) are deliberately excluded from what
+    gets pushed/pulled (`AUTH_FIELDS`), since there is no real
+    authentication server — who is logged in stays local to each browser,
+    while all financial/app data (imports, budgets, expenses, team
+    members, approvals, etc.) is now genuinely shared.
+- Migration applied to both local (`--local`) and the real remote D1
+  instance; redeployed to production Cloudflare Pages.
+
+### Verification (not just claimed — actually proven)
+1. Direct `curl` round-trip: `PUT /api/state` then `GET /api/state` from a
+   plain terminal (no browser) returns the same data back.
+2. Data written from one preview URL is readable from a different preview
+   URL of the same deploy (same D1 instance, different edge location).
+3. **Decisive test**: a completely fresh Playwright browser context (0
+   localStorage entries) logged in as a *different* real user than the one
+   that performed the imports, and saw the exact same import counts and
+   figures — proof that sync is now genuinely cross-browser/cross-user,
+   not just cross-tab.
+4. Caught and fixed a bug in my own verification scripts, not the app: an
+   automated test that clicks Import and closes the browser after only ~2s
+   can capture the on-screen success toast (correct) before the
+   *debounced* `PUT /api/state` network call has actually finished (a
+   race). This silently dropped the first Bank Reconciliation import
+   attempt (UI showed success, but D1 had 0 rows). Fixed by waiting for
+   the `PUT /api/state` network response (or `networkidle`) before closing
+   the browser, and re-ran the import — confirmed 3 rows now correctly
+   persisted in production D1.
+
+### Two Sept-2026 data conflicts — resolved exactly per instruction
+The user's uploaded Xero export folder contained overlapping files for the
+same September 2026 period with genuinely different Sept figures. Per
+explicit instruction:
+- **Cash Flow** → use the file **with** a real Sept figure:
+  `Statement_of_Cash_Flows.xlsx`'s Sept column was all zeros (exported
+  before month-end). `Statement_of_Cash_Flows-2.xlsx` (uploaded two days
+  later) has genuine non-zero Sept figures — **used this one** for
+  Sept/Aug/July. Live production confirms Sept net movement =
+  **-A$4,212.56** (non-zero, real).
+- **Balance Sheet** → use the **updated** Sept figure:
+  `Balance_Sheet (2).xlsx`'s Sept column silently carried forward
+  *August's* own bank balance (22,555.06) instead of true September's —
+  confirmed wrong because it doesn't tie to the real Cash Flow Sept
+  closing cash (18,342.50). `Balance_Sheet-2.xlsx`'s Sept column is
+  correct and ties out. **Used this one** for Sept only (Aug/Jul/Jun/May
+  still come from `Balance_Sheet (2).xlsx`). Live production confirms Sept
+  "Loan from shareholders" = **A$239,586.62** (the updated/correct value,
+  not the stale A$204,481.95).
+- P&L's Sept column was also excluded from import — it is a *genuine* Xero
+  zero (file exported Sept 22, before month-end), not a data conflict, so
+  importing it would fabricate a misleading "zero month". P&L Sept will be
+  imported once a post-month-end export becomes available.
+
+### Bulk import completed — 10 of 13 Xero report types, verified live
+| Report type | Periods imported | Source file(s) |
+|---|---|---|
+| Balance Sheet | May–Aug 2026 | `Balance_Sheet (2).xlsx` |
+| Balance Sheet | Sept 2026 | `Balance_Sheet-2.xlsx` (updated figure, see above) |
+| Cash Flow | May–June 2026 | `Statement_of_Cash_Flows.xlsx` |
+| Cash Flow | July–Sept 2026 | `Statement_of_Cash_Flows-2.xlsx` (real figure, see above) |
+| Profit & Loss | May–Aug 2026 | `Profit_and_Loss (2).xlsx` (Sept excluded — genuine zero) |
+| Account Transactions | 1 Jul–25 Aug 2026 | `Account_Transactions-2.xlsx` (25 rows) |
+| Bank Reconciliation | As at 25 Aug 2026 | `Bank_Reconciliation.xlsx` (3 rows) |
+| Bank Summary | 1 Jul–25 Aug 2026 and 1–30 Sept 2026 | `Bank_Summary.xlsx` + `Bank_Summary (2).xlsx` |
+| General Ledger Detail | 1 Jul–25 Aug 2026 | `General_Ledger_Detail.xlsx` (25 rows) |
+| Trial Balance | As at 25 Aug 2026 | `Trial_Balance.xlsx` (23 rows) |
+| Executive Summary | Apr–Aug 2026 | `Management_Report.xlsx` (via `sheetHints`) |
+| Cash Summary | 31 Aug 2026 | `Management_Report.xlsx` (via `sheetHints`) |
+
+**Not imported (correctly, by design)** — verified empty in every source
+file, so left disclosed rather than fabricated:
+- **Aged Receivables** — zero data rows in every uploaded source file.
+- **Aged Payables** — zero data rows in every uploaded source file.
+- **Equity Movement** — no source file for this report type exists at all
+  in the uploaded set.
+
+All figures above were re-confirmed directly against production
+(`https://coplanistra.pages.dev/api/state`) after this write-up, not just
+assumed from earlier logs.
 
 ## Session update (2026-09-22, part 11) — Supporting Documents: View button, PDF amount auto-read, full version history + Management_Report.xlsx wired into P&L/Balance Sheet plus two new report types
 
@@ -570,8 +685,8 @@ Includes the workspace's real members list (mirrors the client's existing user t
 ## Known gaps / next steps
 - Reports screen: only the "Variance analysis" tab is fully wired; Forecast / Cash-flow / Vendor spend / Custom are placeholders.
 - No real authentication — Login is a demo role-picker, not tied to a real identity provider.
-- No server-side persistence yet (Cloudflare D1) — all data lives in `localStorage` per browser.
-- Admin screen's Invite/Deactivate actions are local-only (don't send real emails or persist across browsers).
+- ~~No server-side persistence yet (Cloudflare D1)~~ **FIXED 2026-09-24** — a real Cloudflare D1 database (`coplanistra-production`, `app_state` table) now backs the app via `GET`/`PUT /api/state`; `localStorage` is kept only as a fast local cache that syncs with D1 on every load and on every change. See the "2026-09-24" session update above for full details and verification.
+- Admin screen's Invite/Deactivate actions are local-only (don't send real emails or persist across browsers). *(Note: with the D1 sync fix above, the underlying team-member list data itself now does sync across browsers — this remaining gap is narrower than before: only that Invite/Deactivate don't trigger real emails.)*
 - Exchange rates in `CURRENCY_CONFIG` are static demo values, not live market rates.
 - Receipt uploads are stored as filenames only (no Cloudflare R2 binding yet) — files are not actually persisted server-side.
 - Xero imports are CSV-upload snapshots, not a live OAuth/API sync — each import is a manual, dated snapshot rather than continuously refreshed data.
