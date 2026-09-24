@@ -381,19 +381,37 @@
     </ArsCard>
   );
 
-  const roleGreetings = {
-    finance: { hi: 'Good morning, Priya.', sub: "Here's how your organisation is tracking against plan · Q1 reforecast cycle closes 30 September." },
-    approver: { hi: 'Good morning, Marcus.', sub: 'You have items awaiting your review.' },
-    employee: { hi: 'Good morning, Aisha.', sub: 'Your expenses and budget usage at a glance.' },
-    admin: { hi: 'Good morning, Keith.', sub: 'All integrations healthy · pending user provisioning requests.' },
+  // ---- Fix (2026-09-24 user report: "why good morning Keith? im
+  // logging as Rubiey") — this greeting used to key ONLY off the
+  // current VIEW-AS role (finance/approver/employee/admin) and print
+  // a hardcoded prototype name for that role, completely ignoring who
+  // was actually signed in — so any admin-role user always saw "Good
+  // morning, Keith" regardless of their real name. The subtitle text
+  // per role is still useful context (kept below), but the NAME must
+  // always come from the real logged-in user (window.Store.
+  // getCurrentUser()), with the time-of-day greeting word computed
+  // live instead of hardcoded to "morning".
+  const roleGreetingSubs = {
+    finance: "Here's how your organisation is tracking against plan · Q1 reforecast cycle closes 30 September.",
+    approver: 'You have items awaiting your review.',
+    employee: 'Your expenses and budget usage at a glance.',
+    admin: 'All integrations healthy · pending user provisioning requests.',
   };
+  function timeOfDayGreeting(date) {
+    const h = date.getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 18) return 'Good afternoon';
+    return 'Good evening';
+  }
 
   function DashboardScreen() {
     const [s, setS] = React.useState(window.Store.getState());
     React.useEffect(() => window.Store.subscribe(setS), []);
     const [chartView, setChartView] = React.useState('Group');
     const role = s.role;
-    const greet = roleGreetings[role] || roleGreetings.finance;
+    const currentUser = window.Store.getCurrentUser ? window.Store.getCurrentUser() : null;
+    const greetName = currentUser ? currentUser.name.split(' ')[0] : 'there';
+    const greet = { hi: `${timeOfDayGreeting(window.Store.today())}, ${greetName}.`, sub: roleGreetingSubs[role] || roleGreetingSubs.finance };
     const pendingApprovals = window.Store.pendingApprovalsCount();
     const pendingExpenses = s.expenses.filter((e) => e.status === 'pending').length;
 
