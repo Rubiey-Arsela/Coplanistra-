@@ -668,7 +668,7 @@
       doc.text('ApexFin — Monthly Director\'s Report', 40, y);
       y += 20;
       doc.setFontSize(11); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
-      doc.text(`${monthLabel} · Prepared ${dateLabel} · Arsela Resources (Group)`, 40, y);
+      doc.text(`${monthLabel} · Prepared ${dateLabel} · Arsela Resources`, 40, y);
       doc.setTextColor(0);
       y += 28;
 
@@ -809,7 +809,7 @@
       const doc = new jsPDF({ unit: 'pt', format: 'a4' });
       const pageW = doc.internal.pageSize.getWidth();
       const pageH = doc.internal.pageSize.getHeight();
-      const COMPANY_NAME = 'Arsela Resources (Group)';
+      const COMPANY_NAME = 'Arsela Resources';
       // Client spec (2026-09-21): "FOR THE PERIOD ENDING: FOLLOW MONTHLY
       // PERIOD, LET SAY AUGUST... 31 AUGUST 2026... 31 AUGUST — DATE CAN
       // CHANGE DEPENDING ON MONTHS" — the report-ending date is always the
