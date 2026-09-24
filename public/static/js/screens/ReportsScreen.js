@@ -791,18 +791,30 @@
       window.Store.toast('Director\'s report exported as PDF', 'success');
     };
 
-    /* ---- Task #15 (client spec, 2026-09-21, verbatim structure):
-       "Name of company, Management Accounts: Profit and Loss statement,
-       Profit and Loss statement (periodic), Statement of Changes in
-       Equity and Balance Sheet... Page 2: P&L for period ending [month]
-       will have 2 column — compare this year up to [month] and last
-       year figure. Page 3: monthly period comparisons for this year
-       starting from July. Page 4: Statement of Changes in Equity —
-       compare with last year, 2 columns. Page 5: Balance Sheet — 2
-       columns, compare this year vs last year." The report-ending date
-       is ALWAYS the month selected via the Task #11 month picker
-       (monthLabel/monthKey) — never hardcoded, per the client's own
-       "31 August — date can change depending on months" caveat. ---- */
+    /* ---- Task #16 (client spec, 2026-09-24, verbatim structure — a
+       genuine corporate "management account" pack, cost-centre aware):
+         1. Short director summary — closing bank balance, monthly loss,
+            major cash received, payments needing attention; vs last month.
+         2. Profit and Loss — this month's result AND FY-to-date, vs the
+            same month/YTD last year; explain major expense movements.
+         3. Cash movement — opening + received − paid = closing, with
+            shareholder/financing funding split out from trading revenue
+            (Arsela is a cost centre, not a trading business); vs previous
+            month and vs July (FY start).
+         4. Balance Sheet — cash, amounts owed TO Arsela, unpaid
+            obligations, shareholder loans and equity; this month-end vs
+            the prior FY-year-end (30 June), exactly as Xero shows it.
+         5. Next 1–3 months — expected receipts, payroll/tax/super/other
+            committed payments, and any funding gap; forecast vs available
+            cash.
+         6. Items for directors — decisions needed, overdue payments,
+            missing records and reconciliation issues; status since last
+            report.
+       Replaces the earlier 5-page "P&L/Equity/Balance Sheet only" pack
+       (Task #15) — that structure never surfaced cash, financing funding
+       or open items, all three of which the client explicitly asked to
+       see. The report-ending date is ALWAYS the month selected via the
+       Task #11 month picker (monthLabel/monthKey) — never hardcoded. ---- */
     const exportManagementAccountsPDF = () => {
       if (!window.jspdf) { window.Store.toast('PDF library still loading — try again in a moment', 'warning'); return; }
       const { jsPDF } = window.jspdf;
@@ -810,25 +822,45 @@
       const pageW = doc.internal.pageSize.getWidth();
       const pageH = doc.internal.pageSize.getHeight();
       const COMPANY_NAME = 'Arsela Resources';
-      // Client spec (2026-09-21): "FOR THE PERIOD ENDING: FOLLOW MONTHLY
-      // PERIOD, LET SAY AUGUST... 31 AUGUST 2026... 31 AUGUST — DATE CAN
-      // CHANGE DEPENDING ON MONTHS" — the report-ending date is always the
-      // LAST calendar day of the selected month (reportMonthDate itself is
-      // the 1st, used elsewhere for label/FY-year math), not the 1st.
+      const TOTAL_PAGES = 7; // cover + 6 sections
+      // Client spec: the report-ending date is always the LAST calendar
+      // day of the selected month (reportMonthDate itself is the 1st,
+      // used elsewhere for label/FY-year math), not the 1st.
       const periodEndDate = new Date(reportMonthDate.getFullYear(), reportMonthDate.getMonth() + 1, 0);
       const periodEndLabel = periodEndDate.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
       const priorYearPL = window.Store.xeroImportForYearAgo('profitAndLoss', monthKey);
       const priorYearBS = window.Store.xeroImportForYearAgo('balanceSheet', monthKey);
-      const priorYearEQ = window.Store.xeroImportForYearAgo('equityMovement', monthKey);
-      const latestEQ = xero('equityMovement');
       const fyLabelStr = window.Store.fyLabel(reportMonthDate);
-      const priorFyLabelStr = window.Store.fyLabel(new Date(reportMonthDate.getFullYear() - 1, reportMonthDate.getMonth(), 1));
+
+      // Prior calendar month's key/label (Section 1/3's "vs last month").
+      const [rmY, rmM] = (monthKey || '').split('-').map(Number);
+      const priorMonthDate = (rmY && rmM) ? new Date(rmY, rmM - 2, 1) : null;
+      const priorMonthKey = priorMonthDate ? `${priorMonthDate.getFullYear()}-${String(priorMonthDate.getMonth() + 1).padStart(2, '0')}` : null;
+      const priorMonthPL = priorMonthKey ? window.Store.xeroImportForMonth('profitAndLoss', priorMonthKey) : null;
+      const priorMonthBSum = priorMonthKey ? window.Store.xeroImportForMonth('bankSummary', priorMonthKey) : null;
+      const priorMonthCFA = priorMonthKey ? window.Store.xeroImportForMonth('cashFlowActuals', priorMonthKey) : null;
+      // July (FY start) snapshot — Section 3's second comparison column.
+      const fyStartKey = fyStartKeyForMonthKey(monthKey);
+      const julyCFA = fyStartKey ? window.Store.xeroImportForMonth('cashFlowActuals', fyStartKey) : null;
+      const julyBSum = fyStartKey ? window.Store.xeroImportForMonth('bankSummary', fyStartKey) : null;
 
       const pageFooter = (pageNum) => {
         doc.setFontSize(8); doc.setFont(undefined, 'normal'); doc.setTextColor(150);
         doc.text(`${COMPANY_NAME} — Management Accounts for the period ending ${periodEndLabel}`, 40, pageH - 24);
-        doc.text(`Page ${pageNum} of 5`, pageW - 40, pageH - 24, { align: 'right' });
+        doc.text(`Page ${pageNum} of ${TOTAL_PAGES}`, pageW - 40, pageH - 24, { align: 'right' });
         doc.setTextColor(0);
+      };
+      const sectionHead = (title, subtitle) => {
+        doc.setFontSize(15); doc.setFont(undefined, 'bold');
+        doc.text(title, 40, 50);
+        doc.setFontSize(10.5); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
+        doc.text(subtitle, 40, 64);
+        doc.setTextColor(0);
+        return 84;
+      };
+      const noDataLine = (msg, y) => {
+        doc.setFontSize(10.5); doc.setFont(undefined, 'normal');
+        doc.text(msg, 40, y, { maxWidth: pageW - 80 });
       };
       const twoColHead = (thisLabel, lastLabel) => [['Account', thisLabel, lastLabel]];
       const twoColRow = (r) => [
@@ -842,6 +874,11 @@
           data.cell.styles.fillColor = [238, 243, 255];
         }
       };
+      const amt = (v) => (v == null ? '—' : fmtAUD(v, { compact: true }));
+      const changeVs = (cur, prev) => {
+        if (cur == null || prev == null) return null;
+        return cur - prev;
+      };
 
       /* ---- Page 1: cover ---- */
       let y = 140;
@@ -853,14 +890,13 @@
       y += 30;
       doc.setFontSize(12); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
       const coverLines = [
-        'Profit and Loss Statement',
-        'Profit and Loss Statement (Periodic)',
-        'Statement of Changes in Equity',
-        'Balance Sheet',
+        '1. Director\u2019s Summary', '2. Profit and Loss',
+        '3. Cash Movement', '4. Balance Sheet',
+        '5. Next 1\u20133 Months', '6. Items for Directors',
       ];
-      coverLines.forEach((l) => { doc.text(l, pageW / 2, y, { align: 'center' }); y += 20; });
+      coverLines.forEach((l) => { doc.text(l, pageW / 2, y, { align: 'center' }); y += 18; });
       doc.setTextColor(0);
-      y += 30;
+      y += 26;
       doc.setFontSize(13); doc.setFont(undefined, 'bold');
       doc.text(`For the period ending: ${periodEndLabel}`, pageW / 2, y, { align: 'center' });
       y += 22;
@@ -869,13 +905,62 @@
       doc.setTextColor(0);
       pageFooter(1);
 
-      /* ---- Page 2: Profit & Loss, this year vs same period last year ---- */
-      doc.addPage(); y = 50;
-      doc.setFontSize(15); doc.setFont(undefined, 'bold');
-      doc.text('Profit and Loss Statement', 40, y); y += 6;
-      doc.setFontSize(10.5); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
-      doc.text(`For the period ending ${periodEndLabel}`, 40, y + 14); doc.setTextColor(0);
-      y += 30;
+      /* ================================================================
+         Section 1 — Short director summary: closing bank balance,
+         monthly loss, major cash received, payments needing attention —
+         each with the change from last month. ================ */
+      doc.addPage();
+      y = sectionHead('1. Director\u2019s Summary', `For the month ended ${periodEndLabel} — compared with last month`);
+      const curBSumTotals = latestBSum && latestBSum.totals ? latestBSum.totals : null;
+      const closingBank = curBSumTotals ? curBSumTotals.totalClosing : (hasBankSummary ? bankTotalClosing : null);
+      const priorClosingBank = priorMonthBSum && priorMonthBSum.totals ? priorMonthBSum.totals.totalClosing : null;
+      const monthlyCashReceived = curBSumTotals ? curBSumTotals.totalReceived : null;
+      const priorCashReceived = priorMonthBSum && priorMonthBSum.totals ? priorMonthBSum.totals.totalReceived : null;
+      const plT = latestPL && latestPL.totals ? latestPL.totals : null;
+      const monthlyNetResult = plT ? plT.netProfitYTD : null;
+      const priorMonthNetResult = priorMonthPL && priorMonthPL.totals ? priorMonthPL.totals.netProfitYTD : null;
+      // "Payments needing attention" = amounts owed by Arsela that are
+      // overdue (Aged Payables 30+ days) — the real Xero-backed proxy
+      // for "needs attention" a director can act on.
+      const apOverdueSummary = latestAP && latestAP.totals ? latestAP.totals.overdueTotal : null;
+      doc.autoTable({
+        startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
+        head: [['Metric', monthLabel, 'Change vs last month']],
+        body: [
+          ['Closing bank balance', closingBank != null ? amt(closingBank) : (latestBSum === null ? 'Not imported' : 'Not on file'), changeVs(closingBank, priorClosingBank) != null ? `${changeVs(closingBank, priorClosingBank) >= 0 ? '+' : ''}${amt(changeVs(closingBank, priorClosingBank))}` : '\u2014'],
+          ['Net result for the month (P&L)', monthlyNetResult != null ? amt(monthlyNetResult) : 'Not imported', changeVs(monthlyNetResult, priorMonthNetResult) != null ? `${changeVs(monthlyNetResult, priorMonthNetResult) >= 0 ? '+' : ''}${amt(changeVs(monthlyNetResult, priorMonthNetResult))}` : '\u2014'],
+          ['Cash received in the month', monthlyCashReceived != null ? amt(monthlyCashReceived) : 'Not imported', changeVs(monthlyCashReceived, priorCashReceived) != null ? `${changeVs(monthlyCashReceived, priorCashReceived) >= 0 ? '+' : ''}${amt(changeVs(monthlyCashReceived, priorCashReceived))}` : '\u2014'],
+          ['Payments needing attention (payables 30+ days overdue)', apOverdueSummary != null ? amt(apOverdueSummary) : 'Not imported', '\u2014'],
+        ],
+        styles: { fontSize: 9.5 }, headStyles: { fillColor: [19, 67, 203], fontSize: 9 },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+      });
+      y = doc.lastAutoTable.finalY + 18;
+      doc.setFontSize(11); doc.setFont(undefined, 'bold');
+      doc.text('Commentary', 40, y); y += 14;
+      doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
+      const summaryLines = [];
+      if (monthlyNetResult != null) {
+        summaryLines.push(monthlyNetResult < 0
+          ? `The business recorded a loss of ${amt(Math.abs(monthlyNetResult))} for ${monthLabel}, consistent with its status as a cost centre funded by shareholder/related-party financing rather than trading revenue.`
+          : `The business recorded a profit of ${amt(monthlyNetResult)} for ${monthLabel}.`);
+      }
+      if (closingBank != null && priorClosingBank != null) {
+        const delta = closingBank - priorClosingBank;
+        summaryLines.push(`The bank balance ${delta >= 0 ? 'increased' : 'decreased'} by ${amt(Math.abs(delta))} during the month to close at ${amt(closingBank)}.`);
+      }
+      if (apOverdueSummary) {
+        summaryLines.push(`${amt(apOverdueSummary)} of payables are 30+ days overdue and require director attention — see Section 6.`);
+      }
+      if (!summaryLines.length) summaryLines.push('Import Profit & Loss, Bank Summary and Aged Payables from Data Imports to populate this commentary.');
+      summaryLines.forEach((l) => { doc.text('\u2022 ' + l, 40, y, { maxWidth: pageW - 80 }); y += 16; });
+      pageFooter(2);
+
+      /* ================================================================
+         Section 2 — Profit and Loss: this month's result AND FY-to-date,
+         vs the same month / YTD last year; major expense movements. */
+      doc.addPage();
+      y = sectionHead('2. Profit and Loss', `${monthLabel} and ${fyLabelStr} year to date, compared with the same period last year`);
       if (latestPL) {
         const { rows: plRows, boldIdx: plBold } = buildStatementRows(
           latestPL, priorYearPL, ['Revenue', 'Other Income', 'Cost of Sales', 'Operating Expense', 'Other Expense'], 'ytd'
@@ -888,123 +973,226 @@
           columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
           didParseCell: didParseBold(plBold),
         });
-        y = doc.lastAutoTable.finalY + 16;
+        y = doc.lastAutoTable.finalY + 14;
         const t = latestPL.totals || {};
         const pt = (priorYearPL && priorYearPL.totals) || null;
         doc.autoTable({
           startY: y, margin: { left: 40, right: 40 }, theme: 'plain',
           body: [
-            ['Gross Profit', fmtAUD(t.grossProfitYTD || 0, { compact: true }), pt ? fmtAUD(pt.grossProfitYTD || 0, { compact: true }) : 'Not on file'],
-            ['Net Profit / (Loss)', fmtAUD(t.netProfitYTD || 0, { compact: true }), pt ? fmtAUD(pt.netProfitYTD || 0, { compact: true }) : 'Not on file'],
+            ['Gross Profit', amt(t.grossProfitYTD || 0), pt ? amt(pt.grossProfitYTD || 0) : 'Not on file'],
+            ['Net Profit / (Loss)', amt(t.netProfitYTD || 0), pt ? amt(pt.netProfitYTD || 0) : 'Not on file'],
           ],
           styles: { fontSize: 10, fontStyle: 'bold', fillColor: [238, 243, 255] },
           columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
         });
+        y = doc.lastAutoTable.finalY + 18;
+        // "Explain major expense movements" — the largest month-on-month
+        // dollar swings in expense line items, biggest first.
+        if (priorMonthPL) {
+          const curByAcc = {}; (latestPL.rows || []).forEach((r) => { if (r.classification === 'Operating Expense' || r.classification === 'Other Expense') curByAcc[(r.account || '').trim().toLowerCase()] = { account: r.account, v: Number(r.ytd) || 0 }; });
+          const priorByAcc = {}; (priorMonthPL.rows || []).forEach((r) => { priorByAcc[(r.account || '').trim().toLowerCase()] = Number(r.ytd) || 0; });
+          const movements = Object.values(curByAcc).map((c) => ({ account: c.account, movement: c.v - (priorByAcc[(c.account || '').trim().toLowerCase()] || 0) }))
+            .filter((m) => Math.abs(m.movement) > 0.5).sort((a, b) => Math.abs(b.movement) - Math.abs(a.movement)).slice(0, 5);
+          if (movements.length) {
+            doc.setFontSize(11); doc.setFont(undefined, 'bold');
+            doc.text(`Major expense movements vs ${priorMonthPL.period}`, 40, y); y += 6;
+            doc.autoTable({
+              startY: y + 6, margin: { left: 40, right: 40 }, theme: 'plain',
+              body: movements.map((m) => [m.account, `${m.movement >= 0 ? '+' : ''}${amt(m.movement)}`]),
+              styles: { fontSize: 9 }, columnStyles: { 1: { halign: 'right', textColor: [180, 40, 40] } },
+            });
+            y = doc.lastAutoTable.finalY + 10;
+          }
+        } else {
+          doc.setFontSize(9); doc.setFont(undefined, 'italic'); doc.setTextColor(140);
+          doc.text('Import last month\u2019s Profit & Loss to see major expense movements here.', 40, y, { maxWidth: pageW - 80 });
+          doc.setTextColor(0); doc.setFont(undefined, 'normal'); y += 16;
+        }
       } else {
-        doc.setFontSize(10.5); doc.setFont(undefined, 'normal');
-        doc.text('No Profit & Loss has been imported for this period — import one from Data Imports to populate this page.', 40, y, { maxWidth: pageW - 80 });
-      }
-      pageFooter(2);
-
-      /* ---- Page 3: monthly period comparisons for this FY, from July ---- */
-      doc.addPage(); y = 50;
-      doc.setFontSize(15); doc.setFont(undefined, 'bold');
-      doc.text('Profit and Loss Statement (Periodic)', 40, y); y += 6;
-      doc.setFontSize(10.5); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
-      doc.text(`Monthly comparison, ${fyLabelStr} to date (from July)`, 40, y + 14); doc.setTextColor(0);
-      y += 30;
-      const plMonthly = fyMonthlySeries('profitAndLoss', monthKey);
-      if (plMonthly.length) {
-        const plMonthlyMetrics = [
-          ['Revenue', (t) => t.totalRevenueYTD || 0],
-          ['Cost of Sales', (t) => t.totalCostOfSalesYTD || 0],
-          ['Gross Profit', (t) => t.grossProfitYTD || 0],
-          ['Total Expenses', (t) => t.totalExpenseYTD || 0],
-          ['Net Profit / (Loss)', (t) => t.netProfitYTD || 0],
-        ];
-        doc.autoTable({
-          startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
-          head: [['Metric', ...plMonthly.map((m) => m.label)]],
-          body: plMonthlyMetrics.map(([label, fn]) => [label, ...plMonthly.map((m) => fmtAUD(fn(m.rec.totals || {}), { compact: true }))]),
-          styles: { fontSize: 8.5 }, headStyles: { fillColor: [19, 67, 203], fontSize: 8 },
-          columnStyles: plMonthly.reduce((acc, _, i) => { acc[i + 1] = { halign: 'right' }; return acc; }, {}),
-          didParseCell: (data) => { if (data.section === 'body' && (data.row.index === 2 || data.row.index === 4)) { data.cell.styles.fontStyle = 'bold'; data.cell.styles.fillColor = [238, 243, 255]; } },
-        });
-      } else {
-        doc.setFontSize(10.5); doc.setFont(undefined, 'normal');
-        doc.text(`No exact monthly Profit & Loss imports exist for ${fyLabelStr} yet (from July). Import each month individually, or a Xero "compare with previous periods" multi-month export, from Data Imports to populate this page.`, 40, y, { maxWidth: pageW - 80 });
+        noDataLine('No Profit & Loss has been imported for this period — import one from Data Imports to populate this section.', y);
       }
       pageFooter(3);
 
-      /* ---- Page 4: Statement of Changes in Equity, this year vs last ---- */
-      doc.addPage(); y = 50;
-      doc.setFontSize(15); doc.setFont(undefined, 'bold');
-      doc.text('Statement of Changes in Equity', 40, y); y += 6;
-      doc.setFontSize(10.5); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
-      doc.text(`For the period ending ${periodEndLabel} — compared with the same period last year`, 40, y + 14); doc.setTextColor(0);
-      y += 30;
-      if (latestEQ) {
-        const eqOrder = ['Opening Balance', 'Profit for the Period', 'Contributions', 'Distributions', 'Other Movements', 'Closing Balance'];
-        const curByType = {}; (latestEQ.rows || []).forEach((r) => { curByType[r.movementType] = (curByType[r.movementType] || 0) + (Number(r.movement || r.closing || 0) || 0); });
-        const priorByType = {}; if (priorYearEQ) (priorYearEQ.rows || []).forEach((r) => { priorByType[r.movementType] = (priorByType[r.movementType] || 0) + (Number(r.movement || r.closing || 0) || 0); });
-        const t = latestEQ.totals || {}; const pt = (priorYearEQ && priorYearEQ.totals) || null;
-        const eqBody = [
-          ['Opening equity', fmtAUD(t.totalOpening || 0, { compact: true }), pt ? fmtAUD(pt.totalOpening || 0, { compact: true }) : 'Not on file'],
-          ['Profit for the period', fmtAUD(t.profitForPeriod || 0, { compact: true }), pt ? fmtAUD(pt.profitForPeriod || 0, { compact: true }) : 'Not on file'],
-          ['Contributions', fmtAUD(t.contributions || 0, { compact: true }), pt ? fmtAUD(pt.contributions || 0, { compact: true }) : 'Not on file'],
-          ['Distributions', fmtAUD(-(t.distributions || 0), { compact: true }), pt ? fmtAUD(-(pt.distributions || 0), { compact: true }) : 'Not on file'],
-          ['Other movements', fmtAUD(t.otherMovements || 0, { compact: true }), pt ? fmtAUD(pt.otherMovements || 0, { compact: true }) : 'Not on file'],
-        ];
+      /* ================================================================
+         Section 3 — Cash movement: opening + received − paid = closing,
+         with shareholder/financing funding split from trading revenue
+         (Arsela is a cost centre, not a trading business) — vs previous
+         month and vs July (FY start). */
+      doc.addPage();
+      y = sectionHead('3. Cash Movement', `${monthLabel} — compared with the previous month and with ${fyStartKey ? window.Store.fyLabel(reportMonthDate) + ' opening (July)' : 'July'}`);
+      if (latestCFA) {
+        const cfaT = latestCFA.totals || {};
+        const openingCash = curBSumTotals ? curBSumTotals.totalOpening : null;
+        const closingCashFig = curBSumTotals ? curBSumTotals.totalClosing : null;
+        const receivedFig = curBSumTotals ? curBSumTotals.totalReceived : null;
+        const paidFig = curBSumTotals ? curBSumTotals.totalSpent : null;
         doc.autoTable({
           startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
-          head: twoColHead(`This year\n(${latestEQ.period})`, `Last year\n(${priorYearEQ ? priorYearEQ.period : 'not on file'})`),
-          body: eqBody, styles: { fontSize: 9.5 }, headStyles: { fillColor: [19, 67, 203], fontSize: 8.5 },
-          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+          head: [['', monthLabel, priorMonthPL || priorMonthCFA || priorMonthBSum ? (priorMonthKey || 'Prior month') : 'Prior month', fyStartKey ? 'July (FY open)' : 'July']],
+          body: [
+            ['Opening bank balance', amt(openingCash), amt(priorMonthBSum && priorMonthBSum.totals ? priorMonthBSum.totals.totalOpening : null), amt(julyBSum && julyBSum.totals ? julyBSum.totals.totalOpening : null)],
+            ['Cash received', amt(receivedFig), amt(priorMonthBSum && priorMonthBSum.totals ? priorMonthBSum.totals.totalReceived : null), amt(julyBSum && julyBSum.totals ? julyBSum.totals.totalReceived : null)],
+            ['Cash paid', amt(paidFig != null ? -paidFig : null), amt(priorMonthBSum && priorMonthBSum.totals ? -priorMonthBSum.totals.totalSpent : null), amt(julyBSum && julyBSum.totals ? -julyBSum.totals.totalSpent : null)],
+            ['Closing bank balance', amt(closingCashFig), amt(priorMonthBSum && priorMonthBSum.totals ? priorMonthBSum.totals.totalClosing : null), amt(julyBSum && julyBSum.totals ? julyBSum.totals.totalClosing : null)],
+          ],
+          styles: { fontSize: 9.5 }, headStyles: { fillColor: [19, 67, 203], fontSize: 8.5 },
+          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+          didParseCell: (data) => { if (data.section === 'body' && data.row.index === 3) { data.cell.styles.fontStyle = 'bold'; data.cell.styles.fillColor = [238, 243, 255]; } },
         });
-        y = doc.lastAutoTable.finalY + 12;
+        y = doc.lastAutoTable.finalY + 20;
+        // Financing (shareholder funding) vs Operating — kept as
+        // SEPARATE lines, never merged, per the client's explicit
+        // instruction that Arsela is a cost centre so shareholder
+        // funding must not be conflated with trading revenue.
+        doc.setFontSize(11); doc.setFont(undefined, 'bold');
+        doc.text('Source of funds — shareholder financing vs trading activity', 40, y); y += 6;
+        const financingNow = cfaT.netFinancingYTD || 0;
+        const operatingNow = cfaT.netOperatingYTD || 0;
+        const priorFinancing = priorMonthCFA && priorMonthCFA.totals ? priorMonthCFA.totals.netFinancingYTD || 0 : null;
+        const julyFinancing = julyCFA && julyCFA.totals ? julyCFA.totals.netFinancingYTD || 0 : null;
         doc.autoTable({
-          startY: y, margin: { left: 40, right: 40 }, theme: 'plain',
-          body: [['Closing equity', fmtAUD(t.totalClosing || 0, { compact: true }), pt ? fmtAUD(pt.totalClosing || 0, { compact: true }) : 'Not on file']],
-          styles: { fontSize: 10, fontStyle: 'bold', fillColor: [238, 243, 255] },
-          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+          startY: y + 6, margin: { left: 40, right: 40 }, theme: 'grid',
+          head: [['Activity', monthLabel, priorMonthKey || 'Prior month', 'July (FY open)']],
+          body: [
+            ['Net financing activities (shareholder loans / funding)', amt(financingNow), amt(priorFinancing), amt(julyFinancing)],
+            ['Net operating activities (trading cash flow)', amt(operatingNow), amt(priorMonthCFA && priorMonthCFA.totals ? priorMonthCFA.totals.netOperatingYTD || 0 : null), amt(julyCFA && julyCFA.totals ? julyCFA.totals.netOperatingYTD || 0 : null)],
+          ],
+          styles: { fontSize: 9.5 }, headStyles: { fillColor: [19, 67, 203], fontSize: 8.5 },
+          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
         });
-        y = doc.lastAutoTable.finalY + 18;
-        doc.setFontSize(8.5); doc.setFont(undefined, 'italic'); doc.setTextColor(140);
-        doc.text('Note: Statement of Changes in Equity import is a best-effort schema not yet validated against a live Xero export — figures should be checked against the source report.', 40, y, { maxWidth: pageW - 80 });
+        y = doc.lastAutoTable.finalY + 16;
+        doc.setFontSize(9.5); doc.setFont(undefined, 'italic'); doc.setTextColor(120);
+        doc.text(`Arsela is a cost centre: its cash inflow is funded by shareholder loans/financing (${amt(financingNow)} this month), not by trading revenue. This is expected and should not be read as a sign of financial distress on its own.`, 40, y, { maxWidth: pageW - 80 });
         doc.setTextColor(0); doc.setFont(undefined, 'normal');
       } else {
-        doc.setFontSize(10.5); doc.setFont(undefined, 'normal');
-        doc.text('No Statement of Changes in Equity has been imported for this period — import one from Data Imports (report type "Statement of Changes in Equity") to populate this page.', 40, y, { maxWidth: pageW - 80 });
+        noDataLine('No Statement of Cash Flows / Cash Summary has been imported for this period — import one from Data Imports to populate this section.', y);
       }
       pageFooter(4);
 
-      /* ---- Page 5: Balance Sheet, this year vs last year ---- */
-      doc.addPage(); y = 50;
-      doc.setFontSize(15); doc.setFont(undefined, 'bold');
-      doc.text('Balance Sheet', 40, y); y += 6;
-      doc.setFontSize(10.5); doc.setFont(undefined, 'normal'); doc.setTextColor(90);
-      doc.text(`As at ${periodEndLabel} — compared with the same period last year`, 40, y + 14); doc.setTextColor(0);
-      y += 30;
+      /* ================================================================
+         Section 4 — Balance Sheet: cash, amounts owed to Arsela, unpaid
+         obligations, shareholder loans and equity — this month-end vs
+         30 June (prior FY year-end), as Xero shows it. */
+      doc.addPage();
+      const juneKey = `${(fyStartKey || monthKey || '').split('-')[0]}-06`;
+      const juneBS = window.Store.xeroImportForMonth('balanceSheet', juneKey);
+      y = sectionHead('4. Balance Sheet', `As at ${periodEndLabel} — compared with 30 June ${juneKey.split('-')[0]} (start of financial year)`);
       if (latestBS) {
         const { rows: bsRows, boldIdx: bsBold } = buildStatementRows(
-          latestBS, priorYearBS, ['Asset', 'Liability', 'Equity'], 'current'
+          latestBS, juneBS || priorYearBS, ['Asset', 'Liability', 'Equity'], 'current'
         );
         doc.autoTable({
           startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
-          head: twoColHead(`This year\n(${latestBS.period})`, `Last year\n(${priorYearBS ? priorYearBS.period : 'not on file'})`),
+          head: twoColHead(`As at ${latestBS.period}`, `As at ${juneBS ? juneBS.period : (priorYearBS ? priorYearBS.period + ' (last year)' : 'not on file')}`),
           body: bsRows.map(twoColRow),
           styles: { fontSize: 9 }, headStyles: { fillColor: [19, 67, 203], fontSize: 8.5 },
           columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
           didParseCell: didParseBold(bsBold),
         });
+        y = doc.lastAutoTable.finalY + 16;
+        // Directors care most about four figures on this statement —
+        // called out explicitly per the client's spec wording.
+        const findRow = (re) => (latestBS.rows || []).find((r) => re.test((r.account || '')));
+        const shareholderLoan = findRow(/shareholder/i);
+        const cashRow = (latestBS.rows || []).filter((r) => /bank|cash/i.test(r.account || '')).reduce((a, r) => a + (Number(r.current) || 0), 0);
+        const owedToArsela = (latestBS.rows || []).filter((r) => /loan to /i.test(r.account || '')).reduce((a, r) => a + (Number(r.current) || 0), 0);
+        const unpaidObligations = (latestBS.rows || []).filter((r) => r.classification === 'Liability' && /payable|payg|gst/i.test(r.account || '')).reduce((a, r) => a + (Number(r.current) || 0), 0);
+        doc.setFontSize(11); doc.setFont(undefined, 'bold');
+        doc.text('Key balances for directors', 40, y); y += 6;
+        doc.autoTable({
+          startY: y + 6, margin: { left: 40, right: 40 }, theme: 'plain',
+          body: [
+            ['Cash at bank', amt(cashRow)],
+            ['Amounts owed TO Arsela (related-party loans receivable)', amt(owedToArsela)],
+            ['Unpaid obligations (PAYG / super / wages / GST payable)', amt(unpaidObligations)],
+            ['Shareholder loan (owed BY Arsela)', shareholderLoan ? amt(Number(shareholderLoan.current) || 0) : 'Not on file'],
+          ],
+          styles: { fontSize: 9.5 }, columnStyles: { 1: { halign: 'right' } },
+        });
       } else {
-        doc.setFontSize(10.5); doc.setFont(undefined, 'normal');
-        doc.text('No Balance Sheet has been imported for this period — import one from Data Imports to populate this page.', 40, y, { maxWidth: pageW - 80 });
+        noDataLine('No Balance Sheet has been imported for this period — import one from Data Imports to populate this section.', y);
       }
       pageFooter(5);
 
+      /* ================================================================
+         Section 5 — Next 1–3 months: expected receipts, payroll/tax/
+         super/other committed payments, funding gap; forecast vs
+         available cash. */
+      doc.addPage();
+      y = sectionHead('5. Next 1\u20133 Months', 'Expected cash receipts and committed payments, forecast against available cash');
+      const availableCash = closingBank != null ? closingBank : (hasBankSummary ? bankTotalClosing : null);
+      const expectedReceipts = arOutstanding;
+      const payrollMonthly = plT && plT.totalExpenseYTD ? null : null; // no direct payroll-only breakout available
+      const wagesLine = latestPL ? (latestPL.rows || []).find((r) => /wages|salaries/i.test(r.account || '')) : null;
+      const superLine = latestPL ? (latestPL.rows || []).find((r) => /superannuation/i.test(r.account || '')) : null;
+      const monthlyWages = wagesLine ? Number(wagesLine.ytd) || 0 : null;
+      const monthlySuper = superLine ? Number(superLine.ytd) || 0 : null;
+      const monthlyOtherCommitted = apOutstanding;
+      const totalCommittedNext = [monthlyWages, monthlySuper, monthlyOtherCommitted].some((v) => v != null)
+        ? [monthlyWages, monthlySuper, monthlyOtherCommitted].reduce((a, v) => a + (v || 0), 0) * 3
+        : null;
+      const fundingGap = (availableCash != null && totalCommittedNext != null)
+        ? (availableCash + (expectedReceipts || 0)) - totalCommittedNext
+        : null;
+      doc.autoTable({
+        startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
+        head: [['Item', 'Basis', 'Next ~3 months (AUD)']],
+        body: [
+          ['Available cash today', closingBank != null ? `Bank Summary (${latestBSum ? latestBSum.period : monthLabel})` : 'Not imported', amt(availableCash)],
+          ['Expected cash receipts', arOutstanding != null ? `Aged Receivables (${latestAR ? latestAR.period : monthLabel})` : 'Not imported', amt(expectedReceipts)],
+          ['Payroll (est., 3 \u00d7 latest month)', monthlyWages != null ? `Latest P&L wages line \u00d7 3` : 'Not imported', monthlyWages != null ? amt(monthlyWages * 3) : 'Not imported'],
+          ['Superannuation (est., 3 \u00d7 latest month)', monthlySuper != null ? 'Latest P&L super line \u00d7 3' : 'Not imported', monthlySuper != null ? amt(monthlySuper * 3) : 'Not imported'],
+          ['Other committed payments (payables outstanding)', apOutstanding != null ? `Aged Payables (${latestAP ? latestAP.period : monthLabel})` : 'Not imported', amt(monthlyOtherCommitted)],
+        ],
+        styles: { fontSize: 9 }, headStyles: { fillColor: [19, 67, 203], fontSize: 8.5 },
+        columnStyles: { 2: { halign: 'right' } },
+      });
+      y = doc.lastAutoTable.finalY + 18;
+      doc.autoTable({
+        startY: y, margin: { left: 40, right: 40 }, theme: 'plain',
+        body: [['Projected funding gap / (surplus) over the next ~3 months', fundingGap != null ? amt(-fundingGap) : 'Not answerable \u2014 import Bank Summary, Aged Receivables/Payables and Profit & Loss to calculate']],
+        styles: { fontSize: 10.5, fontStyle: 'bold', fillColor: fundingGap != null && fundingGap < 0 ? [255, 235, 235] : [238, 243, 255] },
+        columnStyles: { 1: { halign: 'right' } },
+      });
+      y = doc.lastAutoTable.finalY + 16;
+      doc.setFontSize(9); doc.setFont(undefined, 'italic'); doc.setTextColor(130);
+      doc.text('Payroll/super figures are a simple 3\u00d7-latest-month estimate, not a payroll-system forecast \u2014 treat as indicative. Given Arsela is a cost centre, any shortfall above is expected to be met by further shareholder funding rather than trading income.', 40, y, { maxWidth: pageW - 80 });
+      doc.setTextColor(0); doc.setFont(undefined, 'normal');
+      pageFooter(6);
+
+      /* ================================================================
+         Section 6 — Items for directors: decisions needed, overdue
+         payments, missing records and reconciliation issues; status
+         since last report. */
+      doc.addPage();
+      y = sectionHead('6. Items for Directors', 'Decisions needed, overdue items and data gaps \u2014 status since last report');
+      const items = [];
+      if (apOverdueSummary) items.push({ label: 'Overdue payables (30+ days)', detail: `${amt(apOverdueSummary)} owing \u2014 review supplier payment priorities.`, tone: 'danger' });
+      if (latestAP && latestAP.totals && latestAP.totals.d90plus) items.push({ label: 'Severely overdue payables (90+ days)', detail: `${amt(latestAP.totals.d90plus)} outstanding 90+ days \u2014 needs urgent decision.`, tone: 'danger' });
+      if (brTotals && brTotals.unreconciledCount) items.push({ label: 'Unreconciled bank items', detail: `${brTotals.unreconciledCount} item(s) per the latest Bank Reconciliation (${latestBR.period}) \u2014 difference of ${amt(brTotals.difference)}.`, tone: 'warning' });
+      if (unpostedExpenses.length) items.push({ label: 'Approved expenses not yet posted in Xero', detail: `${unpostedExpenses.length} expense(s) approved but not posted \u2014 follow up with Finance.`, tone: 'warning' });
+      if (xeroMissing.length) items.push({ label: 'Missing records', detail: `Not yet imported this period: ${xeroMissing.map((t) => t.label).join(', ')}.`, tone: 'neutral' });
+      if (anyCarriedForward) items.push({ label: 'Carried-forward figures', detail: 'One or more sections above use the most recent prior snapshot on file rather than an exact match for this month \u2014 confirm before distributing externally.', tone: 'neutral' });
+      if (!hasBankSummary) items.push({ label: 'Bank Summary not imported', detail: 'Closing bank balance in Section 1/3 could not be confirmed against Xero\u2019s own Bank Summary report.', tone: 'neutral' });
+      if (!items.length) items.push({ label: 'No open items identified', detail: 'All available Xero reports for this period reconcile with no overdue or missing items detected.', tone: 'success' });
+      const toneColor = { danger: [178, 34, 34], warning: [180, 120, 0], neutral: [90, 90, 90], success: [22, 130, 80] };
+      doc.autoTable({
+        startY: y, margin: { left: 40, right: 40 }, theme: 'grid',
+        head: [['Item', 'Detail']],
+        body: items.map((i) => [i.label, i.detail]),
+        styles: { fontSize: 9.5, cellPadding: 6 }, headStyles: { fillColor: [19, 67, 203], fontSize: 9 },
+        columnStyles: { 0: { cellWidth: 150, fontStyle: 'bold' } },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.column.index === 0) {
+            const tone = items[data.row.index] ? items[data.row.index].tone : 'neutral';
+            data.cell.styles.textColor = toneColor[tone] || toneColor.neutral;
+          }
+        },
+      });
+      pageFooter(7);
+
       doc.save(`${COMPANY_NAME.replace(/[^A-Za-z0-9]+/g, '-')}-Management-Accounts-${monthLabel.replace(/\s+/g, '-')}.pdf`);
-      window.Store.toast('5-page Management Accounts PDF exported', 'success');
+      window.Store.toast('7-page Management Accounts PDF exported', 'success');
     };
 
     return (
