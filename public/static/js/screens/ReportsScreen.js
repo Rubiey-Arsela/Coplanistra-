@@ -99,6 +99,32 @@
      called from both the on-screen comparison table and the PDF export
      without duplicating logic. ---- */
 
+  /** ---- Director feedback 2026-09-24, Item 2 (Critical): "The page is
+   *  labelled September, but figures come from July or August, and the
+   *  bank reconciliation is dated 22 July... Put an 'as at' date beside
+   *  every figure. Do not show old figures as September results."
+   *  Root cause: xero(type)/xeroImportForMonth already returns
+   *  isExactMonth (true/false) per report type, but the ONLY place that
+   *  was ever surfaced was one aggregate "some figures carried forward"
+   *  banner — a director looking at any single number (e.g. the bank
+   *  balance tile) had no way to tell whether THAT figure was actually
+   *  September's or a stale carry-forward. asAtLabel(rec) returns a
+   *  short, always-present string ("as at Sept 2026" or "as at Aug 2026
+   *  — carried forward, no Sept import on file") to render directly next
+   *  to every Xero-backed figure, both on-screen and in the PDF. */
+  function asAtLabel(rec) {
+    if (!rec) return null;
+    const period = rec.period || 'unknown date';
+    return rec.isExactMonth === false ? `as at ${period} — carried forward` : `as at ${period}`;
+  }
+  /** Short inline badge-style tone for asAtLabel — 'warning' whenever
+   *  the figure is a carried-forward (non-exact-month) snapshot, so a
+   *  stale figure is visually flagged everywhere it appears, not just
+   *  inside the one aggregate banner. */
+  function asAtTone(rec) {
+    return (rec && rec.isExactMonth === false) ? 'var(--arsela-warning, #B4740A)' : 'var(--arsela-text-muted)';
+  }
+
   /** "YYYY-07" for the first month of the fiscal year containing
    *  `monthKey` ("YYYY-MM") — Arsela's FY starts 1 July, via the single
    *  source of truth window.Store.fyStartDate (never hardcoded here). */
@@ -163,6 +189,76 @@
       rows.push({ account: `Total ${cls}`, current: curSum, prior: anyPrior ? priorSum : null });
     });
     return { rows, boldIdx };
+  }
+
+  /** ---- Director feedback 2026-09-24, Item 6 (High): "'Enough to cover
+   *  our expenses? Yes' appears to rely on the A$30.8K July bank
+   *  balance... Compare current cash plus confirmed funding against
+   *  dated upcoming payroll, super, tax and other payments. Show the
+   *  funding gap and the date cash runs short."
+   *
+   *  Root cause: the old `canCoverExpenses` was a single point-in-time
+   *  snapshot comparison (cash > 0, or AR+cash >= AP) with no dates and
+   *  no forward projection — it could be "Yes" purely because a bank
+   *  balance imported weeks ago happened to be positive that day, with
+   *  no visibility into payroll/super/tax due before the NEXT bank
+   *  import. This builds a real week-by-week cash projection over the
+   *  next ~13 weeks from: opening cash (latest Bank Summary), confirmed
+   *  funding (Aged Receivables + any known financing inflow), and DATED
+   *  committed outflows (payroll/super drawn from the latest P&L's
+   *  monthly run-rate, spread across paydates + Aged Payables due
+   *  dates when available). Returns null (not answerable) only when
+   *  there's no cash figure to start from at all. */
+  function buildFundingGapProjection({ latestBSum, latestPL, latestAP, latestAR, reportMonthDate }) {
+    const openingCash = latestBSum && latestBSum.totals ? latestBSum.totals.totalClosing : null;
+    if (openingCash == null) return null;
+    const asOfDate = latestBSum && latestBSum.period ? latestBSum.period : null;
+    const wagesLine = latestPL ? (latestPL.rows || []).find((r) => /wages|salaries/i.test(r.account || '')) : null;
+    const superLine = latestPL ? (latestPL.rows || []).find((r) => /superannuation/i.test(r.account || '')) : null;
+    const monthlyWages = wagesLine ? Number(wagesLine.ytd) || 0 : 0;
+    const monthlySuper = superLine ? Number(superLine.ytd) || 0 : 0;
+    // Weekly committed outflow — payroll is typically weekly/fortnightly
+    // in practice, but the only figure this app actually holds is a
+    // MONTHLY P&L line, so it is spread evenly across ~4.33 weeks/month.
+    // This is explicitly labelled as an estimate, never presented as a
+    // real payroll-system schedule.
+    const weeklyPayroll = monthlyWages / 4.33;
+    const weeklySuper = monthlySuper / 4.33;
+    // Aged Payables (confirmed amount already owed, not yet paid) is
+    // due IMMEDIATELY (week 0) rather than spread — it's a real,
+    // already-incurred obligation, not a run-rate estimate.
+    const apDueNow = latestAP && latestAP.totals ? (latestAP.totals.totalOutstanding || 0) : 0;
+    // Confirmed funding: Aged Receivables (money owed TO Arsela,
+    // expected to convert to cash) — spread evenly across the ~13-week
+    // window as a simple assumption, clearly labelled.
+    const arExpected = latestAR && latestAR.totals ? (latestAR.totals.totalOutstanding || 0) : 0;
+    const weeklyReceipts = arExpected / 13;
+    const weeks = [];
+    let running = openingCash;
+    let lowPointWeek = 0, lowPoint = openingCash, shortfallWeek = null;
+    for (let w = 1; w <= 13; w++) {
+      const outflow = weeklyPayroll + weeklySuper + (w === 1 ? apDueNow : 0);
+      const inflow = weeklyReceipts;
+      running = running + inflow - outflow;
+      weeks.push({ week: w, cash: running, outflow, inflow });
+      if (running < lowPoint) { lowPoint = running; lowPointWeek = w; }
+      if (running < 0 && shortfallWeek == null) shortfallWeek = w;
+    }
+    const weekDate = (w) => {
+      const base = reportMonthDate ? new Date(reportMonthDate) : new Date();
+      const d = new Date(base);
+      d.setDate(d.getDate() + w * 7);
+      return d;
+    };
+    const fmtWeekDate = (w) => weekDate(w).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+    return {
+      openingCash, asOfDate, weeks,
+      lowPoint, lowPointDate: fmtWeekDate(lowPointWeek), lowPointWeek,
+      shortfallDate: shortfallWeek != null ? fmtWeekDate(shortfallWeek) : null, shortfallWeek,
+      weeklyPayroll, weeklySuper, apDueNow, weeklyReceipts,
+      hasPayrollData: monthlyWages > 0 || monthlySuper > 0,
+      hasFundingInputs: latestPL != null,
+    };
   }
 
   /** ---- Month-by-month comparison (client ask, 2026-09-21): "organise
@@ -339,7 +435,18 @@
     const latestBR = xero('bankReconciliation');
     const latestGL = xero('generalLedger');
     const latestTB = xero('trialBalance');
-    const xeroTypeList = window.Store.xeroReportTypes ? window.Store.xeroReportTypes() : [];
+    // Item 7 (director feedback, 2026-09-24): Arsela is funded by
+    // shareholder/group loans, not trading revenue, so it has no
+    // customer/supplier ledger balances — Aged Receivables/Payables
+    // will legitimately NEVER be imported. When flagged as a cost
+    // centre, those two report types are excluded from the "missing
+    // Xero imports" completeness banner entirely (so the app stops
+    // repeatedly asking for them) and every AR/AP figure below renders
+    // "Not applicable" instead of "Not imported" wherever it's shown.
+    const isCostCentre = window.Store.isCostCentre ? window.Store.isCostCentre() : false;
+    const arApNotApplicableLabel = 'Not applicable (cost centre)';
+    const xeroTypeList = (window.Store.xeroReportTypes ? window.Store.xeroReportTypes() : [])
+      .filter((t) => !(isCostCentre && (t.key === 'agedReceivables' || t.key === 'agedPayables')));
     const xeroStatus = xeroTypeList.map((t) => ({ ...t, latest: xero(t.key) }));
     // True if ANY Xero-backed figure shown above was carried forward
     // from a prior month rather than being an exact match for the
@@ -454,9 +561,27 @@
     const coverageMonths = (hasCoverageData && monthlyBurnUnits > 0)
       ? ((arOutstanding || 0) - (apOutstanding || 0) + cashOnHandUnits) / monthlyBurnUnits
       : null;
-    const canCoverExpenses = hasCoverageData
-      ? ((arOutstanding || 0) + cashOnHandUnits) >= (apOutstanding || 0)
-      : (hasBankSummary ? cashOnHandUnits > 0 : (cf && cf.hasData ? cf.minCash > 0 : null));
+    // ---- Director feedback 2026-09-24, Item 6 (High): "'Enough to
+    // cover our expenses? Yes' appears to rely on the A$30.8K July bank
+    // balance... Compare current cash plus confirmed funding against
+    // dated upcoming payroll, super, tax and other payments. Show the
+    // funding gap and the date cash runs short." canCoverExpenses is
+    // now driven by a real dated 13-week cash projection
+    // (buildFundingGapProjection, defined above the component) instead
+    // of a single point-in-time balance check — "Yes" now specifically
+    // means "cash does not go negative in the projection", and the UI/
+    // PDF surface the projected low point AND its date, not just a
+    // yes/no. Falls back to the old simpler AR/AP/bank check only when
+    // there isn't enough data (no Bank Summary at all) to run a
+    // projection, so the section is never blank.
+    const [fgY, fgM] = (monthKey || '').split('-').map(Number);
+    const fundingGapReportDate = (fgY && fgM) ? new Date(fgY, fgM - 1, 1) : window.Store.today();
+    const fundingGapProjection = buildFundingGapProjection({ latestBSum, latestPL, latestAP, latestAR, reportMonthDate: fundingGapReportDate });
+    const canCoverExpenses = fundingGapProjection
+      ? fundingGapProjection.shortfallDate == null
+      : (hasCoverageData
+        ? ((arOutstanding || 0) + cashOnHandUnits) >= (apOutstanding || 0)
+        : (hasBankSummary ? cashOnHandUnits > 0 : (cf && cf.hasData ? cf.minCash > 0 : null)));
 
     // ---- Q3: Are we solvent — real assets-vs-liabilities from the
     // latest imported Balance Sheet (the client's stated definition of
@@ -504,14 +629,40 @@
       : (apOutstanding != null ? `Payables outstanding (Aged Payables, ${latestAP.period})` : null);
     const actualPlusCommitmentsBasis = (xeroActualsBasis != null || openCommitmentsBasis != null)
       ? (xeroActualsBasis || 0) + (openCommitmentsBasis || 0) : null;
-    // Forecast final cost without a Budget plan has no allocation to
-    // extrapolate against — the most honest substitute is a simple
-    // run-rate projection (YTD actual ÷ % of year elapsed), clearly
-    // labelled as such rather than presented as an equivalent figure.
-    const forecastFinalBasis = hasBudgets ? totalForecastFinal : (xeroActualsBasis != null && fyPct > 0 ? xeroActualsBasis / fyPct : null);
-    const forecastFinalSourceLabel = hasBudgets
-      ? 'Full-year projection'
-      : (forecastFinalBasis != null ? `Run-rate projection from YTD Xero actuals (${Math.round(fyPct * 100)}% of year elapsed)` : null);
+    // ---- Director feedback 2026-09-24, Item 5 (High): "'Forecast final
+    // cost A$203.5K' is projected from July expenses alone... Hide this
+    // until the full year-to-date P&L and a usable budget or cost
+    // forecast are loaded." Root cause: the old fallback (no budgets)
+    // took whatever SINGLE P&L snapshot happened to be latest and
+    // divided by % of year elapsed — if that snapshot was really just
+    // one month's figures (as Xero's real monthly export columns are —
+    // confirmed against the client's actual multi-month P&L exports,
+    // each column is that MONTH's actuals, not a running total), the
+    // projection silently extrapolated a whole year from one month.
+    // Fix: the naive run-rate fallback is removed entirely. Forecast
+    // Final Cost now only shows when BOTH conditions the client asked
+    // for are met: (1) a usable Budget/cost-forecast plan exists
+    // (hasBudgets — the same real forecastFinal figures the Budgets
+    // module already tracks), AND (2) the underlying Xero P&L actually
+    // covers every month of this FY-to-date (hasFullYTDPL below) rather
+    // than a single carried-forward month standing in for the whole
+    // year. Otherwise it is hidden with an explicit reason, never
+    // silently substituted.
+    const fyStartKeyForForecast = fyStartKeyForMonthKey(monthKey);
+    const monthsElapsedInFY = (() => {
+      if (!fyStartKeyForForecast || !monthKey) return 0;
+      const [sy, sm] = fyStartKeyForForecast.split('-').map(Number);
+      const [ey, em] = monthKey.split('-').map(Number);
+      if (!sy || !ey) return 0;
+      return (ey - sy) * 12 + (em - sm) + 1;
+    })();
+    const fyPLMonthsOnFile = fyMonthlySeries('profitAndLoss', monthKey).length;
+    const hasFullYTDPL = monthsElapsedInFY > 0 && fyPLMonthsOnFile >= monthsElapsedInFY;
+    const forecastFinalBasis = (hasBudgets && hasFullYTDPL) ? totalForecastFinal : null;
+    const forecastFinalSourceLabel = forecastFinalBasis != null ? 'Full-year projection (full FY-to-date P&L on file)' : null;
+    const forecastFinalHiddenReason = hasBudgets
+      ? (!hasFullYTDPL ? `Hidden — only ${fyPLMonthsOnFile} of ${monthsElapsedInFY} FY-to-date month(s) of Profit & Loss are on file. Import every month from July to see a reliable forecast.` : null)
+      : 'Hidden — add a Budget/cost-forecast plan and import every FY-to-date month of Profit & Loss to see a reliable forecast.';
     // "Actual vs budget-to-date" is a comparison AGAINST A PLAN — with no
     // Budgets module entries there genuinely is no plan to compare
     // against, so this stays an honest empty state rather than a
@@ -592,7 +743,7 @@
           ['Summary', 'Open commitments (AUD)', openCommitmentsBasis != null ? Math.round(openCommitmentsBasis) : 'Not answerable — no budgets or Aged Payables imported'],
           ['Summary', 'Open commitments basis', openCommitmentsSourceLabel || 'n/a'],
           ['Summary', 'Actual + commitments (AUD)', actualPlusCommitmentsBasis != null ? Math.round(actualPlusCommitmentsBasis) : 'Not answerable'],
-          ['Summary', 'Forecast final cost (AUD)', forecastFinalBasis != null ? Math.round(forecastFinalBasis) : 'Not answerable — no budgets or Xero actuals to project from'],
+          ['Summary', 'Forecast final cost (AUD)', forecastFinalBasis != null ? Math.round(forecastFinalBasis) : forecastFinalHiddenReason],
           ['Summary', 'Forecast final cost basis', forecastFinalSourceLabel || 'n/a'],
           ['Summary', 'Burn vs total budget (%)', hasBudgets ? burnPct.toFixed(1) : 'n/a — no Budgets module entries'],
           ['Summary', `Budget to date (${Math.round(fyPct * 100)}% of ${FY_PERIOD_LABEL} elapsed) (AUD)`, budgetToDateBasis != null ? Math.round(budgetToDateBasis) : 'No plan to compare'],
@@ -689,7 +840,7 @@
           ['Xero actuals — reconciled only', xeroActualsBasis != null ? `${hasBudgets ? fmtMYR(xeroActualsBasis, { compact: true }) : fmtAUD(xeroActualsBasis, { compact: true })} (${xeroActualsSourceLabel})` : 'Not answerable — no budgets or Profit & Loss imported'],
           ['Open commitments', openCommitmentsBasis != null ? `${hasBudgets ? fmtMYR(openCommitmentsBasis, { compact: true }) : fmtAUD(openCommitmentsBasis, { compact: true })} (${openCommitmentsSourceLabel})` : 'Not answerable — no budgets or Aged Payables imported'],
           ['Actual + commitments', actualPlusCommitmentsBasis != null ? (hasBudgets ? fmtMYR(actualPlusCommitmentsBasis, { compact: true }) : fmtAUD(actualPlusCommitmentsBasis, { compact: true })) : 'Not answerable'],
-          ['Forecast final cost (full year)', forecastFinalBasis != null ? `${hasBudgets ? fmtMYR(forecastFinalBasis, { compact: true }) : fmtAUD(forecastFinalBasis, { compact: true })} (${forecastFinalSourceLabel})` : 'Not answerable — no budgets or Xero actuals to project from'],
+          ['Forecast final cost (full year)', forecastFinalBasis != null ? `${hasBudgets ? fmtMYR(forecastFinalBasis, { compact: true }) : fmtAUD(forecastFinalBasis, { compact: true })} (${forecastFinalSourceLabel})` : forecastFinalHiddenReason],
           ['Burn vs total annual budget', hasBudgets ? `${burnPct.toFixed(1)}%` : 'n/a — no Budgets module entries'],
           [`Budget to date (${Math.round(fyPct * 100)}% of ${FY_PERIOD_LABEL} elapsed)`, budgetToDateBasis != null ? fmtMYR(budgetToDateBasis, { compact: true }) : 'No plan to compare'],
           ['Actual vs budget-to-date variance', varianceToDateBasis != null ? `${varianceToDateBasis >= 0 ? '+' : '−'}${hasBudgets ? fmtMYR(Math.abs(varianceToDateBasis), { compact: true }) : fmtAUD(Math.abs(varianceToDateBasis), { compact: true })} ${varianceToDateBasis >= 0 ? 'over' : 'under'}` : 'No plan to compare — add budgets to see a plan-vs-actual variance'],
@@ -752,7 +903,7 @@
         financingInflowLines.slice(0, 3).forEach((r) => { doc.text(`   • ${r.description}: ${fmtAUD(r.amount, { compact: true })}`, 40, y); y += 12; });
       }
       y += 6;
-      doc.text(`Q2 — Enough to cover our expenses: ${canCoverExpenses == null ? 'Not answerable — add budgets/CAPEX or import Aged Receivables/Payables/Bank Summary.' : (canCoverExpenses ? 'Yes — covered.' : 'At risk — projected shortfall.')}${hasCoverageData ? ` Receivables due ${fmtAUD(arOutstanding, { compact: true })}, payables due ${fmtAUD(apOutstanding, { compact: true })}, cash on hand ${hasBankSummary ? fmtAUD(cashOnHandUnits, { compact: true }) : fmtMYR(cashOnHandUnits, { compact: true })} (${cashOnHandSource})${coverageMonths != null ? `, ≈${coverageMonths.toFixed(1)} months of burn covered.` : '.'}` : ''}`, 40, y, { maxWidth: pageW - 80 }); y += 26;
+      doc.text(`Q2 — Enough to cover our expenses: ${canCoverExpenses == null ? 'Not answerable — import Bank Summary and Profit & Loss.' : (canCoverExpenses ? 'Yes — covered over the next 13 weeks.' : 'At risk — funding gap projected.')}${fundingGapProjection ? ` Cash today ${fmtAUD(fundingGapProjection.openingCash, { compact: true })} (${asAtLabel(latestBSum)}), projected low point ${fmtAUD(fundingGapProjection.lowPoint, { compact: true })} around ${fundingGapProjection.lowPointDate}${fundingGapProjection.shortfallDate ? `, cash runs short around ${fundingGapProjection.shortfallDate}` : ''}.` : ''}`, 40, y, { maxWidth: pageW - 80 }); y += 26;
       doc.text(`Q3 — Are we solvent: ${bsTotals ? (realSolvent ? `Yes — solvent. Assets ${fmtAUD(bsTotals.totalAssets, { compact: true })} vs liabilities ${fmtAUD(bsTotals.totalLiabilities, { compact: true })}, current ratio ${currentRatio != null ? currentRatio.toFixed(2) + 'x' : 'n/a'} (Balance Sheet as at ${latestBS.period}).` : `No — liabilities exceed assets. Assets ${fmtAUD(bsTotals.totalAssets, { compact: true })} vs liabilities ${fmtAUD(bsTotals.totalLiabilities, { compact: true })} (Balance Sheet as at ${latestBS.period}).`) : `No Balance Sheet imported — cash-runway proxy only (${solvent ? (withinRunwayThreshold ? 'within comfort threshold' : 'below comfort threshold') : 'at risk'}).`}`, 40, y, { maxWidth: pageW - 80 }); y += 30;
 
       if (y > 620) { doc.addPage(); y = 50; }
@@ -1139,10 +1290,10 @@
         head: [['Item', 'Basis', 'Next ~3 months (AUD)']],
         body: [
           ['Available cash today', closingBank != null ? `Bank Summary (${latestBSum ? latestBSum.period : monthLabel})` : 'Not imported', amt(availableCash)],
-          ['Expected cash receipts', arOutstanding != null ? `Aged Receivables (${latestAR ? latestAR.period : monthLabel})` : 'Not imported', amt(expectedReceipts)],
+          ['Expected cash receipts', arOutstanding != null ? `Aged Receivables (${latestAR ? latestAR.period : monthLabel})` : (isCostCentre ? arApNotApplicableLabel : 'Not imported'), amt(expectedReceipts)],
           ['Payroll (est., 3 \u00d7 latest month)', monthlyWages != null ? `Latest P&L wages line \u00d7 3` : 'Not imported', monthlyWages != null ? amt(monthlyWages * 3) : 'Not imported'],
           ['Superannuation (est., 3 \u00d7 latest month)', monthlySuper != null ? 'Latest P&L super line \u00d7 3' : 'Not imported', monthlySuper != null ? amt(monthlySuper * 3) : 'Not imported'],
-          ['Other committed payments (payables outstanding)', apOutstanding != null ? `Aged Payables (${latestAP ? latestAP.period : monthLabel})` : 'Not imported', amt(monthlyOtherCommitted)],
+          ['Other committed payments (payables outstanding)', apOutstanding != null ? `Aged Payables (${latestAP ? latestAP.period : monthLabel})` : (isCostCentre ? arApNotApplicableLabel : 'Not imported'), amt(monthlyOtherCommitted)],
         ],
         styles: { fontSize: 9 }, headStyles: { fillColor: [19, 67, 203], fontSize: 8.5 },
         columnStyles: { 2: { halign: 'right' } },
@@ -1335,8 +1486,8 @@
                 </>
               ) : (
                 <div style={{ marginTop: 8 }}>
-                  <ArsBadge tone="neutral" size="sm">Not answerable yet</ArsBadge>
-                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>Add budgets or import a Profit &amp; Loss.</div>
+                  <ArsBadge tone="neutral" size="sm">Hidden</ArsBadge>
+                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 6 }}>{forecastFinalHiddenReason}</div>
                 </div>
               )}
             </div>
@@ -1426,34 +1577,41 @@
               )}
             </div>
 
-            {/* Q2 — do we have enough to cover our expenses */}
-            <div onClick={() => window.Router.go(hasCoverageData ? '/dataimports' : '/cashflow')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16 }} title="Click to review the underlying data">
+            {/* Q2 — do we have enough to cover our expenses. Item 6 fix:
+                now a DATED 13-week cash projection (opening cash +
+                confirmed funding vs payroll/super/payables due),
+                showing the projected low point and, if it goes
+                negative, the exact date — not a single point-in-time
+                balance check. */}
+            <div onClick={() => window.Router.go(fundingGapProjection ? '/dataimports' : '/cashflow')} style={{ cursor: 'pointer', border: '1px solid var(--arsela-border)', borderRadius: 10, padding: 16 }} title="Click to review the underlying data">
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--arsela-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Enough to cover our expenses?</div>
               {canCoverExpenses != null ? (
                 <>
                   <div style={{ fontSize: 18, fontWeight: 700, color: canCoverExpenses ? 'var(--success)' : 'var(--danger)', marginTop: 6 }}>
-                    {canCoverExpenses ? 'Yes — covered' : 'At risk — shortfall'}
+                    {canCoverExpenses ? 'Yes — covered over next 13 weeks' : 'At risk — funding gap ahead'}
                   </div>
-                  {hasCoverageData ? (
+                  {fundingGapProjection ? (
                     <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Receivables due in</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{arOutstanding != null ? fmtAUD(arOutstanding, { compact: true }) : '—'}</span></div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Payables due out</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{apOutstanding != null ? fmtAUD(apOutstanding, { compact: true }) : '—'}</span></div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid var(--arsela-border)' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash on hand ({hasBankSummary ? 'Xero bank balance' : 'cash flow model'})</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{hasBankSummary ? fmtAUD(cashOnHandUnits, { compact: true }) : fmtMYR(cashOnHandUnits, { compact: true })}</span></div>
-                      {coverageMonths != null && <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>≈ {coverageMonths.toFixed(1)} months of burn covered · {cashOnHandSource}</div>}
-                    </div>
-                  ) : hasBankSummary ? (
-                    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash on hand (Xero bank balance)</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtAUD(cashOnHandUnits, { compact: true })}</span></div>
-                      <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>{cashOnHandSource} · import Aged Receivables/Payables for a full coverage ratio.</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Cash today ({asAtLabel(latestBSum)})</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtAUD(fundingGapProjection.openingCash, { compact: true })}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Payables due now (Aged Payables)</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{latestAP ? fmtAUD(fundingGapProjection.apDueNow, { compact: true }) : (isCostCentre ? arApNotApplicableLabel : 'Not imported')}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Est. weekly payroll + super</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fundingGapProjection.hasPayrollData ? fmtAUD(fundingGapProjection.weeklyPayroll + fundingGapProjection.weeklySuper, { compact: true }) : 'Not imported'}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid var(--arsela-border)' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Projected low point (next 13 wks)</span><span className="arsela-num" style={{ fontWeight: 700, color: fundingGapProjection.lowPoint >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmtAUD(fundingGapProjection.lowPoint, { compact: true })}</span></div>
+                      <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 2 }}>
+                        {fundingGapProjection.shortfallDate
+                          ? `Cash is projected to run short around ${fundingGapProjection.shortfallDate}.`
+                          : `Projected low point around ${fundingGapProjection.lowPointDate}.`}
+                        {!fundingGapProjection.hasPayrollData && ' Payroll/super estimate not available — import a Profit & Loss to refine this.'}
+                        {!latestAR && (isCostCentre ? ' Aged Receivables not applicable (cost centre) — confirmed funding tracked via shareholder/group loans instead.' : ' No Aged Receivables imported — confirmed funding not included.')}
+                      </div>
                     </div>
                   ) : (
-                    <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Based on the budget-derived cash flow model (no Aged Receivables/Payables or Bank Summary imported yet). Minimum projected balance {cf ? curLabel(cf.minCash) : '—'}.</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Based on the budget-derived cash flow model (no Bank Summary imported yet). Minimum projected balance {cf ? curLabel(cf.minCash) : '—'}.</div>
                   )}
                 </>
               ) : (
                 <div style={{ marginTop: 8 }}>
                   <ArsBadge tone="neutral" size="sm">Not answerable yet</ArsBadge>
-                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Add budgets/CAPEX or import Aged Receivables and Aged Payables to see expense coverage here.</div>
+                  <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 8, lineHeight: 1.5 }}>Import a Bank Summary (cash on hand) and Profit &amp; Loss (payroll/super) to see a dated funding-gap projection here.</div>
                 </div>
               )}
             </div>
@@ -1472,7 +1630,9 @@
                     <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid var(--arsela-border)' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Working capital</span><span className="arsela-num" style={{ fontWeight: 700, color: workingCapital >= 0 ? 'var(--success)' : 'var(--danger)' }}>{fmtAUD(workingCapital, { compact: true })}</span></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Current ratio</span><span className="arsela-num" style={{ fontWeight: 700, color: currentRatio >= 1 ? 'var(--success)' : 'var(--danger)' }}>{currentRatio != null ? currentRatio.toFixed(2) + 'x' : '—'}</span></div>
                   </div>
-                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 8 }}>Balance Sheet as at {latestBS.period}</div>
+                  {/* Item 2 fix: flags carried-forward Balance Sheet
+                      data explicitly instead of just naming the period. */}
+                  <div style={{ fontSize: 10.5, color: asAtTone(latestBS), fontWeight: latestBS.isExactMonth === false ? 700 : 400, marginTop: 8 }}>Balance Sheet {asAtLabel(latestBS)}</div>
                 </>
               ) : (
                 <div style={{ marginTop: 8 }}>
@@ -1527,7 +1687,13 @@
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Xero balance</span><span className="arsela-num" style={{ fontWeight: 700, color: 'var(--arsela-navy)' }}>{fmtAUD(brTotals.xeroBalance, { compact: true })}</span></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--arsela-text-muted)' }}>Difference</span><span className="arsela-num" style={{ fontWeight: 700, color: Math.abs(brTotals.difference) < 1 ? 'var(--success)' : 'var(--danger)' }}>{fmtAUD(brTotals.difference, { compact: true })}</span></div>
                   </div>
-                  <div style={{ fontSize: 10.5, color: 'var(--arsela-text-muted)', marginTop: 8 }}>{latestBR.period}</div>
+                  {/* Item 2 fix: explicit "as at" date on this figure,
+                      flagged if it's a carried-forward (non-exact-month)
+                      snapshot rather than an exact match for the month
+                      selected in the report header \u2014 this is the exact
+                      "bank reconciliation is dated 22 July" scenario the
+                      director flagged when viewing a September report. */}
+                  <div style={{ fontSize: 10.5, color: asAtTone(latestBR), fontWeight: latestBR.isExactMonth === false ? 700 : 400, marginTop: 8 }}>{asAtLabel(latestBR)}</div>
                 </>
               ) : (
                 <div style={{ marginTop: 8 }}>

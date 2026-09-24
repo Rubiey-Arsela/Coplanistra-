@@ -231,6 +231,25 @@
                     </div>
                   </label>
                 </div>
+                {/* ---- Director feedback 2026-09-24, Item 7: "Configure
+                    Arsela as a cost centre and mark those reports not
+                    applicable if there are no such balances." Arsela has
+                    no trading customers/suppliers — its funding is
+                    shareholder loans, not sales — so Aged Receivables/
+                    Payables will never have real balances to import.
+                    This toggle stops those reports being flagged as
+                    missing everywhere (Dashboard, Director's Report,
+                    Management Accounts PDF) and instead marks them
+                    "Not applicable". ---- */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4, borderTop: '1px solid var(--arsela-border)', paddingBottom: 2 }}>
+                  <div style={{ flex: 1, marginRight: 16 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--arsela-navy)' }}>Arsela is a cost centre</div>
+                    <div style={{ fontSize: 12, color: 'var(--arsela-text-muted)', marginTop: 2 }}>
+                      Funded by shareholder loans, not trading revenue — Aged Receivables/Payables have no balances and are marked "Not applicable" instead of "Not imported" everywhere in the app. Shareholder/group funding is always tracked separately from revenue regardless of this setting.
+                    </div>
+                  </div>
+                  <Toggle checked={storeState.isCostCentre !== undefined ? !!storeState.isCostCentre : true} onChange={(v) => window.Store.setCostCentre(v)}/>
+                </div>
               </div>
             </ArsCard>
 

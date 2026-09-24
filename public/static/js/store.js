@@ -426,6 +426,17 @@
     // as a display option via the currency switcher (CURRENCY_CONFIG
     // below) but is no longer the default.
     currency: 'AUD',
+    // ---- Director feedback 2026-09-24, Item 7: "Configure Arsela as a
+    // cost centre and mark those reports not applicable if there are no
+    // such balances." Arsela genuinely has no trading customers/
+    // suppliers (its cash comes from shareholder financing, not sales —
+    // see Q1's isCostCentreFunded logic in ReportsScreen.js), so Aged
+    // Receivables/Payables will structurally always read "not imported"
+    // and repeatedly nag for a report that will never exist. Defaults to
+    // true (Arsela's actual status per every other build note in this
+    // codebase); a toggle in Settings lets a future non-cost-centre
+    // entity turn this back off and restore the normal AR/AP prompts.
+    isCostCentre: true,
     period: fyQuarterLabel(APP_TODAY()),
     toasts: [],
     copilotMessages: null, // per-screen default seeded lazily
@@ -1159,6 +1170,13 @@
     convert(amountMYR, code) {
       const cfg = CURRENCY_CONFIG[code || state.currency] || CURRENCY_CONFIG.MYR;
       return (Number(amountMYR) || 0) * cfg.rate;
+    },
+
+    // ---- Item 7 (cost centre configuration) ----
+    isCostCentre() { return !!state.isCostCentre; },
+    setCostCentre(v) {
+      setState({ isCostCentre: !!v });
+      toast(v ? 'Arsela set as a cost centre — Aged Receivables/Payables now marked "Not applicable"' : 'Cost-centre flag cleared — Aged Receivables/Payables prompts restored', 'info');
     },
 
     // ---- CAPEX ----
