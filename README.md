@@ -10,9 +10,52 @@ A fully interactive corporate budgeting, planning, and financial-oversight web a
 - **Source of design**: Genspark Design "Build it" handoff (`designer2-bf393d34-4616-4a79-8547-26480b35ab20`), adapted from static JSX screens into a fully wired, stateful React SPA.
 
 ## Live production URL
-- **Production**: https://9a98346d.coplanistra.pages.dev (latest deploy — now backed by a real Cloudflare D1 central database, so data syncs across browsers/devices/users instead of being trapped in one browser's `localStorage`; see "2026-09-24" session update below for full details. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
+- **Production**: https://199afaf2.coplanistra.pages.dev (latest deploy — Data Imports is now the default landing screen and the sidebar only shows Data Imports/Reports by default, see "2026-09-24, part 2" update below. Also aliased at https://coplanistra.pages.dev — domain unchanged, see naming note above)
 - **GitHub**: https://github.com/Rubiey-Arsela/Coplanistra-
 - **Deployed to**: user's own Cloudflare account (BYOK), via `wrangler pages deploy` — now with a bound Cloudflare D1 database (`coplanistra-production`) for real cross-browser data persistence.
+
+## Session update (2026-09-24, part 2) — Data Imports as default landing page; collapsed "More tools" sidebar section
+
+**Client ask (verbatim)**: *"since I only use data report and imports panel
+for now, what should we do with the rest? I want to be able to open it
+when needed"* → chose options **2 and 3** from those offered (set the
+landing page to Data Imports; collapse the unused sections in the
+sidebar rather than removing anything).
+
+**Changes**:
+- **Default landing page**: signing in, clicking the sidebar logo, and the
+  router's own no-hash fallback all now go straight to **Data Imports**
+  instead of Dashboard. (`router.js`'s default hash, `LoginScreen.js`'s
+  post-login redirect, `app.js`'s `/login`-already-authed bounce and
+  no-hash `resolveScreen()` case, and the sidebar wordmark's onClick were
+  all updated together so there's one consistent "home".)
+- **Sidebar restructure** (`shell.js`): a new pinned **Reporting** section
+  (Data Imports + Reports) is always visible at the top. Every other
+  screen — Dashboard, Budgets, Quarterly, Monthly Monitoring, Expenses,
+  Approvals, FY Closeout, CAPEX Portfolio, Reconciliations, Cash Flow,
+  Performance & KPIs, AI Copilot, Team & Access, Settings — moved under a
+  single collapsible **"More tools"** header.
+  - Nothing was removed or made harder to reach in terms of functionality —
+    every one of those screens is still one click away, exactly as before,
+    just tucked behind the "More tools" toggle so the sidebar stays short
+    and focused on the two screens actually used day-to-day.
+  - Collapsed by default. The open/closed state is remembered per-browser
+    in `localStorage` (`coplan_sidebar_more_open`), so once you leave it
+    open (or closed) it stays that way across reloads.
+  - **Auto-expands** whenever the active screen happens to be one of the
+    "More tools" screens (e.g. following a direct link, or after the
+    admin-only "View as" role switcher bounces to Dashboard) — so you're
+    never silently sitting on a page whose containing section looks
+    collapsed in the nav.
+- Verified end-to-end on production (`coplanistra.pages.dev`) with a fresh
+  Playwright session: login → lands on `#/dataimports` with the real "10
+  of 13 Xero report types imported" data intact; sidebar shows only
+  Reporting (Data Imports, Reports) + a collapsed More tools header;
+  clicking More tools reveals all 13 other screens; navigating into one
+  (Dashboard) and reloading keeps it auto-expanded; collapsing again and
+  navigating back to Data Imports keeps it collapsed after a further
+  reload — confirming the remembered-preference behaviour works exactly
+  as intended.
 
 ## Session update (2026-09-24) — Real cross-browser sync: migrated from localStorage-only to a Cloudflare D1 central database, resolved two Sept-2026 data conflicts, completed bulk Xero import (10 of 13 report types)
 
