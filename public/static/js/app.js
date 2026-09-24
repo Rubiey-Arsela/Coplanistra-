@@ -30,13 +30,13 @@
 
   function NotFoundScreen() {
     return (
-      <AppFrame active="Dashboard" title="Not found" breadcrumb={['ApexFin', 'Error']}>
+      <AppFrame active="Data Imports" title="Not found" breadcrumb={['ApexFin', 'Error']}>
         <ArsCard>
           <ArsEmpty
             icon={<IconInfo size={28}/>}
             title="Page not found"
-            body="That route doesn't exist yet. Head back to your dashboard."
-            action={<ArsButton onClick={() => window.Router.go('/dashboard')}>Go to Dashboard</ArsButton>}
+            body="That route doesn't exist yet. Head back to Data Imports."
+            action={<ArsButton onClick={() => window.Router.go('/dataimports')}>Go to Data Imports</ArsButton>}
           />
         </ArsCard>
       </AppFrame>
@@ -46,7 +46,8 @@
   function resolveScreen(route) {
     const [head, sub] = route.segments;
 
-    if (!head || head === 'dashboard') return window.DashboardScreen;
+    if (!head) return window.DataImportsScreen;
+    if (head === 'dashboard') return window.DashboardScreen;
 
     if (head === 'budgets') {
       if (sub === 'new') return window.CreateBudgetScreen;
@@ -77,7 +78,7 @@
 
     if (route.path === '/login') {
       // Already authenticated — bounce away from the login route.
-      window.Router.go('/dashboard');
+      window.Router.go('/dataimports');
       return null;
     }
 

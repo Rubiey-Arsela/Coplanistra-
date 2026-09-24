@@ -95,11 +95,47 @@
     </div>
   );
 
+  // Labels that live inside the collapsible "More tools" section — everything
+  // except the two daily-use screens (Data Imports, Reports), which stay
+  // pinned at the top of the sidebar at all times.
+  const MORE_TOOLS_LABELS = new Set([
+    'Dashboard', 'Budgets', 'Quarterly', 'Monthly', 'Expenses', 'Approvals', 'FY Closeout',
+    'CAPEX', 'Reconciliations', 'Cash Flow', 'Performance',
+    'Copilot', 'Team & Access', 'Settings',
+  ]);
+  const MORE_TOOLS_LS_KEY = 'coplan_sidebar_more_open';
+
   function Sidebar({ active, role, pendingApprovals, mobileOpen, onClose }) {
     const roleDef = window.ROLES[role];
     const allowed = new Set(roleDef.nav);
     const showIf = (label) => allowed.has(label);
-    const navTo = (label) => { window.Router.go(NAV_ROUTES[label] || '/dashboard'); if (onClose) onClose(); };
+    const navTo = (label) => { window.Router.go(NAV_ROUTES[label] || '/dataimports'); if (onClose) onClose(); };
+
+    // "More tools" is collapsed by default so the sidebar stays focused on
+    // Data Imports / Reports — but it auto-expands whenever the active
+    // screen happens to live inside it (e.g. opened via a direct link or
+    // an in-app shortcut), so you're never looking at a collapsed section
+    // while sitting on one of its pages. The manual open/closed choice is
+    // remembered per-browser via localStorage.
+    const activeIsInMore = MORE_TOOLS_LABELS.has(active);
+    const [moreOpen, setMoreOpen] = useState(() => {
+      if (activeIsInMore) return true;
+      try { return localStorage.getItem(MORE_TOOLS_LS_KEY) === '1'; } catch (e) { return false; }
+    });
+    useEffect(() => { if (activeIsInMore) setMoreOpen(true); }, [activeIsInMore]);
+    const toggleMore = () => {
+      setMoreOpen((v) => {
+        const next = !v;
+        try { localStorage.setItem(MORE_TOOLS_LS_KEY, next ? '1' : '0'); } catch (e) {}
+        return next;
+      });
+    };
+
+    // Pinned daily-use items — always visible.
+    const reportingItems = [
+      showIf('Data Imports') && <SidebarItem key="di" icon={<IconDownload/>} label="Data Imports" active={active === 'Data Imports'} onClick={() => navTo('Data Imports')}/>,
+      showIf('Reports') && <SidebarItem key="r" icon={<IconFile/>} label="Reports" active={active === 'Reports'} onClick={() => navTo('Reports')}/>,
+    ].filter(Boolean);
 
     const planItems = [
       showIf('Dashboard') && <SidebarItem key="d" icon={<IconDashboard/>} label="Dashboard" active={active === 'Dashboard'} onClick={() => navTo('Dashboard')}/>,
@@ -116,11 +152,9 @@
       showIf('Reconciliations') && <SidebarItem key="rc" icon={<IconReconcile/>} label="Reconciliations" active={active === 'Reconciliations'} onClick={() => navTo('Reconciliations')}/>,
       showIf('Cash Flow') && <SidebarItem key="cf" icon={<IconTrend/>} label="Cash Flow" active={active === 'Cash Flow'} onClick={() => navTo('Cash Flow')}/>,
       showIf('Performance') && <SidebarItem key="p" icon={<IconChart/>} label="Performance & KPIs" active={active === 'Performance'} onClick={() => navTo('Performance')}/>,
-      showIf('Data Imports') && <SidebarItem key="di" icon={<IconDownload/>} label="Data Imports" active={active === 'Data Imports'} onClick={() => navTo('Data Imports')}/>,
     ].filter(Boolean);
 
     const insItems = [
-      showIf('Reports') && <SidebarItem key="r" icon={<IconFile/>} label="Reports" active={active === 'Reports'} onClick={() => navTo('Reports')}/>,
       showIf('Copilot') && <SidebarItem key="ai" icon={<IconCompass/>} label="AI Copilot" active={active === 'Copilot'} badge="AI" onClick={() => navTo('Copilot')}/>,
     ].filter(Boolean);
 
@@ -128,6 +162,8 @@
       showIf('Team & Access') && <SidebarItem key="ta" icon={<IconUsers/>} label="Team & Access" active={active === 'Team & Access'} onClick={() => navTo('Team & Access')}/>,
       showIf('Settings') && <SidebarItem key="s" icon={<IconSettings/>} label="Settings" active={active === 'Settings'} onClick={() => navTo('Settings')}/>,
     ].filter(Boolean);
+
+    const hasMoreItems = planItems.length > 0 || finItems.length > 0 || insItems.length > 0 || mgmtItems.length > 0;
 
     return (
       <>
@@ -138,7 +174,7 @@
           borderRight: '1px solid rgba(0,0,0,0.2)', flexShrink: 0,
         }}>
         <div style={{ padding: '20px 20px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <ApexFinWordmark onClick={() => navTo('Dashboard')} />
+          <ApexFinWordmark onClick={() => { window.Router.go('/dataimports'); if (onClose) onClose(); }} />
           <button className="coplan-sidebar-close" onClick={onClose} aria-label="Close menu" style={{
             width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)',
             color: '#fff', display: 'none', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
@@ -171,10 +207,34 @@
         </div>
 
         <div className="arsela-scroll" style={{ flex: 1, overflowY: 'auto', padding: '4px 0 20px' }}>
-          {planItems.length > 0 && <SidebarSection label="Plan">{planItems}</SidebarSection>}
-          {finItems.length > 0 && <SidebarSection label="Financials">{finItems}</SidebarSection>}
-          {insItems.length > 0 && <SidebarSection label="Analyse">{insItems}</SidebarSection>}
-          {mgmtItems.length > 0 && <SidebarSection label="Manage">{mgmtItems}</SidebarSection>}
+          {reportingItems.length > 0 && <SidebarSection label="Reporting">{reportingItems}</SidebarSection>}
+
+          {hasMoreItems && (
+            <div style={{ marginTop: 20 }}>
+              <div onClick={toggleMore} role="button" aria-expanded={moreOpen} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '0 22px 8px', cursor: 'pointer', userSelect: 'none',
+              }}>
+                <span style={{
+                  fontSize: 10.5, fontWeight: 700, letterSpacing: 1.6,
+                  color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase',
+                }}>More tools</span>
+                <IconChevronDown size={13} style={{
+                  color: 'rgba(255,255,255,0.4)',
+                  transform: moreOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform .15s',
+                }}/>
+              </div>
+              {moreOpen && (
+                <>
+                  {planItems.length > 0 && <SidebarSection label="Plan">{planItems}</SidebarSection>}
+                  {finItems.length > 0 && <SidebarSection label="Financials">{finItems}</SidebarSection>}
+                  {insItems.length > 0 && <SidebarSection label="Analyse">{insItems}</SidebarSection>}
+                  {mgmtItems.length > 0 && <SidebarSection label="Manage">{mgmtItems}</SidebarSection>}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         <div style={{ padding: 14, borderTop: '1px solid rgba(255,255,255,0.06)' }}>

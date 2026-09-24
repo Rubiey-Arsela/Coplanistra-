@@ -5,7 +5,7 @@
   const listeners = new Set();
 
   function parse() {
-    const raw = (location.hash || '#/dashboard').slice(1); // strip '#'
+    const raw = (location.hash || '#/dataimports').slice(1); // strip '#'
     const [path, query] = raw.split('?');
     const segments = path.split('/').filter(Boolean);
     const params = {};

@@ -30,7 +30,7 @@
         return;
       }
       setError('');
-      window.Router.go('/dashboard');
+      window.Router.go('/dataimports');
     };
 
     return (
