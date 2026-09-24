@@ -1,9 +1,49 @@
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/cloudflare-workers'
 
-const app = new Hono()
+type Bindings = {
+  DB: D1Database
+}
+
+const app = new Hono<{ Bindings: Bindings }>()
 
 app.use('/static/*', serveStatic({ root: './public' }))
+
+// ----------------------------------------------------------------
+// Central app-state API (Cloudflare D1) — replaces browser-only
+// localStorage as the source of truth so imported Xero data and
+// every other bit of app state is the SAME for every user, on every
+// device/browser, instead of being trapped in whichever single
+// browser happened to click "Import" (root cause of "I imported it
+// but it still says not imported" when checked from a different
+// browser/device). The frontend (store.js) now reads this on load
+// and writes to it on every state change, while ALSO still writing
+// to localStorage as an instant-response cache/offline fallback.
+// One shared row (id=1) — this app has no multi-tenant/per-user
+// state; every signed-in user already saw the same financial data.
+app.get('/api/state', async (c) => {
+  try {
+    const row = await c.env.DB.prepare('SELECT data FROM app_state WHERE id = 1').first<{ data: string }>()
+    if (!row) return c.json({ data: null })
+    return c.json({ data: JSON.parse(row.data) })
+  } catch (e: any) {
+    return c.json({ error: e?.message || 'Failed to load state' }, 500)
+  }
+})
+
+app.put('/api/state', async (c) => {
+  try {
+    const body = await c.req.json()
+    const json = JSON.stringify(body)
+    await c.env.DB.prepare(
+      `INSERT INTO app_state (id, data, updated_at) VALUES (1, ?, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+    ).bind(json).run()
+    return c.json({ ok: true })
+  } catch (e: any) {
+    return c.json({ error: e?.message || 'Failed to save state' }, 500)
+  }
+})
 
 const SCRIPTS = [
   '/static/js/store.js',

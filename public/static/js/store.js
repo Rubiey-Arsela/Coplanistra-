@@ -442,53 +442,63 @@
     copilotMessages: null, // per-screen default seeded lazily
   };
 
-  const persisted = loadPersisted();
-  const state = Object.assign({}, defaultState, persisted || {});
-  // Always trust the freshly-deployed seed user directory over anything
-  // that was persisted from an older build (e.g. the previous fictional
-  // seed list) so real company logins always work after a redeploy.
-  state.users = seedUsers;
-  // Never persist "open" UI transient state across reloads
-  state.notifOpen = false;
-  // Migration: the "executive" permission tier was merged into "employee"
-  // (they had near-identical scope and no real seeded account used
-  // executive). Any state persisted before this merge — a previewed role,
-  // or a user record with the old permissionRole — is normalised here so
-  // nothing gets stranded on a tier that no longer exists in roles.js.
-  if (state.role === 'executive') state.role = 'employee';
-  state.users = state.users.map((u) => u.permissionRole === 'executive' ? { ...u, permissionRole: 'employee' } : u);
-  // Backfill managed taxonomy / scenarios / currency for state persisted
-  // before these fields existed.
-  if (!state.departments) state.departments = seedDepartments;
-  if (!state.categories) state.categories = seedCategories;
-  if (!state.opexCategories) state.opexCategories = seedOpexCategories;
-  if (!state.budgetCodes) state.budgetCodes = seedBudgetCodes;
-  if (!state.scenarios) state.scenarios = seedScenarios;
-  if (!state.cashFlowScenarios) state.cashFlowScenarios = seedCashFlowScenarios;
-  if (!state.reconciliations) state.reconciliations = seedReconciliations;
-  if (!state.kpis) state.kpis = seedKpis;
-  if (!state.profitAndLoss) state.profitAndLoss = seedProfitAndLoss;
-  if (!state.balanceSheet) state.balanceSheet = seedBalanceSheet;
-  if (!state.cashFlowActuals) state.cashFlowActuals = seedCashFlowActuals;
-  if (!state.bankReconciliation) state.bankReconciliation = seedBankReconciliation;
-  if (!state.generalLedger) state.generalLedger = seedGeneralLedger;
-  if (!state.trialBalance) state.trialBalance = seedTrialBalance;
-  if (!state.agedReceivables) state.agedReceivables = seedAgedReceivables;
-  if (!state.agedPayables) state.agedPayables = seedAgedPayables;
-  if (!state.equityMovement) state.equityMovement = seedEquityMovement;
-  if (!state.executiveSummary) state.executiveSummary = seedExecutiveSummary;
-  if (!state.cashSummary) state.cashSummary = seedCashSummary;
-  if (!state.supportingDocuments) state.supportingDocuments = seedSupportingDocuments;
-  // Migrate any documents persisted before the 2026-09-22 versioning
-  // change (flat records) into the new { id, name, versions: [...] }
-  // shape so history/View/re-upload logic can assume versions[] always
-  // exists.
-  state.supportingDocuments = state.supportingDocuments.map(normalizeDocument);
-  if (!state.currency) state.currency = 'AUD';
-  // Force-correct the period label to the live current date on every
-  // load (Arsela's FY starts 1 Jul, so this always reflects today's
-  // real fiscal quarter rather than a stale persisted/hardcoded one).
-  state.period = fyQuarterLabel(APP_TODAY());
+  // Builds a fully-migrated state object from a raw persisted blob
+  // (either the browser's localStorage cache OR the shared record
+  // pulled from the central D1 database via /api/state — see the
+  // remote-sync block below). Extracted into its own function so the
+  // EXACT same migration/backfill/normalisation logic runs no matter
+  // which of those two sources supplied the raw data.
+  function buildState(persisted) {
+    const s = Object.assign({}, defaultState, persisted || {});
+    // Always trust the freshly-deployed seed user directory over anything
+    // that was persisted from an older build (e.g. the previous fictional
+    // seed list) so real company logins always work after a redeploy.
+    s.users = seedUsers;
+    // Never persist "open" UI transient state across reloads
+    s.notifOpen = false;
+    // Migration: the "executive" permission tier was merged into "employee"
+    // (they had near-identical scope and no real seeded account used
+    // executive). Any state persisted before this merge — a previewed role,
+    // or a user record with the old permissionRole — is normalised here so
+    // nothing gets stranded on a tier that no longer exists in roles.js.
+    if (s.role === 'executive') s.role = 'employee';
+    s.users = s.users.map((u) => u.permissionRole === 'executive' ? { ...u, permissionRole: 'employee' } : u);
+    // Backfill managed taxonomy / scenarios / currency for state persisted
+    // before these fields existed.
+    if (!s.departments) s.departments = seedDepartments;
+    if (!s.categories) s.categories = seedCategories;
+    if (!s.opexCategories) s.opexCategories = seedOpexCategories;
+    if (!s.budgetCodes) s.budgetCodes = seedBudgetCodes;
+    if (!s.scenarios) s.scenarios = seedScenarios;
+    if (!s.cashFlowScenarios) s.cashFlowScenarios = seedCashFlowScenarios;
+    if (!s.reconciliations) s.reconciliations = seedReconciliations;
+    if (!s.kpis) s.kpis = seedKpis;
+    if (!s.profitAndLoss) s.profitAndLoss = seedProfitAndLoss;
+    if (!s.balanceSheet) s.balanceSheet = seedBalanceSheet;
+    if (!s.cashFlowActuals) s.cashFlowActuals = seedCashFlowActuals;
+    if (!s.bankReconciliation) s.bankReconciliation = seedBankReconciliation;
+    if (!s.generalLedger) s.generalLedger = seedGeneralLedger;
+    if (!s.trialBalance) s.trialBalance = seedTrialBalance;
+    if (!s.agedReceivables) s.agedReceivables = seedAgedReceivables;
+    if (!s.agedPayables) s.agedPayables = seedAgedPayables;
+    if (!s.equityMovement) s.equityMovement = seedEquityMovement;
+    if (!s.executiveSummary) s.executiveSummary = seedExecutiveSummary;
+    if (!s.cashSummary) s.cashSummary = seedCashSummary;
+    if (!s.supportingDocuments) s.supportingDocuments = seedSupportingDocuments;
+    // Migrate any documents persisted before the 2026-09-22 versioning
+    // change (flat records) into the new { id, name, versions: [...] }
+    // shape so history/View/re-upload logic can assume versions[] always
+    // exists.
+    s.supportingDocuments = s.supportingDocuments.map(normalizeDocument);
+    if (!s.currency) s.currency = 'AUD';
+    // Force-correct the period label to the live current date on every
+    // load (Arsela's FY starts 1 Jul, so this always reflects today's
+    // real fiscal quarter rather than a stale persisted/hardcoded one).
+    s.period = fyQuarterLabel(APP_TODAY());
+    return s;
+  }
+
+  const state = buildState(loadPersisted());
 
   const listeners = new Set();
 
@@ -497,6 +507,85 @@
       const { toasts, notifOpen, ...rest } = state;
       localStorage.setItem(LS_KEY, JSON.stringify(rest));
     } catch (e) {}
+    schedulePushRemote();
+  }
+
+  // Fields deliberately kept OUT of the shared central record. This
+  // app has always let each browser sign in as a different real
+  // person independently (no session server) — the shared database
+  // is for the financial DATA (imports, budgets, expenses, etc, all
+  // already visible to every signed-in user regardless of who they
+  // are), not for who happens to be logged in on any one device.
+  // Without this exclusion, one person logging in/out on their laptop
+  // would silently log in/out everyone else's browser on next sync.
+  const AUTH_FIELDS = ['authenticated', 'currentUserEmail', 'role', 'toasts', 'notifOpen'];
+  function stripAuthFields(obj) {
+    const out = { ...obj };
+    AUTH_FIELDS.forEach((k) => { delete out[k]; });
+    return out;
+  }
+
+  // ----------------------------------------------------------
+  // Central-database sync (2026-09-24 fix — "make sure all data is
+  // correctly sync"). Root cause of imports appearing to vanish: this
+  // app previously wrote ONLY to the browser's own localStorage, so
+  // data imported in one browser/device was invisible in any other
+  // browser/device/incognito session, even on the exact same URL.
+  // Cloudflare D1 (via the /api/state routes in src/index.tsx) is now
+  // the shared source of truth; localStorage remains as an instant-
+  // load cache/offline fallback only, kept in sync with it.
+  //   - On startup: render immediately from the local cache (above),
+  //     then pullRemote() fetches the real shared record and re-
+  //     renders with it once it arrives (near-instant on a normal
+  //     connection; the local cache avoids a blank-screen flash).
+  //   - On every state change: pushRemoteDebounced() writes the full
+  //     state to D1 shortly after, coalesced so rapid edits don't
+  //     fire one request each.
+  // Every call is wrapped so a network hiccup never breaks the app —
+  // it just silently falls back to local-only behaviour for that one
+  // sync attempt and tries again on the next change/reload.
+  let pushTimer = null;
+  function schedulePushRemote() {
+    if (pushTimer) clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => { pushTimer = null; pushRemoteNow(); }, 500);
+  }
+  function pushRemoteNow() {
+    try {
+      fetch('/api/state', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stripAuthFields(state)),
+      }).catch(() => {});
+    } catch (e) {}
+  }
+  function pullRemote() {
+    fetch('/api/state').then((r) => r.json()).then(({ data }) => {
+      if (data) {
+        // The shared database has a real record — it is authoritative
+        // for financial/app DATA (imports, budgets, expenses, etc).
+        // Re-run the exact same migration pipeline on it, merge into
+        // the live `state` object IN PLACE (every closure below holds
+        // a reference to this same object, so it must be mutated, not
+        // replaced) while preserving THIS browser's own current login
+        // (see AUTH_FIELDS above), refresh the local cache to match,
+        // then notify every subscribed screen to re-render with the
+        // real data.
+        const authSnapshot = { authenticated: state.authenticated, currentUserEmail: state.currentUserEmail, role: state.role };
+        const merged = buildState(data);
+        Object.assign(state, merged, authSnapshot);
+        try {
+          const { toasts, notifOpen, ...rest } = state;
+          localStorage.setItem(LS_KEY, JSON.stringify(rest));
+        } catch (e) {}
+        emit();
+      } else {
+        // Nothing saved centrally yet (first-ever run) — bootstrap the
+        // shared database with whatever this browser currently has
+        // (seed/demo data, or a prior local-only import) so there is a
+        // record for every other browser/device to pull going forward.
+        pushRemoteNow();
+      }
+    }).catch(() => {});
   }
 
   function emit() {
@@ -1281,7 +1370,15 @@
     fyLabel,
     /** Fraction (0-1) of the CURRENT fiscal year elapsed, as of today's real date. */
     fyProgressPct: () => fyProgressPctOf(APP_TODAY()),
+    /** Manual re-pull from the shared central database — exposed so a
+     *  screen can offer a "Refresh" action without a full page reload. */
+    syncNow: pullRemote,
   };
 
   window.Store = Store;
+  // Kick off the very first pull from the shared central database as
+  // soon as the store module loads (see pullRemote() above for the
+  // full rationale) — fire-and-forget; the app has already rendered
+  // from the local cache by the time this resolves.
+  pullRemote();
 })();
