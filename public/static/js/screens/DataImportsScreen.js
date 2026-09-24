@@ -288,7 +288,26 @@
       // defaulting to Operating via guessSelect). Harmless to totals
       // (0 contributes nothing) but clutters the review checklist, so
       // skip them the same way Balance Sheet skips "Assets"/"Liabilities".
-      sectionHeaderMap: { 'operating activities': 'Operating', 'investing activities': 'Investing', 'financing activities': 'Financing' },
+      // "Cash and Cash Equivalents" is a FOURTH section header Xero prints
+      // after Financing Activities, holding roll-forward memo lines
+      // ("...at beginning of period" / "Net change in cash for period" /
+      // "...at end of period") \u2014 confirmed against the client's real
+      // Statement_of_Cash_Flows-2.xlsx export. It is deliberately mapped
+      // to its own non-activity bucket (not Operating/Investing/
+      // Financing) so deriveSectionOverrides' section-carry-forward
+      // logic stops tagging these rows with the PREVIOUS real section
+      // ("Financing") once it hits this header. Bug found 2026-09-24:
+      // without this entry, those 3 memo lines were silently absorbed
+      // into "Financing Activities" (the last section seen before this
+      // header), inflating netFinancingYTD by the entire opening bank
+      // balance for that month \\u2014 e.g. Sept 2026 showed A$71.8K of
+      // "shareholder financing" instead of the real A$35.1K, exactly
+      // the shareholder-funding-vs-trading-revenue split this report
+      // was built to get right. sectionFilter below excludes the whole
+      // bucket (the opening/closing bank figures already come from
+      // Bank Summary elsewhere in the report, so nothing is lost).
+      sectionHeaderMap: { 'operating activities': 'Operating', 'investing activities': 'Investing', 'financing activities': 'Financing', 'cash and cash equivalents': 'CashRollforward' },
+      sectionFilter: (section) => section === 'Operating' || section === 'Investing' || section === 'Financing',
       guessSelect: { activity: (row) => {
         // Section header ("Operating/Investing/Financing Activities")
         // already gave this row a reliable activity via sectionHeaderMap
@@ -1659,7 +1678,7 @@
           <SupportingDocumentsSection s={s}/>
         </div>
 
-        {importKey && <ImportReportModal reportKey={importKey} onClose={() => setImportKey(null)}/>}
+        {importKey && <ImportReportModal key={importKey} reportKey={importKey} onClose={() => setImportKey(null)}/>}
         {historyKey && <ReportHistoryModal reportKey={historyKey} onClose={() => setHistoryKey(null)}/>}
       </AppFrame>
     );
