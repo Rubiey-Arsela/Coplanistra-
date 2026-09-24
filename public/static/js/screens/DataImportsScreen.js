@@ -1092,6 +1092,21 @@
         setParsing(false);
         try {
           if (parsed.length < 2) { setError(`No data rows found in this ${fileKindLabel(file.name)}.`); setRows(null); return; }
+          // ---- Director feedback 2026-09-24, Item 2: the Period field
+          // used to always default to TODAY and stay there unless the
+          // user manually retyped it — the confirmed root cause of "the
+          // page is labelled September, but figures come from July".
+          // Every real Xero export prints its own true report date in
+          // the title block ("As at 31 July 2026" etc.) — read it
+          // straight off the raw file and use Xero's own wording as the
+          // period, so an unedited import is stamped with the file's
+          // ACTUAL date rather than the day it happened to be uploaded.
+          // Only overrides the field when a real title-block date is
+          // found; a bare CSV with no title block keeps the previous
+          // today's-date default (unchanged behaviour) so the field is
+          // never left blank.
+          const detectedPeriod = detectReportPeriodLabel(parsed);
+          if (detectedPeriod) setPeriod(detectedPeriod);
           // extractMeta (Bank Reconciliation only) reads recap-section
           // labelled amounts straight off the raw sheet and pre-fills
           // metaValues, so the "Xero bank balance"/"Bank statement

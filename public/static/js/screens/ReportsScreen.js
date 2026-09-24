@@ -338,6 +338,11 @@
      "Export CSV" uses the same exportRowsToCSV pattern as every other
      screen. This is a real, data-driven report, not a static template. ---- */
   const DirectorsReportScreen = ({ s, monthKey }) => {
+    // Holds { url, fileName } for the in-app Management Accounts PDF
+    // preview (see exportManagementAccountsPDF below) — null when no
+    // preview is open. The director must be able to view the report
+    // before it ever downloads to disk.
+    const [mgmtPdfPreview, setMgmtPdfPreview] = React.useState(null);
     // ---- Client ask (2026-09-21): "director report - should be able to
     // select by month". Every Xero-import-backed figure in this report
     // (the three questions, Xero control checks, ledger activity) is
@@ -966,7 +971,17 @@
        or open items, all three of which the client explicitly asked to
        see. The report-ending date is ALWAYS the month selected via the
        Task #11 month picker (monthLabel/monthKey) — never hardcoded. ---- */
-    const exportManagementAccountsPDF = () => {
+    // ---- Director feedback (2026-09-24, client ask): "make sure I CAN
+    // VIEW MANAGEMENT ACCOUNT BEFORE DOWNLOAD" — exportManagementAccountsPDF
+    // used to call doc.save() directly, which forces an immediate file
+    // download with no way to check the report first. mode='preview'
+    // (the button's new default) builds the exact same 7-page PDF but
+    // renders it in an in-app modal (via doc.output('bloburl') in an
+    // <iframe>) with an explicit "Download PDF" action in the footer;
+    // mode='download' (used by that footer button) keeps the original
+    // one-step doc.save() behaviour. Nothing about the PDF CONTENT
+    // changes between the two modes — same jsPDF doc either way.
+    const exportManagementAccountsPDF = (mode = 'preview') => {
       if (!window.jspdf) { window.Store.toast('PDF library still loading — try again in a moment', 'warning'); return; }
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ unit: 'pt', format: 'a4' });
@@ -1342,8 +1357,17 @@
       });
       pageFooter(7);
 
-      doc.save(`${COMPANY_NAME.replace(/[^A-Za-z0-9]+/g, '-')}-Management-Accounts-${monthLabel.replace(/\s+/g, '-')}.pdf`);
-      window.Store.toast('7-page Management Accounts PDF exported', 'success');
+      const pdfFileName = `${COMPANY_NAME.replace(/[^A-Za-z0-9]+/g, '-')}-Management-Accounts-${monthLabel.replace(/\s+/g, '-')}.pdf`;
+      if (mode === 'download') {
+        doc.save(pdfFileName);
+        window.Store.toast('7-page Management Accounts PDF exported', 'success');
+      } else {
+        // Preview mode: show the rendered PDF in-app first — the
+        // director must be able to review every page before a file
+        // ever hits their downloads folder.
+        const blobUrl = doc.output('bloburl');
+        setMgmtPdfPreview({ url: blobUrl, fileName: pdfFileName });
+      }
     };
 
     return (
@@ -1356,7 +1380,7 @@
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={exportCSV}>Export CSV</ArsButton>
             <ArsButton variant="secondary" size="md" icon={<IconExport size={15}/>} onClick={exportPDF}>Export PDF (summary)</ArsButton>
-            <ArsButton size="md" icon={<IconFile size={15}/>} onClick={exportManagementAccountsPDF}>Management Accounts PDF</ArsButton>
+            <ArsButton size="md" icon={<IconFile size={15}/>} onClick={() => exportManagementAccountsPDF('preview')}>Management Accounts PDF</ArsButton>
           </div>
         </div>
 
@@ -1881,6 +1905,34 @@
             </div>
           </ArsCard>
         </div>
+
+        {/* Management Accounts PDF preview modal (director ask,
+            2026-09-24: "make sure I CAN VIEW MANAGEMENT ACCOUNT BEFORE
+            DOWNLOAD") — renders the exact same 7-page PDF in an iframe
+            so it can be reviewed before it ever touches disk; the
+            footer's Download button is the only thing that actually
+            calls doc.save(). */}
+        <ArsModal
+          open={!!mgmtPdfPreview}
+          onClose={() => setMgmtPdfPreview(null)}
+          title="Management Accounts — preview"
+          subtitle={mgmtPdfPreview ? mgmtPdfPreview.fileName : ''}
+          width={880}
+          footer={
+            <>
+              <ArsButton variant="secondary" onClick={() => setMgmtPdfPreview(null)}>Close without downloading</ArsButton>
+              <ArsButton icon={<IconExport size={15}/>} onClick={() => exportManagementAccountsPDF('download')}>Download PDF</ArsButton>
+            </>
+          }
+        >
+          {mgmtPdfPreview && (
+            <iframe
+              src={mgmtPdfPreview.url}
+              title="Management Accounts PDF preview"
+              style={{ width: '100%', height: '70vh', border: '1px solid var(--arsela-border)', borderRadius: 8 }}
+            />
+          )}
+        </ArsModal>
       </div>
     );
   };

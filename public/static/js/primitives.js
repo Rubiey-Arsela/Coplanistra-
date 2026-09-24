@@ -746,6 +746,48 @@ function detectPeriodColumns(headerRow) {
   return out;
 }
 
+/* ---- Director feedback 2026-09-24, Item 2 ("The page is labelled
+   September, but figures come from July or August... Put an 'as at'
+   date beside every figure. Do not show old figures as September
+   results."). Root cause traced to the IMPORT step, not just display:
+   the "Period" field in ImportReportModal always defaulted to TODAY's
+   date (see defaultPeriodFor in DataImportsScreen.js) — every Xero
+   export actually PRINTS its own true report date/period as plain
+   text in the title block (row 0-3, e.g. "As at 31 July 2026" /
+   "For the period 1 July 2026 to 25 August 2026" / "For the month
+   ended 30 September 2026"), confirmed across every real client file
+   in this project. If the user forgot to manually retype the period
+   field to match, a July Balance Sheet imported today would silently
+   get stamped "24 September 2026" — exactly the bug the director
+   flagged. detectReportPeriodLabel scans the first few raw rows
+   (before the real header) for one of these three literal Xero title
+   phrasings and returns Xero's own wording verbatim as the period
+   label, so the import defaults to the file's TRUE date instead of
+   today's date. Returns null (falls back to today, unchanged
+   behaviour) if no recognisable title phrase is found — e.g. a bare
+   CSV export with no title block at all. */
+function detectReportPeriodLabel(parsedRows) {
+  const scanLimit = Math.min((parsedRows || []).length, 8);
+  for (let i = 0; i < scanLimit; i++) {
+    const row = parsedRows[i] || [];
+    for (const cell of row) {
+      const s = String(cell == null ? '' : cell).trim();
+      if (!s) continue;
+      // "As at 31 July 2026" / "As at 25 August 2026"
+      let m = s.match(/^as\s+at\s+(.+)$/i);
+      if (m) return m[0];
+      // "For the period 1 July 2026 to 25 August 2026"
+      m = s.match(/^for\s+the\s+period\s+(.+)$/i);
+      if (m) return m[0].replace(/^for\s+the\s+period\s+/i, '');
+      // "For the month ended 30 September 2026" / "For the 3 months
+      // ended 30 September 2026"
+      m = s.match(/^for\s+the\s+(?:\d+\s+months?|month)\s+ended\s+(.+)$/i);
+      if (m) return m[0].replace(/^for\s+the\s+(?:\d+\s+months?|month)\s+ended\s+/i, (x) => '') || m[1];
+    }
+  }
+  return null;
+}
+
 /* Xero's "Reconciliation Reports" pack export (and, separately, the
    standalone Bank Reconciliation export) are multi-sheet workbooks
    where the one sheet relevant to the report type currently being
